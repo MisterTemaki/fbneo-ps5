@@ -69,7 +69,7 @@ enum class FrameResult
 // One frame: the pads and hot keys, the core's frame, the picture (and the messages) on the screen, the sound to
 // the audio ring. Games at 58.5..61.5 Hz run at the display's 60 Hz (vsync paces them, the sound is resampled to
 // match); the others are paced by the sound. Hot keys: L2 + Up / Down = save / load the state slot, L2 + Left /
-// Right = change the slot, R2 held = fast forward, L2 + R2 held = rewind, L2 + OPTIONS = service, L2 + touchpad =
+// Right = change the slot, R2 held = fast forward, L2 + OPTIONS = service, L2 + touchpad =
 // test (the machine's service menu).
 FrameResult RunFrame();
 

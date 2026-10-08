@@ -180,9 +180,9 @@ expect "$CHECK $T/dump/flip00130.ppm 960 540 red >/dev/null && $CHECK $T/dump/fl
 # the settings screen: Button 1 row Right -> the layout becomes custom
 T=$(newroot t6c)
 addset ponpoko "$T/root/roms"
-# Shader, then Down x11 to "Button 1" (Screen size, Aspect, Smooth, Scanlines, FPS, Sound, Volume, FF, Rewind, High scores, Button layout, Button 1)
+# Shader, then Down x11 to "Button 1" (Screen size, Aspect, Smooth, Scanlines, FPS, Sound, Volume, FF, High scores, Button layout, Button 1)
 P="0:0;30:$TRIANGLE;32:0"; t=40
-for i in $(seq 1 12); do P="$P;$t:$DOWN;$((t + 2)):0"; t=$((t + 6)); done
+for i in $(seq 1 11); do P="$P;$t:$DOWN;$((t + 2)):0"; t=$((t + 6)); done
 P="$P;$t:$RIGHT;$((t + 2)):0;$((t + 10)):$CIRCLE;$((t + 12)):0;$(SHELFQUIT_AT $((t + 30)))"
 rc=$(run "$T" "$P" "")
 expect "grep -q '^layout=3$' $T/root/fbneo-ps5.ini && grep -q '^btn_1=1$' $T/root/fbneo-ps5.ini && grep -q '^btn_2=1$' $T/root/fbneo-ps5.ini" "the settings screen made a custom layout from the classic one (button 1: Cross -> Circle)"
@@ -349,14 +349,14 @@ done
 fi
 
 if want 13; then
-echo "== 13. settings from the shelf (Triangle); fast forward (R2) and rewind (L2 + R2); the pause menu saves a state"
+echo "== 13. settings from the shelf (Triangle); fast forward (R2), L2 + R2 does nothing (no rewind); the pause menu saves a state"
 T=$(newroot t13)
 addset ponpoko "$T/root/roms"
 rc=$(FBNEO_HOST_REALTIME=1 run "$T" "0:0;30:$TRIANGLE;32:0;36:$DOWN;38:0;40:$RIGHT;42:0;50:$CIRCLE;52:0;70:$CROSS;72:0;150:$R2;250:0;300:$L2R2;340:0;360:$L3R3;362:0;370:$DOWN;372:0;380:$CROSS;382:0;400:$CIRCLE;402:0;$(QUITAT 440)" "45")
 expect "[ $rc = 0 ]" "exit code 0 (got $rc)"
 expect "grep -q '^scale=1$' $T/root/fbneo-ps5.ini" "the settings screen changed the screen size"
 expect "grep -q 'fast forward on' $T/root/logs/boot.log && grep -q 'fast forward off' $T/root/logs/boot.log" "R2 held: fast forward"
-expect "grep -q 'rewind on' $T/root/logs/boot.log && grep -q 'rewind off' $T/root/logs/boot.log" "L2 + R2 held: rewind"
+expect "! grep -qi 'rewind' $T/root/logs/boot.log && ! grep -qi 'rewind' $T/root/fbneo-ps5.ini" "no rewind: L2 + R2 does nothing, and the setting is gone"
 expect "[ -f '$T/root/states/ponpoko.state1' ]" "the pause menu's Save state wrote slot 1"
 nosan "$T"
 fi
@@ -611,13 +611,9 @@ for g in cabal cobracom; do
 	lit=$(echo "$o" | sed -n 's/.* lit \([0-9]*\).*/\1/p')
 	expect "[ $rc = 0 ] && [ \"\${lit:-0}\" -gt 0 ]" "$g: the palette is made at start (${lit:-0} pixels lit, 0 = black screen)"
 done
-# the rewind's snapshots: CPS-3's state is 10 MB; compressing it every 3 frames on the game's thread made Street
-# Fighter III crawl. The game's thread only copies it now (the compression runs on another thread).
+# CPS-3 (the heaviest state): a frame and a save state, timed
 o=$("$HEADLESS" bench "$SETS/sfiii3" sfiii3 60 2>"$WORK/h21-bench.err"); rc=$?
-snap=$(echo "$o" | sed -n 's/.*snapshot \([0-9.]*\) ms (copy \([0-9.]*\) ms.*/\1 \2/p')
-snap_all=${snap% *}; snap_copy=${snap#* }
-differs=$(echo "$o" | grep -c DIFFERS)
-expect "[ $rc = 0 ] && [ -n \"$snap\" ] && [ $differs = 0 ] && awk 'BEGIN{exit !($snap_copy * 5 < $snap_all)}'" "sfiii3: the game's thread only copies the state ($(echo "$o" | tail -1))"
+expect "[ $rc = 0 ] && echo \"$o\" | grep -q 'save state'" "sfiii3: $(echo "$o" | tail -1)"
 # the DIP switches are in the driver before it starts (the Neo Geo loads the BIOS they name as it starts)
 for g in mslug cabal; do
 	mkset $g

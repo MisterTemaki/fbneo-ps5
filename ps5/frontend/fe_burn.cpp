@@ -1405,45 +1405,6 @@ bool StateToMemory(std::vector<uint8_t>* out)
 	return Pack(kMagicState, s, out);
 }
 
-bool StateToRaw(std::vector<uint8_t>* raw)
-{
-	if (!g.loaded)
-		return false;
-	// PackRaw's layout, built in place (raw keeps its capacity from the last snapshot: no 10 MB allocation, one copy):
-	// the areas' lengths first, then the header, then the areas appended straight after it
-	Scan lens;
-	DoScan(ACB_FULLSCAN | ACB_READ, LenAcb, &lens);
-	size_t total = 0;
-	for (uint32_t l : lens.lens)
-		total += l;
-	Scan s;
-	s.data.swap(*raw);
-	s.data.clear();
-	s.data.reserve(32 + 8 + 4 * lens.lens.size() + total);
-	char set[32] = {};
-	strncpy(set, g.cur.name.c_str(), sizeof(set) - 1);
-	s.data.insert(s.data.end(), set, set + sizeof(set));
-	Put32(&s.data, nCurrentFrame);
-	Put32(&s.data, uint32_t(lens.lens.size()));
-	for (uint32_t l : lens.lens)
-		Put32(&s.data, l);
-	DoScan(ACB_FULLSCAN | ACB_READ, ReadAcb, &s);
-	raw->swap(s.data);
-	if (s.lens != lens.lens)
-	{
-		// the areas changed between the two scans (no driver does that): the plain way
-		Scan again;
-		DoScan(ACB_FULLSCAN | ACB_READ, ReadAcb, &again);
-		PackRaw(again, raw);
-	}
-	return true;
-}
-
-bool CompressState(const std::vector<uint8_t>& raw, std::vector<uint8_t>* out)
-{
-	return Compress(kMagicState, raw, out);
-}
-
 bool StateFromMemory(const std::vector<uint8_t>& in)
 {
 	if (!g.loaded)

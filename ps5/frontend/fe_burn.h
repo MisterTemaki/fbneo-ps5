@@ -120,12 +120,8 @@ void Reset(); // the machine's reset (the driver's own)
 // States: the driver's whole state (BurnAreaScan), gzip-compressed, with the set's name and the layout checked on load.
 bool SaveState(const std::string& path);
 bool LoadState(const std::string& path, std::string* error);
-// The same in memory (rewind).
+// The same in memory.
 bool StateToMemory(std::vector<uint8_t>* out);
-// StateToMemory in two steps, for the rewind: the copy (fast, on the game's thread) and its compression (slow for a
-// big state -- CPS-3's is 10 MB --, and safe on any thread); CompressState's result is what StateFromMemory reads.
-bool StateToRaw(std::vector<uint8_t>* raw);
-bool CompressState(const std::vector<uint8_t>& raw, std::vector<uint8_t>* out);
 bool StateFromMemory(const std::vector<uint8_t>& in);
 // NVRAM / memory card areas (ACB_NVRAM): read at load, written by SaveNvram (and Unload) when they changed.
 bool SaveNvram(bool force);

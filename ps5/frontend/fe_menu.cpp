@@ -209,7 +209,6 @@ enum SettingRow
 	S_VOLUME,
 	H_EMU,
 	S_FF,
-	S_REWIND,
 	S_HISCORES,
 	H_CONTROLS,
 	S_LAYOUT,
@@ -256,7 +255,6 @@ Row SettingRowFor(int s)
 				return {"Fast forward speed (hold R2)", "Unlimited"};
 			snprintf(buf, sizeof(buf), "%d%%", c.ff_speed);
 			return {"Fast forward speed (hold R2)", buf};
-		case S_REWIND: return {"Rewind (hold L2 + R2)", OnOff(c.rewind)};
 		case S_HISCORES: return {"Save high scores (hiscore.dat)", OnOff(c.hiscores)};
 		case H_CONTROLS: return {"CONTROLS (arcade button  ->  PS5 button)", "", true, true};
 		case S_LAYOUT: return {"Button layout", emu::kLayouts[c.layout % emu::kLayoutCount].name};
@@ -308,7 +306,6 @@ void ChangeSetting(int s, int dir)
 			c.ff_speed = kFfSteps[Cycle(i, dir, kFfCount)];
 			break;
 		}
-		case S_REWIND: c.rewind = !c.rewind; break;
 		case S_HISCORES: c.hiscores = !c.hiscores; break;
 		case S_LAYOUT: c.layout = Cycle(c.layout, dir, emu::kLayoutCount); break;
 		case S_COVERS: c.covers_download = !c.covers_download; break;
