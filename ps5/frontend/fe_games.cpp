@@ -124,6 +124,11 @@ std::string CachePath()
 	return OrbisDir("config") + "/romcheck.txt";
 }
 
+std::string Header()
+{
+	return "# FBNeo " + burn::CoreVersion() + ", " + std::to_string(burn::DriverCount()) + " drivers\n";
+}
+
 struct CheckCache
 {
 	std::unordered_map<std::string, std::pair<std::string, int>> entries; // set -> (signature, missing)
@@ -135,6 +140,14 @@ struct CheckCache
 		if (!f)
 			return;
 		char line[2048];
+		// the check holds for the FBNeo it was made with: another version's drivers may list other ROMs
+		const std::string want = Header();
+		if (!fgets(line, sizeof(line), f) || want != line)
+		{
+			fclose(f);
+			OrbisLog("[games] romcheck.txt is from another FBNeo: every set is checked again");
+			return;
+		}
 		while (fgets(line, sizeof(line), f))
 		{
 			std::string s = line;
@@ -157,7 +170,7 @@ struct CheckCache
 		FILE* f = fopen(tmp.c_str(), "w");
 		if (!f)
 			return;
-		bool ok = true;
+		bool ok = fputs(Header().c_str(), f) >= 0;
 		for (const auto& e : entries)
 			ok = fprintf(f, "%s\t%s\t%d\n", e.first.c_str(), e.second.first.c_str(), e.second.second) > 0 && ok;
 		ok = fflush(f) == 0 && ok;
@@ -252,29 +265,32 @@ std::vector<GameInfo> ScanGames()
 	CheckCache cache;
 	cache.Load();
 	std::vector<GameInfo> games;
-	int unknown = 0, bios = 0, checked = 0;
-	for (const auto& z : found)
-	{
-		auto it = by_name.find(z.first);
-		if (it == by_name.end())
-		{
-			unknown++;
-			continue;
-		}
-		const burn::Driver& d = drivers[size_t(it->second)];
-		if (!d.arcade)
-			continue;
-		if (d.bios || boards.count(d.name))
-		{
-			bios++;
-			continue;
-		}
+	int unknown = 0, bios = 0, checked = 0, merged = 0, merged_checked = 0;
+	// Missing ROMs of a driver: from the cache while its zips are unchanged, else counted now. A clone looked for in
+	// its parent's zip (counter == &merged_checked) also counts the ROMs found only by name: a parent's ROM of the same
+	// name isn't the clone's
+	auto missing_of = [&](const burn::Driver& d, int* counter) {
+		const std::string sig = Signature(d, drivers, by_name);
+		auto c = cache.entries.find(d.name);
+		if (c != cache.entries.end() && c->second.first == sig)
+			return c->second.second;
+		const burn::RomCheck rc = burn::CheckRoms(d.index, [](const std::string& set) { return FindSetZip(set); });
+		const int n = int(rc.missing.size() + (counter == &merged_checked ? rc.bad_crc.size() : 0));
+		cache.entries[d.name] = {sig, n};
+		cache.dirty = true;
+		(*counter)++;
+		if (n && counter == &checked)
+			OrbisLog("[games] %s: %d ROM(s) missing, first %s", d.name.c_str(), n, rc.missing[0].c_str());
+		return n;
+	};
+	auto add = [&](const burn::Driver& d, const std::string& path, bool usb, int missing) {
 		GameInfo g;
-		g.path = z.second.path;
+		g.path = path;
 		g.file_base = d.name;
 		g.ext = ".zip";
 		g.nointro = d.title;
 		SplitName(d.title, &g.title, &g.region);
+		g.parent = d.parent;
 		if (!d.parent.empty())
 		{
 			auto pt = by_name.find(d.parent);
@@ -286,26 +302,47 @@ std::vector<GameInfo> ScanGames()
 		g.board = d.system;
 		g.family = FamilyOf(d.hardware);
 		g.driver = d.index;
-		g.on_usb = z.second.usb;
+		g.on_usb = usb;
 		g.clone = d.clone;
 		g.vertical = d.vertical;
 		g.working = d.working;
-		const std::string sig = Signature(d, drivers, by_name);
-		auto c = cache.entries.find(d.name);
-		if (c != cache.entries.end() && c->second.first == sig)
-			g.missing = c->second.second;
-		else
-		{
-			const burn::RomCheck rc = burn::CheckRoms(d.index, [](const std::string& set) { return FindSetZip(set); });
-			g.missing = int(rc.missing.size());
-			cache.entries[d.name] = {sig, g.missing};
-			cache.dirty = true;
-			checked++;
-			if (g.missing)
-				OrbisLog("[games] %s: %d ROM(s) missing, first %s", d.name.c_str(), g.missing, rc.missing[0].c_str());
-		}
-		g.complete = g.missing == 0;
+		g.missing = missing;
+		g.complete = missing == 0;
 		games.push_back(std::move(g));
+	};
+	auto is_game = [&](const burn::Driver& d) { return d.arcade && !d.bios && !boards.count(d.name); };
+	for (const auto& z : found)
+	{
+		auto it = by_name.find(z.first);
+		if (it == by_name.end())
+		{
+			unknown++;
+			continue;
+		}
+		const burn::Driver& d = drivers[size_t(it->second)];
+		if (!d.arcade)
+			continue;
+		if (!is_game(d))
+		{
+			bios++;
+			continue;
+		}
+		add(d, z.second.path, z.second.usb, missing_of(d, &checked));
+	}
+	// Clones kept inside their parent's zip (merged sets, as FBNeo's own frontends read them): a clone with no zip of
+	// its own whose parent's zip is here is listed as "<parent zip>#<clone>" when all its ROMs are found
+	for (const burn::Driver& d : drivers)
+	{
+		if (!d.clone || d.parent.empty() || !is_game(d) || found.count(Lower(d.name)))
+			continue;
+		auto pz = found.find(Lower(d.parent));
+		if (pz == found.end())
+			continue;
+		if (missing_of(d, &merged_checked) == 0)
+		{
+			add(d, pz->second.path + "#" + d.name, pz->second.usb, 0);
+			merged++;
+		}
 	}
 	cache.Save();
 
@@ -320,8 +357,9 @@ std::vector<GameInfo> ScanGames()
 	int complete = 0;
 	for (const GameInfo& g : games)
 		complete += g.complete ? 1 : 0;
-	OrbisLog("[games] %zu zip(s): %zu arcade set(s) (%d complete, %d checked now), %d BIOS set(s), %d not FBNeo's",
-		found.size(), games.size(), complete, checked, bios, unknown);
+	OrbisLog("[games] %zu zip(s): %zu arcade set(s) (%d complete, %d checked now), %d BIOS set(s), %d not FBNeo's; "
+		"%d clone(s) in a parent's zip (%d checked now)", found.size(), games.size(), complete, checked, bios, unknown, merged,
+		merged_checked);
 	constexpr size_t kLogged = 200;
 	for (size_t i = 0; i < games.size() && i < kLogged; i++)
 	{

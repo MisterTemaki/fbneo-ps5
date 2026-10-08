@@ -4,6 +4,9 @@
 //   fbneo_headless roms <set>                   the set's ROMs: index, name, length, CRC, type
 //   fbneo_headless nvram <rom dir> <set>          fills the set's NVRAM areas with 0x5a, unloads (fe_burn writes
 //       <saves>/<set>.nvram), loads the set again and checks that the areas hold 0x5a
+//   fbneo_headless dips <rom dir> <set>           moves the DIP switches off their defaults (a group named like an earlier
+//       one stays as it is), saves them (SaveDips), loads the set again, reads them back (LoadDips) and checks that each
+//       group has its setting back
 //   fbneo_headless run <rom dir> <set> <frames> [out.ppm] [--state] [--dips] [--press N]
 //       runs the set for N frames (no input but coin+start pressed at frames 60 and 90 and fire 1 every 8 frames
 //       after 120), writes the last picture as a PPM, prints the picture size, the sound's level and a picture
@@ -164,6 +167,55 @@ int main(int argc, char** argv)
 		burn::Unload();
 		burn::Exit();
 		return all && bytes ? 0 : 6;
+	}
+	if (cmd == "dips" && argc > 3)
+	{
+		const std::string dir = argv[2];
+		const int drv = burn::FindDriver(argv[3]);
+		auto find = [&](const std::string& set) {
+			const std::string p = dir + "/" + set + ".zip";
+			struct stat st = {};
+			return stat(p.c_str(), &st) == 0 ? p : std::string();
+		};
+		std::string error;
+		if (drv < 0 || !burn::Load(drv, find, &error))
+			return 3;
+		const std::string path = scratch + "/" + argv[3] + ".dip";
+		std::vector<int> want;
+		int changed = 0, repeated = 0;
+		std::vector<burn::DipGroup> dips = burn::Dips();
+		for (size_t i = 0; i < dips.size(); i++)
+		{
+			bool again = false;
+			for (size_t j = 0; j < i && !again; j++)
+				again = dips[j].name == dips[i].name;
+			repeated += again ? 1 : 0;
+			// a group whose name came before keeps its default: the first one's setting mustn't spill onto it
+			if (!again && dips[i].options.size() > 1)
+			{
+				burn::SetDip(int(i), (dips[i].def + 1) % int(dips[i].options.size()));
+				changed++;
+			}
+		}
+		for (const burn::DipGroup& d : burn::Dips())
+			want.push_back(d.current);
+		const bool saved = burn::SaveDips(path);
+		burn::Unload();
+		if (!burn::Load(drv, find, &error))
+			return 3;
+		bool same = burn::LoadDips(path);
+		dips = burn::Dips();
+		for (size_t i = 0; i < dips.size() && i < want.size(); i++)
+			if (dips[i].current != want[i])
+			{
+				printf("group %zu (%s): %d, saved %d\n", i, dips[i].name.c_str(), dips[i].current, want[i]);
+				same = false;
+			}
+		printf("dips %zu group(s), %d repeated name(s), %d changed, saved %s, read back: %s\n", dips.size(), repeated, changed,
+			saved ? "ok" : "FAILED", same && saved && dips.size() == want.size() ? "same" : "DIFFERENT");
+		burn::Unload();
+		burn::Exit();
+		return same && saved ? 0 : 6;
 	}
 	if (cmd == "run" && argc > 4)
 	{

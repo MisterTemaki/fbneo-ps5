@@ -31,6 +31,7 @@
 #include <functional>
 #include <mutex>
 #include <thread>
+#include <unordered_set>
 #include <vector>
 
 #ifndef FBNEO_PS5_VERSION
@@ -639,9 +640,15 @@ std::vector<GameInfo> InLetter(const std::vector<GameInfo>& games, char letter)
 std::vector<GameInfo> Visible(const std::vector<GameInfo>& scanned)
 {
 	const Settings& cfg = Config();
+	auto shown = [&](const GameInfo& g) { return g.complete || cfg.show_incomplete; };
+	// with clones hidden a clone still shows when its parent doesn't (only the clone's ROMs are here, say)
+	std::unordered_set<std::string> parents;
+	for (const GameInfo& g : scanned)
+		if (!g.clone && shown(g))
+			parents.insert(g.file_base);
 	std::vector<GameInfo> out;
 	for (const GameInfo& g : scanned)
-		if ((g.complete || cfg.show_incomplete) && (!g.clone || cfg.show_clones))
+		if (shown(g) && (!g.clone || cfg.show_clones || !parents.count(g.parent)))
 			out.push_back(g);
 	return out;
 }

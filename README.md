@@ -31,7 +31,7 @@ make (the driver list, Musashi's 68000 core, the CPS, Neo Geo, Cave, Psikyo, Toa
 frontends (`src/burner`) and its libretro port host the core: ROM loading from the sets' zips, inputs, DIP
 switches, states, NVRAM, the picture turned the right way up and the sound.
 
-> **Status (1.0):** builds with the ps5-payload-dev SDK into a signed native app, and passes 190 host tests, which
+> **Status (1.0):** builds with the ps5-payload-dev SDK into a signed native app, and passes 205 host tests, which
 > run the same code (FBNeo's core included) on Linux with the PS5 calls simulated: two arcade boards running a tiny
 > test program each (a vertical and a horizontal game) are played through the whole chain -- the shelf, the pad,
 > the core, the video and sound output -- and 26 more boards start, run, save and load a state under
@@ -114,8 +114,9 @@ names. As in every FBNeo build:
 - **One zip per set, named as FBNeo names it:** `sf2ce.zip`, `mslug.zip`, `pacman.zip`. The name is how the game
   is recognised; a renamed zip is not.
 - **Clones need their parent:** `sf2ce.zip` (a clone) loads what it shares with `sf2.zip` from there, so put the
-  parent next to it (anywhere in the ROM folders). A merged set (clones inside the parent's zip) works for the
-  parent; the clones need their own zip.
+  parent next to it (anywhere in the ROM folders). Merged sets (the clones inside the parent's zip, as
+  ClrMamePro's "merged" option makes them) work too: a clone with no zip of its own is listed when all of its ROMs
+  are in its parent's zip with the right CRC (`boot.log`: `<parent>.zip#<clone>`).
 - **BIOS sets:** the games of a board with a BIOS need the BIOS set too, anywhere in the ROM folders:
 
   | Games | BIOS set |
@@ -136,7 +137,8 @@ names. As in every FBNeo build:
 
 **Checked before they are listed:** at each start the shelf checks every set it finds the way FBNeo loads it,
 and lists only the complete ones. The result is kept in `/data/fbneo/config/romcheck.txt` and a set is checked
-again only when one of its zips changes, so later starts are quick. A set with ROMs missing is hidden unless
+again only when one of its zips changes (or after an update to another FBNeo version), so later starts are quick.
+The first start with a large merged collection takes longer: each clone is looked for in its parent's zip once. A set with ROMs missing is hidden unless
 Settings, **Show incomplete sets**, is on; starting it then names the missing ROMs on the screen. `boot.log` lists
 every set found (`[games] ... -> "<name>"`) and the ROMs a set is missing (`[games] <set>: N ROM(s) missing, first
 <rom>`).
@@ -196,7 +198,7 @@ wordmark: **github.com/MisterTemaki**.
   games (the letter is kept when the maker has games under it, else the nearest one). The shelf remembers the
   maker and the letter (and starts on the last game played).
 - **Clones:** the other versions of a game (other regions, revisions, bootlegs) are listed after it; Settings,
-  **Show clones**, hides them.
+  **Show clones**, hides them (a clone still shows when its parent isn't listed, so no game disappears).
 - **Automatic covers, the PS5SX2 way:** the art comes from libretro-thumbnails' **FBNeo - Arcade Games** collection
   over HTTPS, with the console's own `libSceHttp2`/`libSceSsl`, in a **prefetch** step as the app opens, before
   it asks for `/data` (30 s budget), exactly as PS5SX2 does. For each game, in order: its flyer (`Named_Boxarts`),
@@ -417,7 +419,7 @@ make ps5 -j$(nproc)              # build/ps5/FBNeoPS5.elf (installer + helper, w
 make send PS5_HOST=192.168.0.10  # sends it to elfldr (port 9021)
 make dist                        # build/dist/FBNeoPS5-v<version>.elf
 make app                         # only build/app/PPSA99012/, to copy by hand
-make test                        # Linux builds (app, installer, helper, headless core) + 190 host tests (ASan/UBSan)
+make test                        # Linux builds (app, installer, helper, headless core) + 205 host tests (ASan/UBSan)
 ```
 
 The first build compiles FBNeo's 1,039 core files (about 15 minutes on 2 cores; `make core-ps5` builds just those).
@@ -463,16 +465,18 @@ The build has three stages:
   PS5_Vulkan (mihawk-99): `ps5-native-tool`, `app_crt.cpp`, `ps5-pie.ld`, `libc_builder.cpp` and its manifests.
 - **`ps5/app/sce_sys/`**: param.json, icon and backgrounds; `ps5/tools/make_art.py` encodes the background.
 - **`ps5/host/`** and **`ps5/tests/`**: the PS5 functions implemented on Linux (`sce_host.cpp`), the core alone
-  on Linux (`fbneo_headless.cpp`: the drivers, a set's ROMs, a run with a state saved and loaded back, NVRAM), the
+  on Linux (`fbneo_headless.cpp`: the drivers, a set's ROMs, a run with a state saved and loaded back, NVRAM,
+  DIP switches saved and read back), the
   stand-in ROM sets (`make_fake_set.py`: every ROM a driver lists, with its name and its CRC, as FBNeo's split
   sets are made), the test programs (`tests/data`: a tiny Z80 program on the Pac-Man board, red screen, green
-  while the joystick or the button is pressed), and the 190 tests: picture, rotation, input and states on a
+  while the joystick or the button is pressed), and the 205 tests: picture, rotation, input and states on a
   vertical and a horizontal game, the library (parents, BIOS sets, incomplete sets, the check's cache), a set with
   a ROM missing, DIP switches, button layouts, sound latency and pacing by the sound, 720p, install (packed
   files), covers (flyer, parent's flyer, screenshot, 404), tabs and clones, the CRT shaders (each one, both
   orientations, under ASan/UBSan), settings, fast forward and rewind, the pad, the helper and sandbox request
   (unknown titles refused, slow clients, links), the cover prefetch, debug logs, 26 boards started under ASan
-  with a state round trip, and NVRAM.
+  with a state round trip, NVRAM, and the fixes of the 1.0 code review (merged sets, clones of a hidden parent,
+  the check's version, repeated DIP switch names, ROMs larger than the set says).
 
 ## License and credits
 

@@ -424,8 +424,11 @@ bool LoadGame(const std::string& path, std::string* error)
 		return false;
 	FBNEO_STAGE(Emu, "load game");
 	CloseGame();
-	std::string file = path.substr(path.find_last_of('/') + 1);
-	std::string set = file;
+	// "<dir>/<zip>#<set>": a clone kept inside its parent's zip (a merged set); FBNeo finds its ROMs in the parent
+	const size_t hash = path.find('#', path.find_last_of('/') + 1);
+	const std::string zip = hash == std::string::npos ? path : path.substr(0, hash);
+	std::string file = zip.substr(zip.find_last_of('/') + 1);
+	std::string set = hash == std::string::npos ? file : path.substr(hash + 1);
 	if (set.size() > 4 && strcasecmp(set.c_str() + set.size() - 4, ".zip") == 0)
 		set = set.substr(0, set.size() - 4);
 	for (char& c : set)
@@ -438,10 +441,10 @@ bool LoadGame(const std::string& path, std::string* error)
 			*error = file + " is not a ROM set FBNeo knows (the zip must keep its set name, as in FBNeo's lists).";
 		return false;
 	}
-	const std::string dir = path.substr(0, path.find_last_of('/'));
+	const std::string dir = zip.substr(0, zip.find_last_of('/'));
 	auto find = [&](const std::string& name) {
-		if (name == set)
-			return path;
+		if (name == set && hash == std::string::npos)
+			return zip;
 		std::string p = fe::FindSetZip(name);
 		if (p.empty())
 		{

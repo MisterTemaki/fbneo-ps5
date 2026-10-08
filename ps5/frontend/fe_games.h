@@ -66,6 +66,7 @@ struct GameInfo
 	std::string title;     // what the shelf shows: "Street Fighter II' - Champion Edition"
 	std::string region;    // the rest of the name: "World 920513"
 	std::string parent_title; // the parent set's full name (a clone's cover falls back to it), or ""
+	std::string parent;       // the parent set's name: "sf2" (a clone), or ""
 	std::string year, maker, board; // "1992", "Capcom", "CPS1"
 	Family family = Family::Other;
 	int driver = -1;       // the core's driver index

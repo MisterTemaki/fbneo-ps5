@@ -158,17 +158,34 @@ UINT32 __cdecl HighCol16(INT32 r, INT32 g_, INT32 b, INT32)
 	return (UINT32(r & 0xf8) << 8) | (UINT32(g_ & 0xfc) << 3) | UINT32((b & 0xf8) >> 3);
 }
 
-bool ReadEntry(int z, int e, std::vector<uint8_t>* out)
+// Reads up to `cap` bytes of entry e of zip z into dest (straight in: no copy of the file, and a zip that claims a
+// huge size can't make it allocate anything). *got: the bytes read.
+bool ReadEntry(int z, int e, uint8_t* dest, size_t cap, size_t* got)
 {
+	*got = 0;
 	Zip& zip = g.zips[size_t(z)];
 	const ZipEntry& en = zip.entries[size_t(e)];
 	if (unzLocateFile(zip.uf, en.name.c_str(), 1) != UNZ_OK || unzOpenCurrentFile(zip.uf) != UNZ_OK)
+	{
+		Log("[burn] %s: can't open %s in it (a damaged zip?)", zip.path.c_str(), en.name.c_str());
 		return false;
-	out->resize(en.size);
-	int n = en.size ? unzReadCurrentFile(zip.uf, out->data(), en.size) : 0;
-	const bool ok = unzCloseCurrentFile(zip.uf) == UNZ_OK && n == int(en.size);
+	}
+	const size_t want = std::min(size_t(en.size), cap);
+	bool ok = true;
+	while (ok && *got < want)
+	{
+		const unsigned chunk = unsigned(std::min(want - *got, size_t(1) << 30));
+		const int n = unzReadCurrentFile(zip.uf, dest + *got, chunk);
+		ok = n > 0;
+		if (ok)
+			*got += size_t(n);
+	}
+	// the zip checks the CRC when the whole file was read: a damaged ROM shows up here
+	const int rc = unzCloseCurrentFile(zip.uf);
+	ok = ok && (rc == UNZ_OK || (rc == UNZ_CRCERROR && want < en.size));
 	if (!ok)
-		Log("[burn] %s: can't read %s (a damaged zip?)", zip.path.c_str(), en.name.c_str());
+		Log("[burn] %s: can't read %s (a damaged zip? %zu of %zu bytes, %d)", zip.path.c_str(), en.name.c_str(), *got,
+			want, rc);
 	return ok;
 }
 
@@ -188,11 +205,9 @@ INT32 __cdecl LoadRom(UINT8* dest, INT32* wrote, INT32 i)
 		Log("[burn] ROM %d (%s) asked for, but it is not in the zips", i, name ? name : "?");
 		return 1;
 	}
-	std::vector<uint8_t> data;
-	if (!ReadEntry(loc.zip, loc.entry, &data))
+	size_t n = 0;
+	if (!ReadEntry(loc.zip, loc.entry, dest, size_t(ri.nLen), &n))
 		return 1;
-	const size_t n = std::min(data.size(), size_t(ri.nLen));
-	memcpy(dest, data.data(), n);
 	if (wrote)
 		*wrote = INT32(n);
 	return 0;
@@ -771,6 +786,11 @@ bool Unpack(const char* magic, const std::vector<uint8_t>& in, const Scan& now, 
 
 bool ReadAll(const std::string& path, std::vector<uint8_t>* out)
 {
+	// a state or NVRAM file: never more than this (a stray big file in states/ must not take all the memory)
+	constexpr long kMax = 256L * 1024 * 1024;
+	struct stat st = {};
+	if (stat(path.c_str(), &st) != 0 || !S_ISREG(st.st_mode) || st.st_size > kMax)
+		return false;
 	FILE* f = fopen(path.c_str(), "rb");
 	if (!f)
 		return false;
@@ -1237,13 +1257,30 @@ void ResetDips()
 	DefaultDips();
 }
 
+// A group's key in the .dip file: its name, and "#2", "#3"... for the next groups of the same name (884 drivers repeat
+// one: "Unused", "Unknown"...), so that each one keeps its own setting.
+static std::vector<std::string> DipKeys()
+{
+	std::vector<std::string> keys;
+	for (size_t i = 0; i < g.dips.size(); i++)
+	{
+		int seen = 0;
+		for (size_t j = 0; j < i; j++)
+			seen += g.dips[j].name == g.dips[i].name ? 1 : 0;
+		keys.push_back(seen ? g.dips[i].name + "#" + std::to_string(seen + 1) : g.dips[i].name);
+	}
+	return keys;
+}
+
 bool SaveDips(const std::string& path)
 {
+	const std::vector<std::string> keys = DipKeys();
+	const std::vector<DipGroup> dips = Dips();
 	std::vector<uint8_t> text;
-	for (const DipGroup& d : Dips())
-		if (d.current != d.def)
+	for (size_t i = 0; i < dips.size() && i < keys.size(); i++)
+		if (dips[i].current != dips[i].def)
 		{
-			const std::string line = d.name + "=" + d.options[size_t(d.current)] + "\n";
+			const std::string line = keys[i] + "=" + dips[i].options[size_t(dips[i].current)] + "\n";
 			text.insert(text.end(), line.begin(), line.end());
 		}
 	if (text.empty())
@@ -1259,8 +1296,9 @@ bool LoadDips(const std::string& path)
 	FILE* f = fopen(path.c_str(), "r");
 	if (!f)
 		return false;
+	const std::vector<std::string> keys = DipKeys();
 	char line[512];
-	int applied = 0;
+	int applied = 0, unknown = 0;
 	while (fgets(line, sizeof(line), f))
 	{
 		std::string s = line;
@@ -1269,18 +1307,22 @@ bool LoadDips(const std::string& path)
 		const size_t eq = s.find('=');
 		if (eq == std::string::npos)
 			continue;
-		const std::string name = s.substr(0, eq), value = s.substr(eq + 1);
-		for (size_t gi = 0; gi < g.dips.size(); gi++)
-			if (g.dips[gi].name == name)
-				for (size_t o = 0; o < g.dips[gi].options.size(); o++)
+		const std::string key = s.substr(0, eq), value = s.substr(eq + 1);
+		bool done = false;
+		for (size_t gi = 0; gi < keys.size() && !done; gi++)
+			if (keys[gi] == key)
+				for (size_t o = 0; o < g.dips[gi].options.size() && !done; o++)
 					if (g.dips[gi].options[o].name == value)
 					{
 						SetDip(int(gi), int(o));
 						applied++;
+						done = true;
 					}
+		unknown += done ? 0 : 1;
 	}
 	fclose(f);
-	Log("[burn] DIP switches from %s: %d set", path.c_str(), applied);
+	Log("[burn] DIP switches from %s: %d set%s", path.c_str(), applied,
+		unknown ? " (some lines don't match this driver's switches: left as they are)" : "");
 	return true;
 }
 

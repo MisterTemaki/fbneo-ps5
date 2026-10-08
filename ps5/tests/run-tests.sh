@@ -585,6 +585,64 @@ expect "[ -s $WORK/fbneo-headless/mk.nvram ] && ! ls $WORK/fbneo-headless/*.part
 expect "! grep -q 'AddressSanitizer' $WORK/h22.err" "no sanitizer reports"
 fi
 
+if want 23; then
+echo "== 23. the audit's fixes: merged sets, clones of a hidden parent, the check's version, DIP names, oversized ROMs"
+T=$(newroot t23)
+# a merged set: Pac-Man's ROMs inside puckman.zip, no pacman.zip
+python3 - "$SETS/pacman/pacman.zip" "$SETS/pacman/puckman.zip" "$T/root/roms/puckman.zip" <<'PY'
+import sys, zipfile
+names = set()
+with zipfile.ZipFile(sys.argv[3], "w") as out:
+    for src in sys.argv[1:3]:
+        with zipfile.ZipFile(src) as z:
+            for n in z.namelist():
+                if n not in names:
+                    names.add(n)
+                    out.writestr(n, z.read(n))
+PY
+rc=$(run "$T" "0:0;40:$CROSS;42:0;$(QUITAT 150)" "120")
+expect "[ $rc = 0 ]" "exit code 0 (got $rc)"
+expect "grep -q '\[games\] 1 zip(s): 2 arcade set(s) (2 complete, 1 checked now), 0 BIOS set(s), 0 not FBNeo.s; 1 clone(s) in a parent.s zip' $T/root/logs/boot.log" "Pac-Man found inside puckman.zip (a merged set); clones that only match by name aren't listed"
+expect "grep -q 'loading .*/roms/puckman.zip#pacman' $T/root/logs/boot.log" "Cross started the clone from its parent's zip"
+expect "$CHECK $T/dump/flip00120.ppm 960 540 red >/dev/null" "the merged clone runs (its own program, red)"
+expect "head -1 $T/root/config/romcheck.txt | grep -q '^# FBNeo 1.0.0.3, [0-9]* drivers$'" "romcheck.txt names the FBNeo that checked the sets"
+sed -i '1s/.*/# FBNeo 0.9, 1 drivers/' "$T/root/config/romcheck.txt"
+rc=$(run "$T" "0:0;$(SHELFQUIT_AT 30)" "")
+expect "grep -q 'romcheck.txt is from another FBNeo' $T/root/logs/boot.log && grep -q '(2 complete, 1 checked now)' $T/root/logs/boot.log" "a check made by another FBNeo is done again"
+# clones hidden, but the parent is incomplete: the clone still shows
+T=$(newroot t23b)
+cp "$SETS/pacman/pacman.zip" "$T/root/roms/"
+python3 - "$SETS/pacman/puckman.zip" "$T/root/roms/puckman.zip" <<'PY'
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as z, zipfile.ZipFile(sys.argv[2], "w") as out:
+    for n in z.namelist():
+        if n != "pm1_prg8.6p":
+            out.writestr(n, z.read(n))
+PY
+echo "show_clones=0" >>"$T/root/fbneo-ps5.ini"
+rc=$(run "$T" "0:0;30:$CROSS;32:0;$(QUITAT 100)" "")
+expect "grep -q 'puckman: 1 ROM(s) missing' $T/root/logs/boot.log && grep -q 'loading .*/roms/pacman.zip' $T/root/logs/boot.log" "Puck Man incomplete: Pac-Man shows (and starts) with clones hidden"
+# a ROM bigger than the set says (a bad dump or an overdump): read up to the size FBNeo wants
+T=$(newroot t23c)
+python3 - "$SETS/pacman/pacman.zip" "$T/root/roms/pacman.zip" <<'PY'
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as z, zipfile.ZipFile(sys.argv[2], "w", zipfile.ZIP_DEFLATED) as out:
+    for n in z.namelist():
+        d = z.read(n)
+        out.writestr(n, d + bytes(len(d)) if n == "pacman.6e" else d)
+PY
+cp "$SETS/pacman/puckman.zip" "$T/root/roms/"
+rc=$(run "$T" "0:0;$(QUITAT 120)" "100" "$T/root/roms/pacman.zip")
+expect "[ $rc = 0 ] && $CHECK $T/dump/flip00100.ppm 960 540 red >/dev/null" "a doubled pacman.6e: the first 4 KB used, the game runs"
+nosan "$T"
+# DIP switches: Acrobatic Dog-Fight has two groups called "Unused"; each keeps its own setting
+mkset dogfgt
+o=$(TMPDIR=$WORK "$HEADLESS" dips "$SETS/dogfgt" dogfgt 2>"$WORK/h23.err"); rc=$?
+expect "[ $rc = 0 ] && echo '$o' | grep -q '1 repeated name(s), .* read back: same'" "repeated DIP names saved and read back apart ($(echo "$o" | tail -1))"
+expect "grep -q '^Unused=' $WORK/fbneo-headless/dogfgt.dip" "the .dip file keeps the first group's plain name (older files still load)"
+expect "! grep -q 'AddressSanitizer\|runtime error' $WORK/h23.err" "no sanitizer reports"
+fi
+
 echo
 echo "passed $PASS, failed $FAIL  (work dir $WORK)"
 [ $FAIL = 0 ]
