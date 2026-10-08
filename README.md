@@ -1,6 +1,6 @@
 # FBNeo PS5
 
-![FBNeo for PS5](ps5/app/sce_sys/background-source.png)
+[![FBNeo for PS5](ps5/docs/banner.jpg)](ps5/app/sce_sys/background-source.png)
 
 [FinalBurn Neo](https://github.com/finalburnneo/FBNeo) (FBNeo) 1.0.0.3, the arcade emulator, running on a jailbroken
 PS5 as a **native home-screen app** with its own icon and background. It plays the arcade games FBNeo emulates --
