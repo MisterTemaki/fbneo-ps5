@@ -200,6 +200,8 @@ before the art changed, register it again once: select **FBNeo PS5** on the home
 
 ## The game shelf and covers
 
+![The FBNeo PS5 game shelf: letter tabs, covers and the selected game](ps5/docs/shelf.jpg)
+
 The start screen is a 3D shelf of game covers, like PS5SX2's and Snes9x PS5's, with the author's line under the
 wordmark: **github.com/MisterTemaki**.
 
