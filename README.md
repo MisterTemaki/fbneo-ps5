@@ -31,7 +31,7 @@ make (the driver list, Musashi's 68000 core, the CPS, Neo Geo, Cave, Psikyo, Toa
 frontends (`src/burner`) and its libretro port host the core: ROM loading from the sets' zips, inputs, DIP
 switches, states, NVRAM, the picture turned the right way up and the sound.
 
-> **Status (1.2):** builds with the ps5-payload-dev SDK into a signed native app, and passes 211 host tests, which
+> **Status (1.3):** builds with the ps5-payload-dev SDK into a signed native app, and passes 212 host tests, which
 > run the same code (FBNeo's core included) on Linux with the PS5 calls simulated: two arcade boards running a tiny
 > test program each (a vertical and a horizontal game) are played through the whole chain -- the shelf, the pad,
 > the core, the video and sound output -- and 26 more boards start, run, save and load a state under
@@ -67,9 +67,17 @@ next to Snes9x PS5 (PPSA99009, helper port 9075), Mesen2 PS5 (PPSA99010, port 90
 
 ## Versions
 
-Every release carries its version in the file name: `FBNeoPS5-v1.2.elf` (`make dist`). When updating, replace the
+Every release carries its version in the file name: `FBNeoPS5-v1.3.elf` (`make dist`). When updating, replace the
 old ELF with the new one in your autoload or Payload Manager. In this README, "`FBNeoPS5.elf`" always means the
 current release's ELF.
+
+**1.3:**
+
+- **CPS-3 (Street Fighter III and the rest) no longer slowed down by the rewind.** The rewind keeps a snapshot of the game every few
+  frames, and 1.0 to 1.2 compressed each one on the game's own thread. CPS-3's state is 10 MB, so every third frame
+  took several frames' time: the game crawled and stuttered. Now the game's thread only copies the state (a few
+  milliseconds, every sixth frame for a state this big) and another thread compresses it; a snapshot that would
+  have to wait is skipped. Every board with a big state (PGM2, Konami GX...) gains the same.
 
 **1.2:**
 
@@ -112,10 +120,10 @@ Every screen and notification of FBNeo PS5 is in English.
 
 1. **Send `FBNeoPS5.elf`** with PS5 Payload Manager, or from a PC on the same network:
    ```sh
-   nc -q0 PS5_IP 9021 < FBNeoPS5-v1.2.elf
+   nc -q0 PS5_IP 9021 < FBNeoPS5-v1.3.elf
    ```
    It installs the app in `/data/homebrew/PPSA99012/` (`eboot.bin`, `sce_module/libc.prx`, `param.json`, the
-   icon and the backgrounds), shows **"FBNeo PS5 1.2 installed. Open it from the FBNeo PS5 icon on the home
+   icon and the backgrounds), shows **"FBNeo PS5 1.3 installed. Open it from the FBNeo PS5 icon on the home
    screen."** and stays running as the helper.
 2. **Open the FBNeo PS5 icon.** The game shelf appears and the controller works.
 3. **Copy your ROM sets** to `/data/fbneo/roms/` (over FTP, for example), or to `fbneo/roms/` on a USB drive.
@@ -401,7 +409,9 @@ original code aiming at the same look. Every minute in a game, `boot.log` says h
   sound resampled to match (a small rate control, within 0.5%, keeps about 60 ms queued). The others (Mortal
   Kombat's 54.7 Hz, R-Type's 55 Hz, DoDonPachi's 57.55 Hz...) run at their own speed, paced by the sound.
 - Fast forward runs several frames per display frame (only the last one drawn), muted; rewind keeps a snapshot
-  every 3 frames (up to 192 MB; a board whose state is over 4 MB compressed has no rewind).
+  every 3 frames (every 6 for a state over 2 MB, such as CPS-3's), up to 192 MB: the game's thread copies the state
+  and another thread compresses it, so the game never waits for it (a board whose snapshot is over 8 MB compressed
+  has no rewind). Settings, Rewind off, takes no snapshots at all.
 
 ## Debugging (logs and crashes)
 
@@ -447,7 +457,7 @@ make ps5 -j$(nproc)              # build/ps5/FBNeoPS5.elf (installer + helper, w
 make send PS5_HOST=192.168.0.10  # sends it to elfldr (port 9021)
 make dist                        # build/dist/FBNeoPS5-v<version>.elf
 make app                         # only build/app/PPSA99012/, to copy by hand
-make test                        # Linux builds (app, installer, helper, headless core) + 211 host tests (ASan/UBSan)
+make test                        # Linux builds (app, installer, helper, headless core) + 212 host tests (ASan/UBSan)
 ```
 
 The first build compiles FBNeo's 1,039 core files (about 15 minutes on 2 cores; `make core-ps5` builds just those).
@@ -496,17 +506,17 @@ The build has three stages:
 - **`ps5/app/sce_sys/`**: param.json, icon and backgrounds; `ps5/tools/make_art.py` encodes the background.
 - **`ps5/host/`** and **`ps5/tests/`**: the PS5 functions implemented on Linux (`sce_host.cpp`), the core alone
   on Linux (`fbneo_headless.cpp`: the drivers, a set's ROMs, a run with a state saved and loaded back, NVRAM,
-  DIP switches saved and read back and in place before a driver starts, a driver's palette made at start), the
+  DIP switches saved and read back and in place before a driver starts, a frame's and a rewind snapshot's time, a driver's palette made at start), the
   stand-in ROM sets (`make_fake_set.py`: every ROM a driver lists, with its name and its CRC, as FBNeo's split
   sets are made), the test programs (`tests/data`: a tiny Z80 program on the Pac-Man board, red screen, green
-  while the joystick or the button is pressed), and the 211 tests: picture, rotation, input and states on a
+  while the joystick or the button is pressed), and the 212 tests: picture, rotation, input and states on a
   vertical and a horizontal game, the library (parents, BIOS sets, incomplete sets, the check's cache), a set with
   a ROM missing, DIP switches, button layouts, sound latency and pacing by the sound, 720p, install (packed
   files), covers (flyer, parent's flyer, screenshot, 404), tabs and clones, the CRT shaders (each one, both
   orientations, under ASan/UBSan), settings, fast forward and rewind, the pad, the helper and sandbox request
   (unknown titles refused, slow clients, links), covers downloaded by the helper while the shelf runs (and the
   prefetch with an older helper), debug logs, 26 boards started under ASan with a state round trip, Cabal's
-  palette, the DIP switches set before a driver starts, NVRAM, and the fixes of the 1.0 code review (merged sets, clones of a hidden parent,
+  palette, the DIP switches set before a driver starts, CPS-3's rewind snapshots kept off the game's thread, NVRAM, and the fixes of the 1.0 code review (merged sets, clones of a hidden parent,
   the check's version, repeated DIP switch names, ROMs larger than the set says).
 
 ## License and credits

@@ -24,6 +24,7 @@
 #include "ProsperoCrash.h"
 #include "ProsperoInput.h"
 #include "ProsperoSce.h"
+#include "ProsperoThread.h"
 #include "ProsperoVideo.h"
 
 #include <sys/stat.h>
@@ -36,7 +37,9 @@
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include <condition_variable>
 #include <deque>
+#include <mutex>
 #include <vector>
 
 namespace emu
@@ -100,9 +103,12 @@ int LayoutButton(int layout, int i, int game_buttons)
 namespace
 {
 constexpr int kTargetQueued = ps5audio::kRate * 60 / 1000; // 60 ms of sound
-constexpr int kRewindEvery = 3; // frames between rewind snapshots
+constexpr int kRewindEvery = 3;       // frames between rewind snapshots
+constexpr int kRewindEveryBig = 6;    // ... for a state over kRewindBigRaw (CPS-3's is 10 MB)
+constexpr size_t kRewindBigRaw = 2u * 1024 * 1024;
 constexpr size_t kRewindBytes = 192u * 1024 * 1024;
-constexpr size_t kRewindMaxState = 4u * 1024 * 1024; // bigger states (CPS-3, PGM2...): no rewind
+constexpr size_t kRewindMaxState = 8u * 1024 * 1024; // a bigger snapshot, compressed: no rewind for that game
+constexpr size_t kRewindMaxRaw = 64u * 1024 * 1024;
 
 double Now()
 {
@@ -153,10 +159,9 @@ struct State
 
 	// fast forward, rewind
 	bool turbo = false, rewinding = false;
-	std::deque<std::vector<uint8_t>> rewind;
-	size_t rewind_bytes = 0;
 	int rewind_tick = 0;
-	bool rewind_off = false; // the state is too big
+	int rewind_every = kRewindEvery;
+	bool rewind_logged = false;
 
 	// saves
 	double next_nvram_check = 0;
@@ -172,6 +177,79 @@ struct State
 	int stats_reports = 0;
 };
 State g;
+
+// The rewind's snapshots. 1.2 compressed each one on the game's thread, every 3 frames: CPS-3's state is 10 MB, and
+// compressing it took longer than a frame (the game slowed down and stuttered). Now the game's thread only copies
+// the state (StateToRaw); this thread compresses it. A snapshot that comes while the last one is still being
+// compressed is skipped, so the game never waits.
+struct Rewinder
+{
+	std::mutex lock;
+	std::condition_variable wake;
+	std::vector<uint8_t> raw;   // waiting to be compressed
+	std::vector<uint8_t> spare; // a used buffer, kept for the next copy (its capacity)
+	bool busy = false;        // raw holds one, or it is being compressed
+	uint64_t generation = 0;  // RewindClear: a snapshot of before that is dropped
+	uint64_t raw_generation = 0;
+	bool quit = false;
+	bool off = false; // the state is too big for the rewind
+	std::deque<std::vector<uint8_t>> snaps;
+	size_t bytes = 0;
+	ps5::BigThread thread;
+
+	void Run()
+	{
+		std::unique_lock<std::mutex> lk(lock);
+		for (;;)
+		{
+			wake.wait(lk, [this] { return quit || busy; });
+			if (quit)
+				return;
+			std::vector<uint8_t> in;
+			in.swap(raw);
+			const uint64_t gen = raw_generation;
+			lk.unlock();
+			std::vector<uint8_t> out;
+			const bool ok = burn::CompressState(in, &out);
+			lk.lock();
+			busy = false;
+			spare.swap(in);
+			if (!ok || gen != generation)
+				continue;
+			if (out.size() > kRewindMaxState)
+			{
+				off = true;
+				OrbisLog("[emu] rewind off for this game: a snapshot is %zu KB compressed", out.size() >> 10);
+				continue;
+			}
+			bytes += out.size();
+			snaps.push_back(std::move(out));
+			while (bytes > kRewindBytes && !snaps.empty())
+			{
+				bytes -= snaps.front().size();
+				snaps.pop_front();
+			}
+		}
+	}
+
+	void Start()
+	{
+		if (!thread.joinable())
+			thread = ps5::BigThread([this] { Run(); }, 256 * 1024);
+	}
+
+	void Stop()
+	{
+		{
+			std::lock_guard<std::mutex> lk(lock);
+			quit = true;
+		}
+		wake.notify_all();
+		thread.join();
+		quit = false;
+	}
+};
+Rewinder r_;
 
 std::string StatePath(int slot)
 {
@@ -343,31 +421,57 @@ ps5video::Rect DrawLast()
 
 void RewindPush()
 {
-	if (g.rewind_off)
-		return;
-	std::vector<uint8_t> s;
-	if (!burn::StateToMemory(&s))
-		return;
-	if (s.size() > kRewindMaxState)
 	{
-		g.rewind_off = true;
-		OrbisLog("[emu] rewind off for this game: its state is %zu KB compressed", s.size() >> 10);
+		std::lock_guard<std::mutex> lk(r_.lock);
+		if (r_.off || r_.busy)
+			return; // too big, or the last one is still being compressed: skip this one
+	}
+	std::vector<uint8_t> raw;
+	{
+		std::lock_guard<std::mutex> lk(r_.lock);
+		raw.swap(r_.spare);
+	}
+	const double t0 = Now();
+	if (!burn::StateToRaw(&raw))
+		return;
+	if (!g.rewind_logged)
+		OrbisLog("[emu] rewind: a snapshot is %zu KB, copied in %.1f ms (compressed on another thread)", raw.size() >> 10,
+			(Now() - t0) * 1000.0);
+	g.rewind_logged = true;
+	g.rewind_every = raw.size() > kRewindBigRaw ? kRewindEveryBig : kRewindEvery;
+	r_.Start();
+	std::lock_guard<std::mutex> lk(r_.lock);
+	if (raw.size() > kRewindMaxRaw)
+	{
+		r_.off = true;
+		OrbisLog("[emu] rewind off for this game: its state is %zu MB", raw.size() >> 20);
 		return;
 	}
-	g.rewind_bytes += s.size();
-	g.rewind.push_back(std::move(s));
-	while (g.rewind_bytes > kRewindBytes && !g.rewind.empty())
-	{
-		g.rewind_bytes -= g.rewind.front().size();
-		g.rewind.pop_front();
-	}
+	r_.raw.swap(raw);
+	r_.raw_generation = r_.generation;
+	r_.busy = true;
+	r_.wake.notify_one();
 }
 
 void RewindClear()
 {
-	g.rewind.clear();
-	g.rewind_bytes = 0;
+	std::lock_guard<std::mutex> lk(r_.lock);
+	r_.generation++;
+	r_.snaps.clear();
+	r_.bytes = 0;
 	g.rewind_tick = 0;
+}
+
+// The newest snapshot (removed), or false when there is none.
+bool RewindPop(std::vector<uint8_t>* out)
+{
+	std::lock_guard<std::mutex> lk(r_.lock);
+	if (r_.snaps.empty())
+		return false;
+	out->swap(r_.snaps.back());
+	r_.bytes -= out->size();
+	r_.snaps.pop_back();
+	return true;
 }
 
 void SetTiming()
@@ -404,6 +508,7 @@ void DeinitCore()
 	if (!g.inited)
 		return;
 	CloseGame();
+	r_.Stop();
 	burn::Exit();
 	g.inited = false;
 }
@@ -479,7 +584,12 @@ bool LoadGame(const std::string& path, std::string* error)
 	g.prev_p1 = 0;
 	g.service = g.test = false;
 	g.turbo = g.rewinding = false;
-	g.rewind_off = false;
+	g.rewind_every = kRewindEvery;
+	g.rewind_logged = false;
+	{
+		std::lock_guard<std::mutex> lk(r_.lock);
+		r_.off = false;
+	}
 	g.frac = 0;
 	g.prev_l = g.prev_r = 0;
 	g.frames = 0;
@@ -682,12 +792,20 @@ FrameResult RunFrame()
 		OrbisLog("[emu] service %s, test %s", service ? "on" : "off", test ? "on" : "off");
 	g.service = service;
 	g.test = test;
-	const bool want_rewind = cfg.rewind && l2 && r2 && !g.rewind_off;
+	bool rewind_off;
+	size_t rewind_snaps, rewind_bytes;
+	{
+		std::lock_guard<std::mutex> lk(r_.lock);
+		rewind_off = r_.off;
+		rewind_snaps = r_.snaps.size();
+		rewind_bytes = r_.bytes;
+	}
+	const bool want_rewind = cfg.rewind && l2 && r2 && !rewind_off;
 	if (want_rewind != g.rewinding)
 	{
 		g.rewinding = want_rewind;
-		OrbisLog("[emu] rewind %s (%zu snapshots, %zu MB)", want_rewind ? "on" : "off", g.rewind.size(),
-			g.rewind_bytes >> 20);
+		OrbisLog("[emu] rewind %s (%zu snapshots, %zu MB)", want_rewind ? "on" : "off", rewind_snaps,
+			rewind_bytes >> 20);
 	}
 	const bool want_turbo = r2 && !l2;
 	if (want_turbo != g.turbo)
@@ -701,12 +819,9 @@ FrameResult RunFrame()
 	const burn::Input in = ReadPads();
 	if (g.rewinding)
 	{
-		if (!g.rewind.empty())
-		{
-			burn::StateFromMemory(g.rewind.back());
-			g.rewind_bytes -= g.rewind.back().size();
-			g.rewind.pop_back();
-		}
+		std::vector<uint8_t> snap;
+		if (RewindPop(&snap))
+			burn::StateFromMemory(snap);
 		g.mute = true;
 		burn::RunFrame(burn::Input(), true);
 		TakePicture();
@@ -725,7 +840,7 @@ FrameResult RunFrame()
 			FlushAudio();
 			g.frames++;
 			g.fps_frames++;
-			if (cfg.rewind && ++g.rewind_tick >= kRewindEvery)
+			if (cfg.rewind && ++g.rewind_tick >= g.rewind_every)
 			{
 				g.rewind_tick = 0;
 				RewindPush();

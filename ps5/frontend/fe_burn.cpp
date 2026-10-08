@@ -711,17 +711,24 @@ uint32_t Get32(const uint8_t* p)
 	return uint32_t(p[0]) | uint32_t(p[1]) << 8 | uint32_t(p[2]) << 16 | uint32_t(p[3]) << 24;
 }
 
-bool Pack(const char* magic, const Scan& s, std::vector<uint8_t>* out)
+// The bytes Pack compresses: the set, the frame, the areas' lengths, then the areas.
+void PackRaw(const Scan& s, std::vector<uint8_t>* raw)
 {
-	std::vector<uint8_t> raw;
+	raw->clear();
+	raw->reserve(32 + 8 + 4 * s.lens.size() + s.data.size());
 	char set[32] = {};
 	strncpy(set, g.cur.name.c_str(), sizeof(set) - 1);
-	raw.insert(raw.end(), set, set + sizeof(set));
-	Put32(&raw, nCurrentFrame);
-	Put32(&raw, uint32_t(s.lens.size()));
+	raw->insert(raw->end(), set, set + sizeof(set));
+	Put32(raw, nCurrentFrame);
+	Put32(raw, uint32_t(s.lens.size()));
 	for (uint32_t l : s.lens)
-		Put32(&raw, l);
-	raw.insert(raw.end(), s.data.begin(), s.data.end());
+		Put32(raw, l);
+	raw->insert(raw->end(), s.data.begin(), s.data.end());
+}
+
+// magic + raw length + zlib(raw). Touches nothing global: any thread.
+bool Compress(const char* magic, const std::vector<uint8_t>& raw, std::vector<uint8_t>* out)
+{
 	uLongf zlen = compressBound(uLong(raw.size()));
 	out->assign(8 + 4 + zlen, 0);
 	memcpy(out->data(), magic, 8);
@@ -732,6 +739,13 @@ bool Pack(const char* magic, const Scan& s, std::vector<uint8_t>* out)
 		return false;
 	out->resize(12 + zlen);
 	return true;
+}
+
+bool Pack(const char* magic, const Scan& s, std::vector<uint8_t>* out)
+{
+	std::vector<uint8_t> raw;
+	PackRaw(s, &raw);
+	return Compress(magic, raw, out);
 }
 
 // What Pack made -> the frame number, the layout and the bytes (checked against the set and the running layout).
@@ -1389,6 +1403,45 @@ bool StateToMemory(std::vector<uint8_t>* out)
 	Scan s;
 	DoScan(ACB_FULLSCAN | ACB_READ, ReadAcb, &s);
 	return Pack(kMagicState, s, out);
+}
+
+bool StateToRaw(std::vector<uint8_t>* raw)
+{
+	if (!g.loaded)
+		return false;
+	// PackRaw's layout, built in place (raw keeps its capacity from the last snapshot: no 10 MB allocation, one copy):
+	// the areas' lengths first, then the header, then the areas appended straight after it
+	Scan lens;
+	DoScan(ACB_FULLSCAN | ACB_READ, LenAcb, &lens);
+	size_t total = 0;
+	for (uint32_t l : lens.lens)
+		total += l;
+	Scan s;
+	s.data.swap(*raw);
+	s.data.clear();
+	s.data.reserve(32 + 8 + 4 * lens.lens.size() + total);
+	char set[32] = {};
+	strncpy(set, g.cur.name.c_str(), sizeof(set) - 1);
+	s.data.insert(s.data.end(), set, set + sizeof(set));
+	Put32(&s.data, nCurrentFrame);
+	Put32(&s.data, uint32_t(lens.lens.size()));
+	for (uint32_t l : lens.lens)
+		Put32(&s.data, l);
+	DoScan(ACB_FULLSCAN | ACB_READ, ReadAcb, &s);
+	raw->swap(s.data);
+	if (s.lens != lens.lens)
+	{
+		// the areas changed between the two scans (no driver does that): the plain way
+		Scan again;
+		DoScan(ACB_FULLSCAN | ACB_READ, ReadAcb, &again);
+		PackRaw(again, raw);
+	}
+	return true;
+}
+
+bool CompressState(const std::vector<uint8_t>& raw, std::vector<uint8_t>* out)
+{
+	return Compress(kMagicState, raw, out);
 }
 
 bool StateFromMemory(const std::vector<uint8_t>& in)

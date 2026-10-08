@@ -611,6 +611,13 @@ for g in cabal cobracom; do
 	lit=$(echo "$o" | sed -n 's/.* lit \([0-9]*\).*/\1/p')
 	expect "[ $rc = 0 ] && [ \"\${lit:-0}\" -gt 0 ]" "$g: the palette is made at start (${lit:-0} pixels lit, 0 = black screen)"
 done
+# the rewind's snapshots: CPS-3's state is 10 MB; compressing it every 3 frames on the game's thread made Street
+# Fighter III crawl. The game's thread only copies it now (the compression runs on another thread).
+o=$("$HEADLESS" bench "$SETS/sfiii3" sfiii3 60 2>"$WORK/h21-bench.err"); rc=$?
+snap=$(echo "$o" | sed -n 's/.*snapshot \([0-9.]*\) ms (copy \([0-9.]*\) ms.*/\1 \2/p')
+snap_all=${snap% *}; snap_copy=${snap#* }
+differs=$(echo "$o" | grep -c DIFFERS)
+expect "[ $rc = 0 ] && [ -n \"$snap\" ] && [ $differs = 0 ] && awk 'BEGIN{exit !($snap_copy * 5 < $snap_all)}'" "sfiii3: the game's thread only copies the state ($(echo "$o" | tail -1))"
 # the DIP switches are in the driver before it starts (the Neo Geo loads the BIOS they name as it starts)
 for g in mslug cabal; do
 	mkset $g

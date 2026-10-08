@@ -11,6 +11,8 @@
 //       frame: "lit N" counts the pixels that aren't black (0 when the driver never made its palette)
 //   fbneo_headless dipstart <rom dir> <set>       loads the set and checks that its DIP switch inputs already hold their
 //       defaults as the driver starts (FBNeo's frontends set them before BurnDrvInit)
+//   fbneo_headless bench <rom dir> <set> <frames> the time a frame takes (drawn) and a state snapshot (as the rewind
+//       takes one every 3 frames): its size raw and compressed
 //   fbneo_headless run <rom dir> <set> <frames> [out.ppm] [--state] [--dips] [--press N]
 //       runs the set for N frames (no input but coin+start pressed at frames 60 and 90 and fire 1 every 8 frames
 //       after 120), writes the last picture as a PPM, prints the picture size, the sound's level and a picture
@@ -28,6 +30,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <string>
 
 #include "burnint.h"
@@ -275,6 +278,47 @@ int main(int argc, char** argv)
 		burn::Unload();
 		burn::Exit();
 		return s_seen == 1 ? 0 : 6;
+	}
+	if (cmd == "bench" && argc > 4)
+	{
+		const std::string dir = argv[2];
+		const int drv = burn::FindDriver(argv[3]);
+		const long frames = atol(argv[4]);
+		auto find = [&](const std::string& set) {
+			const std::string p = dir + "/" + set + ".zip";
+			struct stat st = {};
+			return stat(p.c_str(), &st) == 0 ? p : std::string();
+		};
+		std::string error;
+		if (drv < 0 || !burn::Load(drv, find, &error))
+			return 3;
+		auto now = [] {
+			timespec ts;
+			clock_gettime(CLOCK_MONOTONIC, &ts);
+			return ts.tv_sec + ts.tv_nsec / 1e9;
+		};
+		double t0 = now();
+		for (long f = 0; f < frames; f++)
+			burn::RunFrame(InputFor(uint64_t(f)), true);
+		const double frame_ms = (now() - t0) * 1000.0 / double(frames);
+		std::vector<uint8_t> st, raw;
+		t0 = now();
+		const int snaps = 10;
+		for (int i = 0; i < snaps; i++)
+			burn::StateToMemory(&st);
+		const double snap_ms = (now() - t0) * 1000.0 / snaps;
+		t0 = now();
+		for (int i = 0; i < snaps; i++)
+			burn::StateToRaw(&raw);
+		const double copy_ms = (now() - t0) * 1000.0 / snaps;
+		// the rewind's two steps give what StateToMemory gives
+		std::vector<uint8_t> two;
+		const bool same = burn::CompressState(raw, &two) && two == st;
+		printf("frame %.2f ms, snapshot %.2f ms (copy %.2f ms on the game's thread), %zu KB compressed (%zu KB raw)%s\n",
+			frame_ms, snap_ms, copy_ms, st.size() >> 10, raw.size() >> 10, same ? "" : ", COPY DIFFERS");
+		burn::Unload();
+		burn::Exit();
+		return 0;
 	}
 	if (cmd == "dips" && argc > 3)
 	{
