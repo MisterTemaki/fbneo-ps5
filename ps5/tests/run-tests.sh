@@ -611,6 +611,12 @@ for g in cabal cobracom; do
 	lit=$(echo "$o" | sed -n 's/.* lit \([0-9]*\).*/\1/p')
 	expect "[ $rc = 0 ] && [ \"\${lit:-0}\" -gt 0 ]" "$g: the palette is made at start (${lit:-0} pixels lit, 0 = black screen)"
 done
+# the DIP switches are in the driver before it starts (the Neo Geo loads the BIOS they name as it starts)
+for g in mslug cabal; do
+	mkset $g
+	o=$("$HEADLESS" dipstart "$SETS/$g" $g 2>"$WORK/h21-dip-$g.err"); rc=$?
+	expect "[ $rc = 0 ] && echo '$o' | grep -q 'dips at start: defaults'" "$g: $(echo "$o" | tail -1)"
+done
 # every arcade driver's sets are listed, and the console drivers aren't
 n=$("$HEADLESS" list 2>/dev/null | wc -l)
 expect "[ $n -gt 8000 ]" "$n arcade drivers"

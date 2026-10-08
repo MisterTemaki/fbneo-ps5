@@ -9,6 +9,8 @@
 //       group has its setting back
 //   fbneo_headless palette <rom dir> <set>        fills the set's RAM (palette and video RAM too) with 0x5a and draws a
 //       frame: "lit N" counts the pixels that aren't black (0 when the driver never made its palette)
+//   fbneo_headless dipstart <rom dir> <set>       loads the set and checks that its DIP switch inputs already hold their
+//       defaults as the driver starts (FBNeo's frontends set them before BurnDrvInit)
 //   fbneo_headless run <rom dir> <set> <frames> [out.ppm] [--state] [--dips] [--press N]
 //       runs the set for N frames (no input but coin+start pressed at frames 60 and 90 and fire 1 every 8 frames
 //       after 120), writes the last picture as a PPM, prints the picture size, the sound's level and a picture
@@ -198,6 +200,81 @@ int main(int argc, char** argv)
 		burn::Unload();
 		burn::Exit();
 		return 0;
+	}
+	if (cmd == "dipstart" && argc > 3)
+	{
+		const std::string dir = argv[2];
+		const int drv = burn::FindDriver(argv[3]);
+		auto find = [&](const std::string& set) {
+			const std::string p = dir + "/" + set + ".zip";
+			struct stat st = {};
+			return stat(p.c_str(), &st) == 0 ? p : std::string();
+		};
+		if (drv < 0)
+			return 3;
+		// the defaults, as inpdipsw.cpp makes them: each DIP input's value, then the driver's 0xFF entries
+		nBurnDrvActive = UINT32(drv);
+		std::vector<UINT8*> vals;
+		std::vector<UINT8> want;
+		for (UINT32 i = 0;; i++)
+		{
+			struct BurnInputInfo bii = {};
+			if (BurnDrvGetInputInfo(&bii, i) != 0)
+				break;
+			vals.push_back(bii.nType == BIT_DIPSWITCH ? bii.pVal : nullptr);
+			want.push_back(bii.nType == BIT_DIPSWITCH && bii.pVal ? *bii.pVal : 0);
+		}
+		struct BurnDIPInfo bdi = {};
+		int offset = 0;
+		for (UINT32 i = 0; BurnDrvGetDIPInfo(&bdi, i) == 0; i++)
+			if (bdi.nFlags == 0xF0)
+			{
+				offset = bdi.nInput;
+				break;
+			}
+		for (UINT32 i = 0; BurnDrvGetDIPInfo(&bdi, i) == 0; i++)
+			if (bdi.nFlags == 0xFF && size_t(bdi.nInput + offset) < want.size())
+			{
+				UINT8& w = want[size_t(bdi.nInput + offset)];
+				w = UINT8((w & ~bdi.nMask) | (bdi.nSetting & bdi.nMask));
+			}
+		// the driver's own start (BurnDrvInit) sees them: a probe at the first ROM it loads
+		static std::vector<UINT8*>* s_vals;
+		static std::vector<UINT8>* s_want;
+		static int s_seen = -1;
+		s_vals = &vals;
+		s_want = &want;
+		s_seen = -1;
+		std::string error;
+		struct Probe
+		{
+			static void Check()
+			{
+				if (s_seen >= 0)
+					return;
+				s_seen = 1;
+				for (size_t i = 0; i < s_vals->size(); i++)
+					if ((*s_vals)[i] && *(*s_vals)[i] != (*s_want)[i])
+						s_seen = 0;
+			}
+		};
+		static INT32 (*s_load)(UINT8*, INT32*, INT32) = nullptr;
+		s_load = BurnExtLoadRom; // fe_burn's loader: the probe runs first
+		BurnExtLoadRom = [](UINT8* d, INT32* n, INT32 i) -> INT32 {
+			Probe::Check();
+			return s_load(d, n, i);
+		};
+		const bool loaded = burn::Load(drv, find, &error);
+		BurnExtLoadRom = s_load;
+		if (!loaded)
+			return 3;
+		int ndips = 0;
+		for (UINT8* v : vals)
+			ndips += v ? 1 : 0;
+		printf("dips at start: %s (%d DIP input(s))\n", s_seen == 1 ? "defaults" : s_seen == 0 ? "NOT SET" : "no ROM loaded", ndips);
+		burn::Unload();
+		burn::Exit();
+		return s_seen == 1 ? 0 : 6;
 	}
 	if (cmd == "dips" && argc > 3)
 	{

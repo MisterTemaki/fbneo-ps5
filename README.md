@@ -31,7 +31,7 @@ make (the driver list, Musashi's 68000 core, the CPS, Neo Geo, Cave, Psikyo, Toa
 frontends (`src/burner`) and its libretro port host the core: ROM loading from the sets' zips, inputs, DIP
 switches, states, NVRAM, the picture turned the right way up and the sound.
 
-> **Status (1.1):** builds with the ps5-payload-dev SDK into a signed native app, and passes 209 host tests, which
+> **Status (1.2):** builds with the ps5-payload-dev SDK into a signed native app, and passes 211 host tests, which
 > run the same code (FBNeo's core included) on Linux with the PS5 calls simulated: two arcade boards running a tiny
 > test program each (a vertical and a horizontal game) are played through the whole chain -- the shelf, the pad,
 > the core, the video and sound output -- and 26 more boards start, run, save and load a state under
@@ -67,9 +67,18 @@ next to Snes9x PS5 (PPSA99009, helper port 9075), Mesen2 PS5 (PPSA99010, port 90
 
 ## Versions
 
-Every release carries its version in the file name: `FBNeoPS5-v1.1.elf` (`make dist`). When updating, replace the
+Every release carries its version in the file name: `FBNeoPS5-v1.2.elf` (`make dist`). When updating, replace the
 old ELF with the new one in your autoload or Payload Manager. In this README, "`FBNeoPS5.elf`" always means the
 current release's ELF.
+
+**1.2:**
+
+- **The DIP switches are set before a game starts**, as in FBNeo's own frontends. 1.0 and 1.1 set them from the
+  first frame on, so a driver that reads them while it starts saw them all off: the Neo Geo booted the first BIOS
+  of its list instead of the one its BIOS switch names, and other drivers their first region. Your saved switches
+  (`config/<set>.dip`) also go in before the start now, so they no longer need a Reset to take effect.
+- A review of the frontend against FBNeo's own (what it must give a driver before and after it starts) found no
+  other gap of the kind that left Cabal and Cobra Command black.
 
 **1.1:**
 
@@ -103,10 +112,10 @@ Every screen and notification of FBNeo PS5 is in English.
 
 1. **Send `FBNeoPS5.elf`** with PS5 Payload Manager, or from a PC on the same network:
    ```sh
-   nc -q0 PS5_IP 9021 < FBNeoPS5-v1.1.elf
+   nc -q0 PS5_IP 9021 < FBNeoPS5-v1.2.elf
    ```
    It installs the app in `/data/homebrew/PPSA99012/` (`eboot.bin`, `sce_module/libc.prx`, `param.json`, the
-   icon and the backgrounds), shows **"FBNeo PS5 1.1 installed. Open it from the FBNeo PS5 icon on the home
+   icon and the backgrounds), shows **"FBNeo PS5 1.2 installed. Open it from the FBNeo PS5 icon on the home
    screen."** and stays running as the helper.
 2. **Open the FBNeo PS5 icon.** The game shelf appears and the controller works.
 3. **Copy your ROM sets** to `/data/fbneo/roms/` (over FTP, for example), or to `fbneo/roms/` on a USB drive.
@@ -315,8 +324,8 @@ Up to four players: players 2 to 4 are the other signed-in users' controllers, w
 **DIP switches:** the pause menu's **DIP switches** shows the game's switches (difficulty, lives, coinage, cabinet,
 the Neo Geo's BIOS and region...) with their current setting; **Left / Right** change one (`*` marks a setting
 that isn't the game's default), **Default DIP switches** puts them all back. Changes are kept per game in
-`/data/fbneo/config/<set>.dip` and set again whenever the game starts. Most games read their switches when they
-start: choose **Reset** in the pause menu after changing them.
+`/data/fbneo/config/<set>.dip` and set before the game starts, every time. Most games read their switches when
+they start: after changing them in the pause menu, choose **Reset** (or start the game again).
 
 ## Settings
 
@@ -438,7 +447,7 @@ make ps5 -j$(nproc)              # build/ps5/FBNeoPS5.elf (installer + helper, w
 make send PS5_HOST=192.168.0.10  # sends it to elfldr (port 9021)
 make dist                        # build/dist/FBNeoPS5-v<version>.elf
 make app                         # only build/app/PPSA99012/, to copy by hand
-make test                        # Linux builds (app, installer, helper, headless core) + 209 host tests (ASan/UBSan)
+make test                        # Linux builds (app, installer, helper, headless core) + 211 host tests (ASan/UBSan)
 ```
 
 The first build compiles FBNeo's 1,039 core files (about 15 minutes on 2 cores; `make core-ps5` builds just those).
@@ -487,17 +496,17 @@ The build has three stages:
 - **`ps5/app/sce_sys/`**: param.json, icon and backgrounds; `ps5/tools/make_art.py` encodes the background.
 - **`ps5/host/`** and **`ps5/tests/`**: the PS5 functions implemented on Linux (`sce_host.cpp`), the core alone
   on Linux (`fbneo_headless.cpp`: the drivers, a set's ROMs, a run with a state saved and loaded back, NVRAM,
-  DIP switches saved and read back, a driver's palette made at start), the
+  DIP switches saved and read back and in place before a driver starts, a driver's palette made at start), the
   stand-in ROM sets (`make_fake_set.py`: every ROM a driver lists, with its name and its CRC, as FBNeo's split
   sets are made), the test programs (`tests/data`: a tiny Z80 program on the Pac-Man board, red screen, green
-  while the joystick or the button is pressed), and the 209 tests: picture, rotation, input and states on a
+  while the joystick or the button is pressed), and the 211 tests: picture, rotation, input and states on a
   vertical and a horizontal game, the library (parents, BIOS sets, incomplete sets, the check's cache), a set with
   a ROM missing, DIP switches, button layouts, sound latency and pacing by the sound, 720p, install (packed
   files), covers (flyer, parent's flyer, screenshot, 404), tabs and clones, the CRT shaders (each one, both
   orientations, under ASan/UBSan), settings, fast forward and rewind, the pad, the helper and sandbox request
   (unknown titles refused, slow clients, links), covers downloaded by the helper while the shelf runs (and the
   prefetch with an older helper), debug logs, 26 boards started under ASan with a state round trip, Cabal's
-  palette, NVRAM, and the fixes of the 1.0 code review (merged sets, clones of a hidden parent,
+  palette, the DIP switches set before a driver starts, NVRAM, and the fixes of the 1.0 code review (merged sets, clones of a hidden parent,
   the check's version, repeated DIP switch names, ROMs larger than the set says).
 
 ## License and credits

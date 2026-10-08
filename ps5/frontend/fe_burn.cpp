@@ -468,6 +468,13 @@ void ApplyInputs(const burn::Input& in)
 }
 
 // ---- DIP switches (inpdipsw.cpp's rules) ---------------------------------------------------------------------
+void WriteDips()
+{
+	for (size_t i = 0; i < g.inputs.size(); i++)
+		if (g.inputs[i].kind == Kind::Dip && g.inputs[i].val)
+			*g.inputs[i].val = g.dip_value[i];
+}
+
 void DipOffset()
 {
 	g.dip_offset = 0;
@@ -1084,7 +1091,7 @@ RomCheck CheckRoms(int driver, const ZipFinder& find)
 	return check;
 }
 
-bool Load(int driver, const ZipFinder& find, std::string* error)
+bool Load(int driver, const ZipFinder& find, std::string* error, const std::string& dips)
 {
 	if (!g.inited || driver < 0 || UINT32(driver) >= nBurnDrvCount)
 		return false;
@@ -1121,6 +1128,11 @@ bool Load(int driver, const ZipFinder& find, std::string* error)
 	ScanInputs();
 	ScanDips();
 	DefaultDips();
+	if (!dips.empty())
+		LoadDips(dips);
+	// the DIP switches go into the driver before it starts (FBNeo's frontends: InputMake before BurnDrvInit), not
+	// only before the first frame: the Neo Geo loads the BIOS its switches name, other drivers read their region
+	WriteDips();
 	SizeSound();
 	g.draw_w = g.draw_h = 0;
 	g.draw.clear();

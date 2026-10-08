@@ -61,7 +61,9 @@ struct RomCheck
 RomCheck CheckRoms(int driver, const ZipFinder& find);
 
 // Starts the driver. On failure *error says why (missing ROMs listed).
-bool Load(int driver, const ZipFinder& find, std::string* error);
+// `dips`: the game's saved DIP switches (LoadDips' file), set with the defaults before the driver starts, as
+// FBNeo's frontends do (many drivers read them as they start: the Neo Geo its BIOS, others their region).
+bool Load(int driver, const ZipFinder& find, std::string* error, const std::string& dips = "");
 void Unload(); // writes the NVRAM
 bool Loaded();
 const Driver& Current();

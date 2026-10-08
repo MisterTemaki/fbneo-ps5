@@ -457,7 +457,9 @@ bool LoadGame(const std::string& path, std::string* error)
 	};
 	ApplySettings();
 	OrbisLog("[emu] loading %s (driver %d)", path.c_str(), drv);
-	if (!burn::Load(drv, find, error))
+	// the saved DIP switches go in before the driver starts (it may read them then: BIOS, region)
+	const std::string dips = OrbisDir("config") + "/" + set + ".dip";
+	if (!burn::Load(drv, find, error, dips))
 		return false;
 	const burn::Driver& d = burn::Current();
 	g.path = path;
@@ -465,8 +467,8 @@ bool LoadGame(const std::string& path, std::string* error)
 	g.title = d.title;
 	g.board = d.system;
 	g.driver = drv;
-	if (burn::LoadDips(DipPath()))
-		OrbisLog("[emu] DIP switches: %s", DipPath().c_str());
+	if (FileExists(dips))
+		OrbisLog("[emu] DIP switches: %s", dips.c_str());
 	SetTiming();
 	g.frame.clear();
 	g.fw = g.fh = 0;
