@@ -23,7 +23,7 @@
 PS5_PAYLOAD_SDK ?= /opt/ps5-payload-sdk
 PS5_HOST ?= ps5
 PS5_PORT ?= 9021
-VERSION ?= 1.0
+VERSION ?= 1.1
 TITLE_ID ?= PPSA99012
 APP_OUT := build/app/$(TITLE_ID)
 
@@ -40,14 +40,16 @@ EMU_SRC := coreorbis/main-boot.cpp \
 	coreorbis/orbis-shims/ProsperoCrash.cpp coreorbis/orbis-shims/ProsperoCrt.cpp \
 	frontend/fe_emu.cpp frontend/fe_menu.cpp frontend/fe_settings.cpp frontend/fe_text.cpp \
 	frontend/fe_games.cpp frontend/fe_http.cpp frontend/fe_covers.cpp frontend/fe_shelf.cpp \
-	frontend/fe_prefetch.cpp
+	frontend/fe_prefetch.cpp frontend/fe_coverfetch.cpp frontend/fe_coverworker.cpp
 # the glue that talks to the core (built with the core's headers and defines)
 GLUE_SRC := frontend/fe_burn.cpp core/burn_frontend.cpp
 # minizip (zlib licence) for the ROM-set zips, built as C with FBNeo's zlib
 EMU_C_SRC := frontend/third_party/unzip.c frontend/third_party/ioapi.c
 # the payloads: the helper, and the installer (= helper + install, with zlib's inflate for the compressed eboot)
+# (the helper also downloads the covers in the background: fe_coverworker.cpp, with the app's HTTPS code)
 HELPER_SRC := coreorbis/orbis-shims/orbis_paths.cpp coreorbis/orbis-shims/ProsperoNotify.cpp \
-	coreorbis/orbis-shims/ProsperoHelper.cpp
+	coreorbis/orbis-shims/ProsperoHelper.cpp coreorbis/orbis-shims/ProsperoCrash.cpp \
+	frontend/fe_http.cpp frontend/fe_coverfetch.cpp frontend/fe_coverworker.cpp
 INSTALLER_SRC := installer/installer_main.cpp $(HELPER_SRC) coreorbis/orbis-shims/ProsperoInstall.cpp
 INFLATE_C_SRC := $(addprefix $(ROOT)/src/dep/libs/zlib/,adler32.c crc32.c inffast.c inflate.c inftrees.c uncompr.c zutil.c)
 
@@ -74,7 +76,8 @@ PS5_OUT := build/ps5
 # The PS5's CPU is Zen 2 (PS5SX2 builds with the same -march). The core at -O2: -O3 makes it much bigger for little.
 PS5_OPT := -O3 -fPIC -march=znver2 -fno-strict-aliasing
 PS5_CORE_OPT := -O2 -fPIC -march=znver2 -fno-strict-aliasing -Wno-c++11-narrowing
-PS5_PAYLOAD_LIBS := -lkernel_sys
+# the payload SDK's network libraries (its http2_get sample's), for the helper's cover downloads
+PS5_PAYLOAD_LIBS := -lkernel_sys -lSceNet -lSceNetCtl -lSceSsl -lSceHttp2 -lpthread
 
 $(eval $(call core_rules,$(PS5_CORE_OUT),$(PS5_CC),$(PS5_CXX),$(PS5_CORE_OPT)))
 

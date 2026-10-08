@@ -31,7 +31,7 @@ make (the driver list, Musashi's 68000 core, the CPS, Neo Geo, Cave, Psikyo, Toa
 frontends (`src/burner`) and its libretro port host the core: ROM loading from the sets' zips, inputs, DIP
 switches, states, NVRAM, the picture turned the right way up and the sound.
 
-> **Status (1.0):** builds with the ps5-payload-dev SDK into a signed native app, and passes 205 host tests, which
+> **Status (1.1):** builds with the ps5-payload-dev SDK into a signed native app, and passes 209 host tests, which
 > run the same code (FBNeo's core included) on Linux with the PS5 calls simulated: two arcade boards running a tiny
 > test program each (a vertical and a horizontal game) are played through the whole chain -- the shelf, the pad,
 > the core, the video and sound output -- and 26 more boards start, run, save and load a state under
@@ -54,7 +54,8 @@ on the console: `FBNeoPS5.elf` is about 22 MB.
 When it opens, the app asks the helper to let it out of its sandbox; without that an app sees neither `/data`
 nor USB drives. The request is the one PS5SX2 makes:
 
-- **Who is asked, in order:** the FBNeo helper (127.0.0.1:9078), then etaHEN (9028) and the daemon on port 9069.
+- **Who is asked, in order:** the FBNeo helper (127.0.0.1:9079; 1.0's helper used 9078 and is left alone),
+  then etaHEN (9028) and the daemon on port 9069.
 - **If nobody answers:** the app carries a copy of the helper (`FBNeoPS5-helper.elf`), sends it to the ELF loader
   (127.0.0.1:9021) and asks again. So the icon keeps working after a reboot, as long as the ELF loader runs.
 - **What the helper allows:** only title PPSA99012. It gives the process the system's root folder and uid 0, as
@@ -66,9 +67,24 @@ next to Snes9x PS5 (PPSA99009, helper port 9075), Mesen2 PS5 (PPSA99010, port 90
 
 ## Versions
 
-Every release carries its version in the file name: `FBNeoPS5-v1.0.elf` (`make dist`). When updating, replace the
+Every release carries its version in the file name: `FBNeoPS5-v1.1.elf` (`make dist`). When updating, replace the
 old ELF with the new one in your autoload or Payload Manager. In this README, "`FBNeoPS5.elf`" always means the
 current release's ELF.
+
+**1.1:**
+
+- **Covers download in the background.** 1.0 downloaded them before the app opened (up to 30 s with the launch
+  screen up) and restarted itself for new ones. Now the helper downloads them while you use the app: it starts at
+  once, the covers around the selection come first, and each one appears on the shelf as it lands ("Downloading
+  covers in the background... N left").
+- **Black screen in Cabal (and other drivers that build their palette only when the frontend asks):** fixed.
+  FBNeo's own frontends ask every driver for its palette once it starts; 1.0 didn't.
+- From the 1.0 code review: merged sets (clones inside the parent's zip), a clone still listed with Show clones off
+  when its parent isn't, repeated DIP switch names kept apart, ROMs read without a second copy, the set check
+  redone after an FBNeo update.
+
+After updating, send `FBNeoPS5-v1.1.elf` once (or let the app start its helper itself): 1.0's helper keeps running
+until the console restarts, but 1.1 uses its own.
 
 **1.0:** the first release.
 
@@ -87,10 +103,10 @@ Every screen and notification of FBNeo PS5 is in English.
 
 1. **Send `FBNeoPS5.elf`** with PS5 Payload Manager, or from a PC on the same network:
    ```sh
-   nc -q0 PS5_IP 9021 < FBNeoPS5-v1.0.elf
+   nc -q0 PS5_IP 9021 < FBNeoPS5-v1.1.elf
    ```
    It installs the app in `/data/homebrew/PPSA99012/` (`eboot.bin`, `sce_module/libc.prx`, `param.json`, the
-   icon and the backgrounds), shows **"FBNeo PS5 1.0 installed. Open it from the FBNeo PS5 icon on the home
+   icon and the backgrounds), shows **"FBNeo PS5 1.1 installed. Open it from the FBNeo PS5 icon on the home
    screen."** and stays running as the helper.
 2. **Open the FBNeo PS5 icon.** The game shelf appears and the controller works.
 3. **Copy your ROM sets** to `/data/fbneo/roms/` (over FTP, for example), or to `fbneo/roms/` on a USB drive.
@@ -199,15 +215,17 @@ wordmark: **github.com/MisterTemaki**.
   maker and the letter (and starts on the last game played).
 - **Clones:** the other versions of a game (other regions, revisions, bootlegs) are listed after it; Settings,
   **Show clones**, hides them (a clone still shows when its parent isn't listed, so no game disappears).
-- **Automatic covers, the PS5SX2 way:** the art comes from libretro-thumbnails' **FBNeo - Arcade Games** collection
-  over HTTPS, with the console's own `libSceHttp2`/`libSceSsl`, in a **prefetch** step as the app opens, before
-  it asks for `/data` (30 s budget), exactly as PS5SX2 does. For each game, in order: its flyer (`Named_Boxarts`),
-  its parent's flyer (most clones have none of their own), then a picture of the game (`Named_Snaps`), its own or
-  its parent's.
-  - Every start writes the missing covers to `/data/fbneo/covers/wanted.txt`; the helper hands that list to the
-    app at the next start, and the prefetch fetches them.
-  - **New games:** when the app finds covers it hasn't tried yet, it shows "Downloading covers..." and
-    **restarts itself** (as PS5SX2 re-executes its own eboot); the covers arrive on that start.
+- **Automatic covers, in the background:** the art comes from libretro-thumbnails' **FBNeo - Arcade Games**
+  collection over HTTPS, with the console's own `libSceHttp2`/`libSceSsl`. For each game, in order: its flyer
+  (`Named_Boxarts`), its parent's flyer (most clones have none of their own), then a picture of the game
+  (`Named_Snaps`), its own or its parent's.
+  - The app can't download once it is out of its sandbox, so the **helper** does it (a payload with network access
+    of its own), while you use the app. The app opens at once and lists the missing covers in
+    `/data/fbneo/covers/wanted.txt`, and the ones around the selection in `covers/priority.txt` (fetched first);
+    the helper downloads them one by one, and each cover replaces its card on the shelf as it lands. The top right
+    corner shows "Downloading covers in the background... N left". The helper keeps going while the app is closed.
+  - With another jailbreak daemon instead of the FBNeo helper (etaHEN, 9069), 1.0's way still works: a prefetch
+    before the app asks for `/data` (30 s), and a restart when new games need covers.
   - Covers are kept in `covers/FBNeo/<the game's full name>.png` and never downloaded twice. A cover the server
     doesn't have is marked (`.missing`) and only looked for again after 30 days; **Square** forces a new try.
   - Without a network nothing is tried and the shelf works the same.
@@ -385,7 +403,7 @@ If something fails, send the files in `/data/fbneo/logs/`: `boot.log` (the app),
 plus the previous session's `.prev.log` files. They record every step:
 
 - the sandbox request and who answered;
-- the cover prefetch, cover by cover;
+- the covers, one by one (`helper.log`: the background downloads; `boot.log`: the prefetch, when there is one);
 - every `sceVideoOut*` call, and the picture's size and place on the screen;
 - the controller handle and its first read;
 - the sets found, their names and boards, and the ROMs a set is missing;
@@ -419,7 +437,7 @@ make ps5 -j$(nproc)              # build/ps5/FBNeoPS5.elf (installer + helper, w
 make send PS5_HOST=192.168.0.10  # sends it to elfldr (port 9021)
 make dist                        # build/dist/FBNeoPS5-v<version>.elf
 make app                         # only build/app/PPSA99012/, to copy by hand
-make test                        # Linux builds (app, installer, helper, headless core) + 205 host tests (ASan/UBSan)
+make test                        # Linux builds (app, installer, helper, headless core) + 209 host tests (ASan/UBSan)
 ```
 
 The first build compiles FBNeo's 1,039 core files (about 15 minutes on 2 cores; `make core-ps5` builds just those).
@@ -441,10 +459,10 @@ The build has three stages:
 
 ## Source layout
 
-- **`ps5/coreorbis/main-boot.cpp`**: the app's entry point (`eboot.bin`). Prefetches covers, asks to leave the
+- **`ps5/coreorbis/main-boot.cpp`**: the app's entry point (`eboot.bin`). Asks the helper for the covers (or prefetches them), asks to leave the
   sandbox, brings up log, folders, video, sound and pads, starts the core, and hands over to the frontend on a
   thread with a 16 MiB stack. Exits through the system (`sceSystemServiceLoadExec("exit")`), as PS5SX2 does.
-- **`ps5/installer/installer_main.cpp`**: `FBNeoPS5.elf` (installs the app and stays as the helper) and, built with
+- **`ps5/installer/installer_main.cpp`**: `FBNeoPS5.elf` (installs the app and stays as the helper, which also downloads the covers) and, built with
   `FBNEO_HELPER_ONLY`, `FBNeoPS5-helper.elf`.
 - **`ps5/coreorbis/orbis-shims/`**: the PS5 layer (video, CRT shaders, audio, pads, the sandbox request and the
   helper, the install, crash reports, notifications, `/data/fbneo` and the logs), shared with Genesis Plus GX PS5.
@@ -458,6 +476,8 @@ The build has three stages:
     rewind, the picture and its overlays;
   - `fe_games.cpp`: the library (sets, parents, BIOS sets, the ROM check and its cache, the tabs);
   - `fe_shelf.cpp`, `fe_covers.cpp`, `fe_prefetch.cpp`, `fe_http.cpp`: the 3D shelf and covers;
+  - `fe_coverworker.cpp`, `fe_coverfetch.cpp`: the helper's background downloads, and the fetch code the app and
+    the helper share;
   - `fe_menu.cpp`, `fe_settings.cpp`, `fe_text.cpp`: menus (the pause menu's DIP switches included), settings, text
     with PS5SX2's fonts;
   - `third_party/`: minizip (unzip.c, ioapi.c), stb.
@@ -466,16 +486,17 @@ The build has three stages:
 - **`ps5/app/sce_sys/`**: param.json, icon and backgrounds; `ps5/tools/make_art.py` encodes the background.
 - **`ps5/host/`** and **`ps5/tests/`**: the PS5 functions implemented on Linux (`sce_host.cpp`), the core alone
   on Linux (`fbneo_headless.cpp`: the drivers, a set's ROMs, a run with a state saved and loaded back, NVRAM,
-  DIP switches saved and read back), the
+  DIP switches saved and read back, a driver's palette made at start), the
   stand-in ROM sets (`make_fake_set.py`: every ROM a driver lists, with its name and its CRC, as FBNeo's split
   sets are made), the test programs (`tests/data`: a tiny Z80 program on the Pac-Man board, red screen, green
-  while the joystick or the button is pressed), and the 205 tests: picture, rotation, input and states on a
+  while the joystick or the button is pressed), and the 209 tests: picture, rotation, input and states on a
   vertical and a horizontal game, the library (parents, BIOS sets, incomplete sets, the check's cache), a set with
   a ROM missing, DIP switches, button layouts, sound latency and pacing by the sound, 720p, install (packed
   files), covers (flyer, parent's flyer, screenshot, 404), tabs and clones, the CRT shaders (each one, both
   orientations, under ASan/UBSan), settings, fast forward and rewind, the pad, the helper and sandbox request
-  (unknown titles refused, slow clients, links), the cover prefetch, debug logs, 26 boards started under ASan
-  with a state round trip, NVRAM, and the fixes of the 1.0 code review (merged sets, clones of a hidden parent,
+  (unknown titles refused, slow clients, links), covers downloaded by the helper while the shelf runs (and the
+  prefetch with an older helper), debug logs, 26 boards started under ASan with a state round trip, Cabal's
+  palette, NVRAM, and the fixes of the 1.0 code review (merged sets, clones of a hidden parent,
   the check's version, repeated DIP switch names, ROMs larger than the set says).
 
 ## License and credits

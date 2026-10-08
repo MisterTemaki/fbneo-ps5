@@ -439,7 +439,7 @@ expect "[ \$(grep -c 'sceVideoOutOpen -> .*80290009' $T/root/logs/boot.log) = 3 
 fi
 
 if want 18; then
-echo "== 18. covers as PS5SX2: prefetched before asking for /data; new games restart the app to fetch them"
+echo "== 18. covers in the background: the helper downloads them while the shelf runs; an older helper: the prefetch"
 stop_helpers
 T=$(newroot t18)
 SRV=$T/srv/FBNeo_-_Arcade_Games/Named_Boxarts; mkdir -p "$SRV" "$T/root/covers"
@@ -451,17 +451,56 @@ SRVPID=$!
 FBNEO_PS5_ROOT=$T/root ASAN_OPTIONS=detect_leaks=0 timeout 120 "$HELPER" >"$T/helper.txt" 2>&1 &
 waitfor "$T/root/logs/helper.log" "listening" || sleep 1
 URL="http://127.0.0.1:$PORT/\${repo}/\${kind}/\${name}.png"
-SHELFQUIT="0:0;$(SHELFQUIT_AT 30)"
-rc=$(OFFLINE= COVER_URL="$URL" run "$T" "$SHELFQUIT" "")
-expect "grep -q '^FBNeo/Ponpoko.png	' $T/root/covers/wanted.txt" "first start: the missing cover goes to covers/wanted.txt"
-expect "grep -q 'restarting .* so the prefetch gets them' $T/root/logs/boot*.log" "first start: the app restarts itself for the new cover"
-rm -f "$T/root/covers/restart.stamp"
-rc=$(OFFLINE= COVER_URL="$URL" run "$T" "$SHELFQUIT" "")
-expect "[ $rc = 0 ]" "second start: exit code 0 (got $rc)"
-expect "cmp -s '$T/root/covers/FBNeo/Ponpoko.png' '$SRV/Ponpoko.png'" "second start: the cover was prefetched and saved"
-expect "awk '/\[prefetch\] 1 of 1 fetched/{p=NR} /\[jailbreak\] pid/{j=NR} END{exit !(p && j && p<j)}' $T/root/logs/boot.log" "the download happened before the request for /data"
-expect "[ ! -s $T/root/covers/wanted.txt ]" "second start: the wanted list is empty"
+start=$(date +%s)
+rc=$(OFFLINE= COVER_URL="$URL" FBNEO_HOST_REALTIME=1 run "$T" "0:0;$(SHELFQUIT_AT 300)" "20,280")
+secs=$(( $(date +%s) - start ))
+expect "[ $rc = 0 ]" "exit code 0 (got $rc)"
+expect "grep -q 'the helper downloads the covers while the app runs: nothing to wait for' $T/root/logs/boot.log && ! grep -q 'restarting' $T/root/logs/boot*.log" "the app starts at once: no download before /data, no restart"
+expect "grep -q '^FBNeo/Ponpoko.png	' $T/root/covers/wanted.txt" "the missing cover goes to covers/wanted.txt"
+expect "grep -q 'FBNeo/Ponpoko.png -> 200' $T/root/logs/helper.log && cmp -s '$T/root/covers/FBNeo/Ponpoko.png' '$SRV/Ponpoko.png'" "the helper downloaded it into covers/FBNeo"
+expect "! $CHECK $T/dump/flip00020.ppm 960 420 255 0 0 >/dev/null 2>&1 && $CHECK $T/dump/flip00280.ppm 960 420 255 0 0 >/dev/null" "the shelf showed its card, then the cover once it landed"
+expect "grep -q '^0 1 idle' $T/root/covers/progress.txt" "covers/progress.txt: nothing left, 1 fetched"
 kill $SRVPID 2>/dev/null
+stop_helpers
+# an older helper (1.0's protocol: the list without "covers: background"): the prefetch before /data, as before
+T=$(newroot t18b)
+mkdir -p "$T/srv/FBNeo_-_Arcade_Games/Named_Boxarts" "$T/root/covers"
+cp "$SRV/Ponpoko.png" "$T/srv/FBNeo_-_Arcade_Games/Named_Boxarts/"
+addset ponpoko "$T/root/roms"
+(cd "$T/srv" && exec python3 -m http.server $PORT --bind 127.0.0.1 >/dev/null 2>&1) &
+SRVPID=$!
+printf 'FBNeo/Ponpoko.png\thttp://127.0.0.1:%s/FBNeo_-_Arcade_Games/Named_Boxarts/Ponpoko.png\n' $PORT >"$T/wanted.txt"
+python3 - "$FBNEO_HELPER_PORT" "$T/wanted.txt" <<'PY' &
+import socket, struct, sys, time
+s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(('127.0.0.1', int(sys.argv[1]))); s.listen(4); s.settimeout(60)
+text = open(sys.argv[2], 'rb').read()
+end = time.time() + 60
+while time.time() < end:
+    try:
+        c, _ = s.accept()
+    except OSError:
+        break
+    req = b''
+    while len(req) < 0xA10:
+        d = c.recv(0xA10 - len(req))
+        if not d: break
+        req += d
+    if len(req) == 0xA10:
+        magic, cmd, pid, ret = struct.unpack_from('<IiiI', req, 0)
+        out = bytearray(req)
+        if cmd == 6:
+            struct.pack_into('<i', out, 12, len(text)); c.sendall(bytes(out) + text)
+        elif cmd == 5:
+            struct.pack_into('<i', out, 12, 0); out[16:18] = b'ok'; c.sendall(bytes(out))
+    c.close()
+PY
+OLDPID=$!
+sleep 0.5
+rc=$(OFFLINE= COVER_URL="http://127.0.0.1:$PORT/\${repo}/\${kind}/\${name}.png" run "$T" "0:0;$(SHELFQUIT_AT 30)" "")
+expect "[ $rc = 0 ]" "exit code 0 (got $rc)"
+expect "grep -q '\[prefetch\] 1 of 1 fetched' $T/root/logs/boot.log && cmp -s '$T/root/covers/FBNeo/Ponpoko.png' '$SRV/Ponpoko.png'" "an older helper: the cover is prefetched before /data and saved"
+kill $OLDPID $SRVPID 2>/dev/null
 stop_helpers
 fi
 
@@ -563,6 +602,14 @@ for g in $GAMES; do
 	mkset $g
 	o=$("$HEADLESS" run "$SETS/$g" $g 120 --state 2>"$WORK/h21-$g.err"); rc=$?
 	expect "[ $rc = 0 ] && echo '$o' | grep -q 'state replay same' && ! grep -q 'AddressSanitizer\|runtime error' $WORK/h21-$g.err" "$g: $(echo "$o" | head -1 | cut -c1-60)"
+done
+# Cabal and Cobra Command build their palette only when the frontend asks (FBNeo's frontends do, after starting a driver): without
+# that its screen stayed black. RAM filled with 0x5a, one frame: the picture has colours.
+for g in cabal cobracom; do
+	mkset $g
+	o=$("$HEADLESS" palette "$SETS/$g" $g 2>"$WORK/h21-$g.err"); rc=$?
+	lit=$(echo "$o" | sed -n 's/.* lit \([0-9]*\).*/\1/p')
+	expect "[ $rc = 0 ] && [ \"\${lit:-0}\" -gt 0 ]" "$g: the palette is made at start (${lit:-0} pixels lit, 0 = black screen)"
 done
 # every arcade driver's sets are listed, and the console drivers aren't
 n=$("$HEADLESS" list 2>/dev/null | wc -l)

@@ -858,7 +858,10 @@ void LoadNvram()
 void FeBurnReinitialiseVideo()
 {
 	if (g.loaded || bDrvOkay)
+	{
 		SizeDrawBuffer();
+		BurnRecalcPal(); // as FBNeo's VidReinit does (SetBurnHighCol)
+	}
 }
 
 // ---- the core's ZipLoadOneFile (samples.cpp): one file of <arcName>.zip, by name; *Dest malloc'd when NULL ------
@@ -1134,6 +1137,9 @@ bool Load(int driver, const ZipFinder& find, std::string* error)
 		return false;
 	}
 	bDrvOkay = 1;
+	// FBNeo's own frontends ask every driver for its whole palette once the video is set up (SetBurnHighCol ->
+	// VidRecalcPal); some build it only then (Cabal: black screen without it)
+	BurnRecalcPal();
 	g.loaded = true;
 	g.reset_frames = 0;
 	SizeSound();

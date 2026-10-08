@@ -7,6 +7,8 @@
 //   fbneo_headless dips <rom dir> <set>           moves the DIP switches off their defaults (a group named like an earlier
 //       one stays as it is), saves them (SaveDips), loads the set again, reads them back (LoadDips) and checks that each
 //       group has its setting back
+//   fbneo_headless palette <rom dir> <set>        fills the set's RAM (palette and video RAM too) with 0x5a and draws a
+//       frame: "lit N" counts the pixels that aren't black (0 when the driver never made its palette)
 //   fbneo_headless run <rom dir> <set> <frames> [out.ppm] [--state] [--dips] [--press N]
 //       runs the set for N frames (no input but coin+start pressed at frames 60 and 90 and fire 1 every 8 frames
 //       after 120), writes the last picture as a PPM, prints the picture size, the sound's level and a picture
@@ -167,6 +169,35 @@ int main(int argc, char** argv)
 		burn::Unload();
 		burn::Exit();
 		return all && bytes ? 0 : 6;
+	}
+	if (cmd == "palette" && argc > 3)
+	{
+		const std::string dir = argv[2];
+		const int drv = burn::FindDriver(argv[3]);
+		auto find = [&](const std::string& set) {
+			const std::string p = dir + "/" + set + ".zip";
+			struct stat st = {};
+			return stat(p.c_str(), &st) == 0 ? p : std::string();
+		};
+		std::string error;
+		if (drv < 0 || !burn::Load(drv, find, &error))
+			return 3;
+		BurnAcb = [](struct BurnArea* ba) -> INT32 {
+			if (ba->Data && ba->nLen)
+				memset(ba->Data, 0x5a, ba->nLen);
+			return 0;
+		};
+		BurnAreaScan(ACB_MEMORY_RAM | ACB_WRITE, nullptr);
+		burn::RunFrame(burn::Input(), true);
+		int w = 0, h = 0;
+		const uint32_t* px = burn::Picture(&w, &h);
+		long lit = 0;
+		for (long i = 0; px && i < long(w) * h; i++)
+			lit += (px[i] & 0xffffff) ? 1 : 0;
+		printf("picture %dx%d lit %ld\n", w, h, lit);
+		burn::Unload();
+		burn::Exit();
+		return 0;
 	}
 	if (cmd == "dips" && argc > 3)
 	{
