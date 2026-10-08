@@ -16,9 +16,16 @@ default parameters. Their authors and licences follow.
 | crt-hyllian-fast | `crt/shaders/hyllian/crt-hyllian-fast.slang` (ported to GLSL/slang by DariusG & hunterk) | Hyllian | MIT |
 | crt-nobody | `crt/shaders/crt-nobody.slang` | Hyllian | MIT |
 | crt-blurPi | `crt/shaders/crt-blurPi.slang` | Oriol Ferrer Mesià (armadillu) | MIT |
+| ScaleFX (passes 0-4) | `edge-smoothing/scalefx/shaders/scalefx-pass0..4.slang` | Sp00kyFox | MIT |
+| rAA post-3x (passes 0-1) | `anti-aliasing/shaders/reverse-aa-post3x/` (after Christoph Feck's reverse antialiasing) | Sp00kyFox | MIT |
 
 "CRT Easymode style" follows the look of EasyMode's crt-easymode (`crt/shaders/crt-easymode.slang`, GPL) but
 contains none of its code: the GPL can't be combined with FBNeo's licence.
+
+"ScaleFX + rAA + AA style" is libretro's preset `presets/scalefx-plus-smoothing/scalefx+rAA+aa-fast.slangp` up to
+its anti-aliasing: ScaleFX and rAA post-3x as above. The preset's last three passes are not included -- FXAA
+(NVIDIA: its notice gives no permission to copy), guest(r)'s AA shader 4.0 and deblur (GPL, which FBNeo's
+licence can't take in) -- and original code with the same purpose takes their place.
 
 ## Unlicense (crt-lottes-fast, newpixie-mini)
 
@@ -37,8 +44,10 @@ WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEM
 LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-## MIT (crt-hyllian-fast, crt-nobody, crt-blurPi)
+## MIT (crt-hyllian-fast, crt-nobody, crt-blurPi, ScaleFX, rAA post-3x)
 
+ScaleFX: Copyright (c) 2016 Sp00kyFox - ScaleFX@web.de
+rAA post-3x: Copyright (c) 2018 Sp00kyFox - ScaleFX@web.de
 crt-hyllian-fast: Copyright (C) 2011-2015 Hyllian - sergiogdb@gmail.com
 crt-nobody: Copyright (C) 2011-2025 Hyllian - sergiogdb@gmail.com
 crt-blurPi: Made by Oriol Ferrer Mesià (armadillu), http://uri.cat

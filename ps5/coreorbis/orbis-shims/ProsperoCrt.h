@@ -32,6 +32,7 @@ enum class Shader : int
 	BlurPiSharp, // crt-blurPi-sharp (Oriol Ferrer Mesia, MIT)
 	BlurPiSoft, // crt-blurPi-soft (Oriol Ferrer Mesia, MIT)
 	MonoCrt, // monoCRT (hunterk, public domain)
+	ScaleFxRaa, // ScaleFX + rAA post-3x (Sp00kyFox, MIT), then an original smoothing / deblur (scalefx+rAA+aa-fast's look)
 	Count
 };
 

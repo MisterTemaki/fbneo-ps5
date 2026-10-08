@@ -1355,6 +1355,501 @@ struct NewpixieMini
 	}
 };
 
+// ===================================================================================================================
+// ScaleFX + rAA + AA style. The first part is libretro's preset scalefx+rAA+aa-fast up to its anti-aliasing:
+//   ScaleFX (Sp00kyFox, MIT), its five passes: the picture 3x, edges interpolated up to level 6, only colours of
+//   the original; then rAA post-3x (Sp00kyFox, MIT), reverse anti-aliasing, horizontal then vertical.
+// The preset ends with FXAA, guest(r)'s AA shader 4.0 (2x) and guest(r)'s deblur, which can't be built in here
+// (the last two are GPL, FXAA's notice gives no permission to copy). Original code takes their place with the same
+// purpose: an edge-directed smoothing at 3x, the scale to the screen (bilinear), and a deblur that pushes each pixel
+// back towards the nearest of its texels' extremes (sharp edges, no ringing).
+// Parameters: the preset's SFX_CLR 0.5, SFX_SAA 0, SFX_SCN 0; rAA's defaults (sharpness 2, smoothness 0.5,
+// deviation 1). Texels outside the picture: the nearest edge one.
+// scalefx-pass3's lines are copied as they are (&& before ||, as in GLSL): no parentheses added to them
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wparentheses"
+struct ScaleFxRaa
+{
+	struct M4 // pass0 metric / pass1 strength
+	{
+		float x, y, z, w;
+	};
+	struct F4 // pass2: corners, horizontal and vertical edges, orientation
+	{
+		bool c[4], h[4], v[4], o[4];
+	};
+	struct S8 // pass3: the subpixel picked for each corner and middle
+	{
+		uint8_t crn[4], mid[4];
+	};
+	static constexpr float kClr = 0.5f; // SFX_CLR
+	static constexpr bool kSaa = false; // SFX_SAA
+	static constexpr bool kScn = false; // SFX_SCN
+	static constexpr float kShr = 2.f, kSmt = 0.5f, kDvt = 1.f; // rAA
+
+	int w = 0, h = 0, W = 0, H = 0; // source, and 3x
+	std::vector<V3> src;
+	std::vector<M4> m0, m1;
+	std::vector<F4> p2;
+	std::vector<S8> p3;
+	std::vector<V3> big, tmp; // 3x pictures
+	int key_dw = 0, key_dh = 0;
+	std::vector<int> xa, xb; // per screen column: the two 3x texels it falls between (clamped)
+	std::vector<float> xf;
+	std::vector<uint32_t> packed; // the smoothed 3x picture in the surface's format
+
+	template <class T>
+	static const T& At(const std::vector<T>& v, int x, int y, int w_, int h_)
+	{
+		return v[size_t(Clampi(y, 0, h_ - 1)) * w_ + Clampi(x, 0, w_ - 1)];
+	}
+	const V3& S(int x, int y) const { return At(src, x, y, w, h); }
+	const M4& A0(int x, int y) const { return At(m0, x, y, w, h); }
+	const M4& A1(int x, int y) const { return At(m1, x, y, w, h); }
+	const F4& A2(int x, int y) const { return At(p2, x, y, w, h); }
+
+	// Reference: http://www.compuphase.com/cmetric.htm (scalefx-pass0)
+	static float Dist(V3 a, V3 b)
+	{
+		const float r = 0.5f * (a.r + b.r);
+		const V3 d = a - b;
+		return std::sqrt((2.f + r) * d.r * d.r + 4.f * d.g * d.g + (3.f - r) * d.b * d.b) / 3.f;
+	}
+	// corner strength (scalefx-pass1)
+	static float Str(float d, float ax, float ay, float bx, float by)
+	{
+		const float diff = ax - ay;
+		const float wght1 = std::max(kClr - d, 0.f) / kClr;
+		const float wght2 = Sat((1.f - d) + (std::min(ax, bx) + ax > std::min(ay, by) + ay ? diff : -diff));
+		return (kSaa || 2.f * d < ax + ay) ? (wght1 * wght2) * (ax * ay) : 0.f;
+	}
+	// necessary but not sufficient junction condition for orthogonal edges (scalefx-pass2)
+	static bool Clear(float cx, float cy, float ax, float ay, float bx, float by)
+	{
+		return cx >= std::max(std::min(ax, ay), std::min(bx, by)) && cy >= std::max(std::min(ax, by), std::min(bx, ay));
+	}
+
+	void Pass0()
+	{
+		ParallelFor(h, [&](int y0, int y1) {
+			for (int y = y0; y < y1; y++)
+				for (int x = 0; x < w; x++)
+				{
+					const V3 E = S(x, y);
+					m0[size_t(y) * w + x] = {Dist(E, S(x - 1, y - 1)), Dist(E, S(x, y - 1)), Dist(E, S(x + 1, y - 1)),
+						Dist(E, S(x + 1, y))};
+				}
+		});
+	}
+	void Pass1()
+	{
+		ParallelFor(h, [&](int y0, int y1) {
+			for (int y = y0; y < y1; y++)
+				for (int x = 0; x < w; x++)
+				{
+					const M4 &A = A0(x - 1, y - 1), &B = A0(x, y - 1);
+					const M4 &D = A0(x - 1, y), &E = A0(x, y), &F = A0(x + 1, y);
+					const M4 &G = A0(x - 1, y + 1), &Hh = A0(x, y + 1), &I = A0(x + 1, y + 1);
+					m1[size_t(y) * w + x] = {Str(D.z, D.w, E.y, A.w, D.y), Str(F.x, E.w, E.y, B.w, F.y),
+						Str(Hh.z, E.w, Hh.y, Hh.w, I.y), Str(Hh.x, D.w, Hh.y, G.w, G.y)};
+				}
+		});
+	}
+	// A junction of four pixels P0..P3 (clockwise from the top left), each one's corner c_k = (z, w, x, y)[k]:
+	// strength jS and dominance jD (2 * the corner - its two neighbouring corners), then the majority vote.
+	static void Junction(const M4& p0, const M4& p1, const M4& p2_, const M4& p3, float jS[4], float j[4])
+	{
+		const float jD[4] = {2.f * p0.z - (p0.y + p0.w), 2.f * p1.w - (p1.z + p1.x), 2.f * p2_.x - (p2_.w + p2_.y),
+			2.f * p3.y - (p3.x + p3.z)};
+		jS[0] = p0.z, jS[1] = p1.w, jS[2] = p2_.x, jS[3] = p3.y;
+		for (int k = 0; k < 4; k++)
+		{
+			const float n1 = jD[(k + 1) & 3], n3 = jD[(k + 3) & 3], n2 = jD[(k + 2) & 3];
+			const float v = (jD[k] > 0.f ? 1.f : 0.f) *
+							((n1 <= 0.f ? 1.f : 0.f) * (n3 <= 0.f ? 1.f : 0.f) + (jD[k] + n2 > n1 + n3 ? 1.f : 0.f));
+			j[k] = std::min(v, 1.f);
+		}
+	}
+	// inject strength without creating new contradictions: E is pixel e of the junction
+	static float Inject(const float jS[4], const float j[4], int e)
+	{
+		const int a = (e + 3) & 3, b = (e + 1) & 3, c = (e + 2) & 3;
+		const float v = j[e] + (1.f - j[a]) * (1.f - j[b]) * (jS[e] > 0.f ? 1.f : 0.f) *
+								   (j[c] + (jS[e] + jS[c] > jS[a] + jS[b] ? 1.f : 0.f));
+		return std::min(v, 1.f);
+	}
+	void Pass2()
+	{
+		ParallelFor(h, [&](int y0, int y1) {
+			for (int y = y0; y < y1; y++)
+				for (int x = 0; x < w; x++)
+				{
+					const M4 &A = A0(x - 1, y - 1), &B = A0(x, y - 1);
+					const M4 &D = A0(x - 1, y), &E = A0(x, y), &F = A0(x + 1, y);
+					const M4 &G = A0(x - 1, y + 1), &Hh = A0(x, y + 1), &I = A0(x + 1, y + 1);
+					const M4 &As = A1(x - 1, y - 1), &Bs = A1(x, y - 1), &Cs = A1(x + 1, y - 1);
+					const M4 &Ds = A1(x - 1, y), &Es = A1(x, y), &Fs = A1(x + 1, y);
+					const M4 &Gs = A1(x - 1, y + 1), &Hs = A1(x, y + 1), &Is = A1(x + 1, y + 1);
+					float jSx[4], jx[4], jSy[4], jy[4], jSz[4], jz[4], jSw[4], jw[4];
+					Junction(As, Bs, Es, Ds, jSx, jx);
+					Junction(Bs, Cs, Fs, Es, jSy, jy);
+					Junction(Es, Fs, Is, Hs, jSz, jz);
+					Junction(Ds, Es, Hs, Gs, jSw, jw);
+					float res[4] = {Inject(jSx, jx, 2), Inject(jSy, jy, 3), Inject(jSz, jz, 0), Inject(jSw, jw, 1)};
+					// single pixel & end of line detection
+					const float jE[4] = {jx[2], jy[3], jz[0], jw[1]};
+					float out[4];
+					for (int k = 0; k < 4; k++)
+						out[k] = std::min(res[k] * (jE[k] + (1.f - res[(k + 3) & 3] * res[(k + 1) & 3])), 1.f);
+					const bool clr[4] = {Clear(D.z, E.x, D.w, E.y, A.w, D.y), Clear(F.x, E.z, E.w, E.y, B.w, F.y),
+						Clear(Hh.z, I.x, E.w, Hh.y, Hh.w, I.y), Clear(Hh.x, G.z, D.w, Hh.y, G.w, G.y)};
+					const float hh[4] = {std::min(D.w, A.w), std::min(E.w, B.w), std::min(E.w, Hh.w), std::min(D.w, G.w)};
+					const float vv[4] = {std::min(E.y, D.y), std::min(E.y, F.y), std::min(Hh.y, I.y), std::min(Hh.y, G.y)};
+					const float ho[4] = {D.w, E.w, E.w, D.w}, vo[4] = {E.y, E.y, Hh.y, Hh.y};
+					F4& f = p2[size_t(y) * w + x];
+					for (int k = 0; k < 4; k++)
+					{
+						f.c[k] = out[k] > 0.5f;
+						f.h[k] = hh[k] < vv[k] && clr[k];
+						f.v[k] = hh[k] > vv[k] && clr[k];
+						f.o[k] = hh[k] + ho[k] > vv[k] + vo[k];
+					}
+				}
+		});
+	}
+	struct B4
+	{
+		bool x, y, z, w;
+	};
+	struct B2
+	{
+		bool x, y;
+	};
+	static B4 C(const F4& f) { return {f.c[0], f.c[1], f.c[2], f.c[3]}; }
+	static B4 Hz(const F4& f) { return {f.h[0], f.h[1], f.h[2], f.h[3]}; }
+	static B4 Vt(const F4& f) { return {f.v[0], f.v[1], f.v[2], f.v[3]}; }
+	static B4 Or(const F4& f) { return {f.o[0], f.o[1], f.o[2], f.o[3]}; }
+	void Pass3()
+	{
+		ParallelFor(h, [&](int y0, int y1) {
+			for (int y = y0; y < y1; y++)
+				for (int x = 0; x < w; x++)
+				{
+					const F4 &E = A2(x, y);
+					const F4 &D = A2(x - 1, y), &D0 = A2(x - 2, y), &D1 = A2(x - 3, y);
+					const F4 &F = A2(x + 1, y), &F0 = A2(x + 2, y), &F1 = A2(x + 3, y);
+					const F4 &B = A2(x, y - 1), &B0 = A2(x, y - 2), &B1 = A2(x, y - 3);
+					const F4 &Hh = A2(x, y + 1), &H0 = A2(x, y + 2), &H1 = A2(x, y + 3);
+					const B4 Ec = C(E), Eh = Hz(E), Ev = Vt(E), Eo = Or(E);
+					const B4 Dc = C(D), Dh = Hz(D), Do = Or(D), D0c = C(D0), D0h = Hz(D0), D1h = Hz(D1);
+					const B4 Fc = C(F), Fh = Hz(F), Fo = Or(F), F0c = C(F0), F0h = Hz(F0), F1h = Hz(F1);
+					const B4 Bc = C(B), Bv = Vt(B), Bo = Or(B), B0c = C(B0), B0v = Vt(B0), B1v = Vt(B1);
+					const B4 Hc = C(Hh), Hv = Vt(Hh), Ho = Or(Hh), H0c = C(H0), H0v = Vt(H0), H1v = Vt(H1);
+					// scalefx-pass3, as written there
+					const bool lvl1x = Ec.x && (Dc.z || Bc.z || kScn);
+					const bool lvl1y = Ec.y && (Fc.w || Bc.w || kScn);
+					const bool lvl1z = Ec.z && (Fc.x || Hc.x || kScn);
+					const bool lvl1w = Ec.w && (Dc.y || Hc.y || kScn);
+					const B2 lvl2x{(Ec.x && Eh.y) && Dc.z, (Ec.y && Eh.x) && Fc.w};
+					const B2 lvl2y{(Ec.y && Ev.z) && Bc.w, (Ec.z && Ev.y) && Hc.x};
+					const B2 lvl2z{(Ec.w && Eh.z) && Dc.y, (Ec.z && Eh.w) && Fc.x};
+					const B2 lvl2w{(Ec.x && Ev.w) && Bc.z, (Ec.w && Ev.x) && Hc.y};
+					const B2 lvl3x{lvl2x.y && (Dh.y && Dh.x) && Fh.z, lvl2w.y && (Bv.w && Bv.x) && Hv.z};
+					const B2 lvl3y{lvl2x.x && (Fh.x && Fh.y) && Dh.w, lvl2y.y && (Bv.z && Bv.y) && Hv.w};
+					const B2 lvl3z{lvl2z.x && (Fh.w && Fh.z) && Dh.x, lvl2y.x && (Hv.y && Hv.z) && Bv.x};
+					const B2 lvl3w{lvl2z.y && (Dh.z && Dh.w) && Fh.y, lvl2w.x && (Hv.x && Hv.w) && Bv.y};
+					const B2 lvl4x{(Dc.x && Dh.y && Eh.x && Eh.y && Fh.x && Fh.y) && (D0c.z && D0h.w),
+						(Bc.x && Bv.w && Ev.x && Ev.w && Hv.x && Hv.w) && (B0c.z && B0v.y)};
+					const B2 lvl4y{(Fc.y && Fh.x && Eh.y && Eh.x && Dh.y && Dh.x) && (F0c.w && F0h.z),
+						(Bc.y && Bv.z && Ev.y && Ev.z && Hv.y && Hv.z) && (B0c.w && B0v.x)};
+					const B2 lvl4z{(Fc.z && Fh.w && Eh.z && Eh.w && Dh.z && Dh.w) && (F0c.x && F0h.y),
+						(Hc.z && Hv.y && Ev.z && Ev.y && Bv.z && Bv.y) && (H0c.x && H0v.w)};
+					const B2 lvl4w{(Dc.w && Dh.z && Eh.w && Eh.z && Fh.w && Fh.z) && (D0c.y && D0h.x),
+						(Hc.w && Hv.x && Ev.w && Ev.x && Bv.w && Bv.x) && (H0c.y && H0v.z)};
+					const B2 lvl5x{lvl4x.x && (F0h.x && F0h.y) && (D1h.z && D1h.w), lvl4y.x && (D0h.y && D0h.x) && (F1h.w && F1h.z)};
+					const B2 lvl5y{lvl4y.y && (H0v.y && H0v.z) && (B1v.w && B1v.x), lvl4z.y && (B0v.z && B0v.y) && (H1v.x && H1v.w)};
+					const B2 lvl5z{lvl4w.x && (F0h.w && F0h.z) && (D1h.y && D1h.x), lvl4z.x && (D0h.z && D0h.w) && (F1h.x && F1h.y)};
+					const B2 lvl5w{lvl4x.y && (H0v.x && H0v.w) && (B1v.z && B1v.y), lvl4w.y && (B0v.w && B0v.x) && (H1v.y && H1v.z)};
+					const B2 lvl6x{lvl5x.y && (D1h.y && D1h.x), lvl5w.y && (B1v.w && B1v.x)};
+					const B2 lvl6y{lvl5x.x && (F1h.x && F1h.y), lvl5y.y && (B1v.z && B1v.y)};
+					const B2 lvl6z{lvl5z.x && (F1h.w && F1h.z), lvl5y.x && (H1v.y && H1v.z)};
+					const B2 lvl6w{lvl5z.y && (D1h.z && D1h.w), lvl5w.x && (H1v.x && H1v.w)};
+					// subpixels - 0 = E, 1 = D, 2 = D0, 3 = F, 4 = F0, 5 = B, 6 = B0, 7 = H, 8 = H0
+					S8& o = p3[size_t(y) * w + x];
+					o.crn[0] = (lvl1x && Eo.x || lvl3x.x && Eo.y || lvl4x.x && Do.x || lvl6x.x && Fo.y) ? 5 : (lvl1x || lvl3x.y && !Eo.w || lvl4x.y && !Bo.x || lvl6x.y && !Ho.w) ? 1 : lvl3x.x ? 3 : lvl3x.y ? 7 : lvl4x.x ? 2 : lvl4x.y ? 6 : lvl6x.x ? 4 : lvl6x.y ? 8 : 0;
+					o.crn[1] = (lvl1y && Eo.y || lvl3y.x && Eo.x || lvl4y.x && Fo.y || lvl6y.x && Do.x) ? 5 : (lvl1y || lvl3y.y && !Eo.z || lvl4y.y && !Bo.y || lvl6y.y && !Ho.z) ? 3 : lvl3y.x ? 1 : lvl3y.y ? 7 : lvl4y.x ? 4 : lvl4y.y ? 6 : lvl6y.x ? 2 : lvl6y.y ? 8 : 0;
+					o.crn[2] = (lvl1z && Eo.z || lvl3z.x && Eo.w || lvl4z.x && Fo.z || lvl6z.x && Do.w) ? 7 : (lvl1z || lvl3z.y && !Eo.y || lvl4z.y && !Ho.z || lvl6z.y && !Bo.y) ? 3 : lvl3z.x ? 1 : lvl3z.y ? 5 : lvl4z.x ? 4 : lvl4z.y ? 8 : lvl6z.x ? 2 : lvl6z.y ? 6 : 0;
+					o.crn[3] = (lvl1w && Eo.w || lvl3w.x && Eo.z || lvl4w.x && Do.w || lvl6w.x && Fo.z) ? 7 : (lvl1w || lvl3w.y && !Eo.x || lvl4w.y && !Ho.w || lvl6w.y && !Bo.x) ? 1 : lvl3w.x ? 3 : lvl3w.y ? 5 : lvl4w.x ? 2 : lvl4w.y ? 8 : lvl6w.x ? 4 : lvl6w.y ? 6 : 0;
+					o.mid[0] = (lvl2x.x &&  Eo.x || lvl2x.y &&  Eo.y || lvl5x.x &&  Do.x || lvl5x.y &&  Fo.y) ? 5 : lvl2x.x ? 1 : lvl2x.y ? 3 : lvl5x.x ? 2 : lvl5x.y ? 4 : (Ec.x && Dc.z && Ec.y && Fc.w) ? ( Eo.x ?  Eo.y ? 5 : 3 : 1) : 0;
+					o.mid[1] = (lvl2y.x && !Eo.y || lvl2y.y && !Eo.z || lvl5y.x && !Bo.y || lvl5y.y && !Ho.z) ? 3 : lvl2y.x ? 5 : lvl2y.y ? 7 : lvl5y.x ? 6 : lvl5y.y ? 8 : (Ec.y && Bc.w && Ec.z && Hc.x) ? (!Eo.y ? !Eo.z ? 3 : 7 : 5) : 0;
+					o.mid[2] = (lvl2z.x &&  Eo.w || lvl2z.y &&  Eo.z || lvl5z.x &&  Do.w || lvl5z.y &&  Fo.z) ? 7 : lvl2z.x ? 1 : lvl2z.y ? 3 : lvl5z.x ? 2 : lvl5z.y ? 4 : (Ec.z && Fc.x && Ec.w && Dc.y) ? ( Eo.z ?  Eo.w ? 7 : 1 : 3) : 0;
+					o.mid[3] = (lvl2w.x && !Eo.x || lvl2w.y && !Eo.w || lvl5w.x && !Bo.x || lvl5w.y && !Ho.w) ? 1 : lvl2w.x ? 5 : lvl2w.y ? 7 : lvl5w.x ? 6 : lvl5w.y ? 8 : (Ec.w && Hc.y && Ec.x && Bc.z) ? (!Eo.w ? !Eo.x ? 1 : 5 : 7) : 0;
+				}
+		});
+	}
+	void Pass4()
+	{
+		static const int kOff[9][2] = {{0, 0}, {-1, 0}, {-2, 0}, {1, 0}, {2, 0}, {0, -1}, {0, -2}, {0, 1}, {0, 2}};
+		ParallelFor(H, [&](int y0, int y1) {
+			for (int Y = y0; Y < y1; Y++)
+			{
+				const int sy = Y / 3, fy = Y % 3;
+				V3* out = big.data() + size_t(Y) * W;
+				for (int X = 0; X < W; X++)
+				{
+					const int sx = X / 3, fx = X % 3;
+					const S8& e = p3[size_t(sy) * w + sx];
+					const int sp = fy == 0 ? (fx == 0 ? e.crn[0] : fx == 1 ? e.mid[0] : e.crn[1])
+								 : fy == 1 ? (fx == 0 ? e.mid[3] : fx == 1 ? 0 : e.mid[1])
+										   : (fx == 0 ? e.crn[3] : fx == 1 ? e.mid[2] : e.crn[2]);
+					out[X] = S(sx + kOff[sp][0], sy + kOff[sp][1]);
+				}
+			}
+		});
+	}
+
+	// ---- rAA post-3x (Sp00kyFox): one direction; tx[0..14] are the texels -7..+7 around the pixel
+	static float Len(V3 v) { return std::sqrt(v.r * v.r + v.g * v.g + v.b * v.b); }
+	static V3 Cross(V3 a, V3 b) { return {a.g * b.b - a.b * b.g, a.b * b.r - a.r * b.b, a.r * b.g - a.g * b.r}; }
+	static V3 Res2x(V3 pre2, V3 pre1, V3 px, V3 pos1, V3 pos2)
+	{
+		const V3 df[4] = {pre1 - pre2, px - pre1, pos1 - px, pos2 - pos1};
+		auto edge = [](float c) { return c < 0.5f ? c : 1.f - c; };
+		auto mag = [&](float pc, float d1c, float d2c) {
+			return kShr * std::min(edge(pc), std::min(std::fabs(d1c), std::fabs(d2c)));
+		};
+		const V3 m = {mag(px.r, df[1].r, df[2].r), mag(px.g, df[1].g, df[2].g), mag(px.b, df[1].b, df[2].b)};
+		const V3 t = ((df[1] + df[2]) * 7.f - (df[0] + df[3]) * 3.f) * (1.f / 16.f); // tilt
+		auto lim = [](float mc, float tc) { return tc == 0.f ? 1.f : mc / std::fabs(tc); };
+		const float a = std::min(1.f, std::min(lim(m.r, t.r), std::min(lim(m.g, t.g), lim(m.b, t.b))));
+		const V3 t1 = {std::clamp(t.r, -m.r, m.r), std::clamp(t.g, -m.g, m.g), std::clamp(t.b, -m.b, m.b)};
+		const V3 t2 = t * a;
+		float d1 = Len(df[1]), d2 = Len(df[2]);
+		d1 = d1 == 0.f ? 0.f : Len(Cross(df[1], t1)) / d1;
+		d2 = d2 == 0.f ? 0.f : Len(Cross(df[2], t1)) / d2;
+		const float wgt = std::min(1.f, std::max(d1, d2) / 0.8125f);
+		return Mix(t1, t2, kDvt == 1.f ? wgt : std::pow(wgt, kDvt));
+	}
+	// One pixel: tex(n) is the texel n steps along the direction (clamped at the picture's edge) and dist(a) the
+	// colour distance between texels a and a + 1 (0 past the edges, where clamped texels are equal).
+	template <class Tex, class Dist>
+	static V3 Raa(const Tex& T, const Dist& dist)
+	{
+		constexpr int rad = 7, scl = 3;
+		int i1x = 0, i1y = 0, i2x = 0, i2y = 0;
+		const V3 t0 = T(0), tp = T(1), tm = T(-1);
+		const V3 df1 = tp - t0, df2 = t0 - tm;
+		float d1x, d1y, d2x = dist(0), d2y = dist(-1), d3x = d2y, d3y = d2x;
+		float sw = d2x + d2y;
+		sw = sw == 0.f ? 1.f : (kSmt == 0.5f ? std::sqrt(Len(df1 - df2) / sw) : std::pow(Len(df1 - df2) / sw, kSmt));
+		for (int i = 1; i < rad; i++)
+		{
+			d1x = d2x, d1y = d2y;
+			d2x = d3x, d2y = d3y;
+			d3x = dist(-i - 1);
+			d3y = dist(i);
+			const bool cx = std::max(d1x, d3x) < d2x, cy = std::max(d1y, d3y) < d2y;
+			i2x = cx && i2x == 0 && i1x != 0 ? i : i2x;
+			i2y = cy && i2y == 0 && i1y != 0 ? i : i2y;
+			i1x = cx && i1x == 0 ? i : i1x;
+			i1y = cy && i1y == 0 ? i : i1y;
+		}
+		i2x = i2x == 0 ? i1x + 1 : i2x;
+		i2y = i2y == 0 ? i1y + 1 : i2y;
+		const V3 t = Res2x(T(-i2x), T(-i1x), t0, T(i1y), T(i2y));
+		const float dw = (i1x == 0 || i1y == 0) ? 0.f : 2.f * ((i1x - 1.f) / (i1x + i1y - 2.f)) - 1.f;
+		const V3 res = t0 + t * ((scl - 1.f) / scl * sw * dw);
+		const V3 lo = {std::min(std::min(tm.r, t0.r), tp.r), std::min(std::min(tm.g, t0.g), tp.g),
+			std::min(std::min(tm.b, t0.b), tp.b)};
+		const V3 hi = {std::max(std::max(tm.r, t0.r), tp.r), std::max(std::max(tm.g, t0.g), tp.g),
+			std::max(std::max(tm.b, t0.b), tp.b)};
+		return {std::clamp(res.r, lo.r, hi.r), std::clamp(res.g, lo.g, hi.g), std::clamp(res.b, lo.b, hi.b)};
+	}
+	static bool Same(const V3& a, const V3& b) { return a.r == b.r && a.g == b.g && a.b == b.b; }
+	std::vector<float> dists; // per texel: the colour distance to the next one along the pass's direction
+	void RaaPass(const std::vector<V3>& in, std::vector<V3>& out, bool vertical)
+	{
+		// the distances between neighbours, once (each pixel's search reads up to 14 of them)
+		ParallelFor(H, [&](int y0, int y1) {
+			for (int y = y0; y < y1; y++)
+				for (int x = 0; x < W; x++)
+				{
+					const bool last = vertical ? y == H - 1 : x == W - 1;
+					const size_t k = size_t(y) * W + x;
+					dists[k] = last ? 0.f : Len(in[vertical ? k + W : k + 1] - in[k]);
+				}
+		});
+		ParallelFor(H, [&](int y0, int y1) {
+			for (int y = y0; y < y1; y++)
+				for (int x = 0; x < W; x++)
+				{
+					const size_t k = size_t(y) * W + x;
+					// rAA ends clamped between the pixel and its two neighbours: when they are the same colour the
+					// result is the pixel itself (exactly), and most of a ScaleFX picture is such flat runs
+					const V3& c = in[k];
+					const V3& p = vertical ? At(in, x, y - 1, W, H) : At(in, x - 1, y, W, H);
+					const V3& q = vertical ? At(in, x, y + 1, W, H) : At(in, x + 1, y, W, H);
+					if (Same(c, p) && Same(c, q))
+					{
+						out[k] = c;
+						continue;
+					}
+					const int pos = vertical ? y : x, len = vertical ? H : W;
+					const size_t step = vertical ? size_t(W) : 1;
+					const size_t base = k - size_t(pos) * step; // the row's / column's first texel
+					auto T = [&](int n) -> V3 { return in[base + size_t(Clampi(pos + n, 0, len - 1)) * step]; };
+					auto dist = [&](int a) -> float {
+						const int at = pos + a;
+						return (at < 0 || at >= len - 1) ? 0.f : dists[base + size_t(at) * step];
+					};
+					out[k] = Raa(T, dist);
+				}
+		});
+	}
+
+	// ---- the original end: edge-directed smoothing at 3x (in place of FXAA + AA 4.0)
+	static float Luma(V3 c) { return 0.299f * c.r + 0.587f * c.g + 0.114f * c.b; }
+	V3 Bilinear(const std::vector<V3>& img, float x, float y) const // x, y in texels (centres at +0.5)
+	{
+		const float px = x - 0.5f, py = y - 0.5f;
+		const int ix = int(std::floor(px)), iy = int(std::floor(py));
+		const float fx = px - ix, fy = py - iy;
+		const V3 top = Mix(At(img, ix, iy, W, H), At(img, ix + 1, iy, W, H), fx);
+		const V3 bot = Mix(At(img, ix, iy + 1, W, H), At(img, ix + 1, iy + 1, W, H), fx);
+		return Mix(top, bot, fy);
+	}
+	void Smooth(const std::vector<V3>& in, std::vector<V3>& out)
+	{
+		ParallelFor(H, [&](int y0, int y1) {
+			for (int y = y0; y < y1; y++)
+				for (int x = 0; x < W; x++)
+				{
+					const V3 c = At(in, x, y, W, H);
+					const V3 n = At(in, x, y - 1, W, H), s = At(in, x, y + 1, W, H);
+					const V3 e = At(in, x + 1, y, W, H), wv = At(in, x - 1, y, W, H);
+					if (Same(c, n) && Same(c, s) && Same(c, e) && Same(c, wv))
+					{
+						out[size_t(y) * W + x] = c; // flat: nothing to smooth (the range would be 0)
+						continue;
+					}
+					const float lc = Luma(c), ln = Luma(n), ls = Luma(s), le = Luma(e), lw = Luma(wv);
+					const float lo = std::min(lc, std::min(std::min(ln, ls), std::min(le, lw)));
+					const float hi = std::max(lc, std::max(std::max(ln, ls), std::max(le, lw)));
+					const float range = hi - lo;
+					V3& o = out[size_t(y) * W + x];
+					if (range < 0.06f)
+					{
+						o = c;
+						continue;
+					}
+					// along the edge: perpendicular to the luma gradient
+					float dx = -(ls - ln), dy = le - lw;
+					const float len = std::sqrt(dx * dx + dy * dy);
+					if (len < 1e-4f)
+					{
+						o = c;
+						continue;
+					}
+					dx = dx / len * 0.75f, dy = dy / len * 0.75f;
+					const V3 a = Bilinear(in, x + 0.5f + dx, y + 0.5f + dy), b = Bilinear(in, x + 0.5f - dx, y + 0.5f - dy);
+					const float k = std::min(0.5f, range * 1.5f);
+					V3 r = Mix(c, (a + b) * 0.5f, k);
+					// no new extremes
+					auto cl = [](float v, float p, float q, float s2, float t, float u) {
+						return std::clamp(v, std::min(std::min(p, q), std::min(std::min(s2, t), u)),
+							std::max(std::max(p, q), std::max(std::max(s2, t), u)));
+					};
+					r = {cl(r.r, c.r, n.r, s.r, e.r, wv.r), cl(r.g, c.g, n.g, s.g, e.g, wv.g), cl(r.b, c.b, n.b, s.b, e.b, wv.b)};
+					o = r;
+				}
+		});
+	}
+
+	void Render(const Job& j)
+	{
+		if (j.w != w || j.h != h)
+		{
+			w = j.w, h = j.h, W = 3 * w, H = 3 * h;
+			src.resize(size_t(w) * h);
+			m0.resize(src.size());
+			m1.resize(src.size());
+			p2.resize(src.size());
+			p3.resize(src.size());
+			big.resize(size_t(W) * H);
+			tmp.resize(big.size());
+			packed.resize(big.size());
+			dists.resize(big.size());
+			key_dw = 0;
+		}
+		if (j.dw != key_dw || j.dh != key_dh)
+		{
+			key_dw = j.dw, key_dh = j.dh;
+			xa.resize(size_t(j.dw));
+			xb.resize(size_t(j.dw));
+			xf.resize(size_t(j.dw));
+			for (int c = 0; c < j.dw; c++)
+			{
+				const float px = (c + 0.5f) / j.dw * W - 0.5f;
+				const int i = int(std::floor(px));
+				xa[size_t(c)] = Clampi(i, 0, W - 1);
+				xb[size_t(c)] = Clampi(i + 1, 0, W - 1);
+				xf[size_t(c)] = px - i;
+			}
+		}
+		for (size_t i = 0; i < src.size(); i++)
+		{
+			const uint32_t c = j.argb[i];
+			src[i] = {((c >> 16) & 255) / 255.f, ((c >> 8) & 255) / 255.f, (c & 255) / 255.f};
+		}
+		Pass0();
+		Pass1();
+		Pass2();
+		Pass3();
+		Pass4(); // -> big (3x)
+		RaaPass(big, tmp, false);
+		RaaPass(tmp, big, true);
+		Smooth(big, tmp); // -> tmp
+		ParallelFor(H, [&](int y0, int y1) {
+			for (size_t k = size_t(y0) * W; k < size_t(y1) * W; k++)
+				packed[k] = Pack(To8(tmp[k].r), To8(tmp[k].g), To8(tmp[k].b));
+		});
+		// to the screen: bilinear, then the deblur (towards the nearer extreme of the four texels, clamped)
+		ParallelFor(j.dh, [&](int y0, int y1) {
+			for (int y = y0; y < y1; y++)
+			{
+				const float py = (y + 0.5f) / j.dh * H - 0.5f;
+				const int iy = int(std::floor(py));
+				const float fy = py - iy;
+				const size_t r0 = size_t(Clampi(iy, 0, H - 1)) * W, r1 = size_t(Clampi(iy + 1, 0, H - 1)) * W;
+				const uint32_t *k0 = packed.data() + r0, *k1 = packed.data() + r1;
+				const V3 *t0 = tmp.data() + r0, *t1 = tmp.data() + r1;
+				uint32_t* o = j.surf + size_t(y) * j.pitch;
+				for (int c = 0; c < j.dw; c++)
+				{
+					const int ia = xa[size_t(c)], ib = xb[size_t(c)];
+					const uint32_t pa = k0[ia];
+					if (pa == k0[ib] && pa == k1[ia] && pa == k1[ib])
+					{
+						o[c] = pa; // four texels of one colour: that colour
+						continue;
+					}
+					const float fx = xf[size_t(c)];
+					const V3 &a = t0[ia], &b = t0[ib], &d = t1[ia], &e = t1[ib];
+					const V3 v = Mix(Mix(a, b, fx), Mix(d, e, fx), fy);
+					auto deblur = [](float s, float p, float q, float r, float t) {
+						const float lo = std::min(std::min(p, q), std::min(r, t)), hi = std::max(std::max(p, q), std::max(r, t));
+						const float mid = 0.5f * (lo + hi);
+						return std::clamp(s + 0.6f * (s - mid), lo, hi);
+					};
+					o[c] = Pack(To8(deblur(v.r, a.r, b.r, d.r, e.r)), To8(deblur(v.g, a.g, b.g, d.g, e.g)),
+						To8(deblur(v.b, a.b, b.b, d.b, e.b)));
+				}
+			}
+		});
+	}
+};
+#pragma GCC diagnostic pop
+
 // Only the shader in use is kept: each one holds per-pixel tables of tens of MiB, so the previous one is freed
 // when another is picked (the tables are built again if it comes back). Used from the game thread only; never
 // destroyed at exit (as the Pool).
@@ -1393,6 +1888,7 @@ const char* Name(Shader s)
 		case Shader::BlurPiSharp: return "crt-blurPi-sharp";
 		case Shader::BlurPiSoft: return "crt-blurPi-soft";
 		case Shader::MonoCrt: return "monoCRT";
+		case Shader::ScaleFxRaa: return "ScaleFX + rAA + AA style";
 		default: return "?";
 	}
 }
@@ -1416,6 +1912,7 @@ void Render(Shader s, const uint32_t* argb, int w, int h, uint32_t* surface, int
 		case Shader::BlurPiSharp: Use<BlurPi>(s, false).Render(j); break;
 		case Shader::BlurPiSoft: Use<BlurPi>(s, true).Render(j); break;
 		case Shader::MonoCrt: Use<MonoCrt>(s).Render(j); break;
+		case Shader::ScaleFxRaa: Use<ScaleFxRaa>(s).Render(j); break;
 		default: break;
 	}
 }

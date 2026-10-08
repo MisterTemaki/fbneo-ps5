@@ -36,6 +36,7 @@ struct Settings
 	bool show_incomplete = false; // the sets with ROMs missing
 	bool debug_logs = true;      // boot.log and the others in /data/fbneo/logs (OrbisLogSetEnabled)
 	int shelf_family = 0; // fe::Family the shelf shows
+	std::string shelf_letter; // and its letter tab: "#", "A".."Z"
 	std::string last_rom; // the shelf puts the selection on this game
 
 	void Load();

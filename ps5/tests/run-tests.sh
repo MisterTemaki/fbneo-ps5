@@ -283,9 +283,9 @@ PORT=18090
 (cd "$T/srv" && exec python3 -m http.server $PORT --bind 127.0.0.1 >/dev/null 2>&1) &
 SRVPID=$!
 sleep 1
-# shelf order: 1942, Pac-Man, Ponpoko, Puck Man
+# the shelf: 1942 under #; Down -> P: Pac-Man, Ponpoko, Puck Man
 rc=$(OFFLINE= COVER_URL="http://127.0.0.1:$PORT/\${repo}/\${kind}/\${name}.png" FBNEO_HOST_REALTIME=1 run "$T" \
-	"0:0;200:$RIGHT;202:0;250:$RIGHT;252:0;300:$RIGHT;302:0;$(SHELFQUIT_AT 340)" "190,240,290,330")
+	"0:0;200:$DOWN;202:0;250:$RIGHT;252:0;300:$RIGHT;302:0;$(SHELFQUIT_AT 340)" "190,240,290,330")
 kill $SRVPID 2>/dev/null
 expect "[ $rc = 0 ]" "exit code 0 (got $rc)"
 expect "cmp -s '$T/root/covers/FBNeo/Puck Man (Japan, set 1).png' '$T/srv/$REPO/Named_Boxarts/Puck Man (Japan, set 1).png'" "Puck Man's flyer saved in covers/FBNeo"
@@ -298,26 +298,28 @@ nosan "$T"
 fi
 
 if want 11; then
-echo "== 11. the shelf's tabs: Down shows one maker; the game picked there runs; settings hide the clones"
+echo "== 11. the shelf's tabs: a letter at a time (Up / Down), makers with L2 / R2; settings hide the clones"
 T=$(newroot t11)
 addset pacman "$T/root/roms"
+addset ponpoko "$T/root/roms"
 mkset 1942
 addset 1942 "$T/root/roms"
-# tabs: All games, Capcom (1942), Classics (Pac-Man, Puck Man)
-rc=$(run "$T" "0:0;30:$DOWN;32:0;40:$DOWN;42:0;60:$CROSS;62:0;$(QUITAT 160)" "25,55,150")
+# letters: # (1942), P (Pac-Man, Ponpoko, Puck Man); makers: All games, Capcom (1942), Classics (the rest)
+rc=$(run "$T" "0:0;30:$DOWN;32:0;40:$UP;42:0;50:$R2;52:0;60:$R2;62:0;80:$CROSS;82:0;$(QUITAT 180)" "25,35,75,170")
 expect "[ $rc = 0 ]" "exit code 0 (got $rc)"
-expect "grep -q '\[shelf\] tab Capcom: 1 game(s)' $T/root/logs/boot.log && grep -q '\[shelf\] tab Classics: 2 game(s)' $T/root/logs/boot.log" "Down: Capcom (1 game), Down: Classics (2 games)"
-expect "grep -q 'loading .*pacman.zip' $T/root/logs/boot.log" "the first Classics game was started from its tab"
-expect "grep -q 'shelf_family=11' $T/root/fbneo-ps5.ini" "the tab is remembered"
+expect "grep -q '\[shelf\] tab All games, P: 3 game(s)' $T/root/logs/boot.log && grep -q '\[shelf\] tab All games, #: 1 game(s)' $T/root/logs/boot.log" "Down: the P games (3), Up: back to # (1942)"
+expect "grep -q '\[shelf\] tab Capcom, #: 1 game(s)' $T/root/logs/boot.log && grep -q '\[shelf\] tab Classics, P: 3 game(s)' $T/root/logs/boot.log" "R2: Capcom (its # tab), R2: Classics (no # game there: on to P)"
+expect "grep -q 'loading .*pacman.zip' $T/root/logs/boot.log" "the first game of the tab was started"
+expect "grep -q 'shelf_family=11' $T/root/fbneo-ps5.ini && grep -q 'shelf_letter=P' $T/root/fbneo-ps5.ini" "the maker and the letter are remembered"
 echo "show_clones=0" >>"$T/root/fbneo-ps5.ini"
 rc=$(run "$T" "0:0;30:$CROSS;32:0;$(QUITAT 100)" "")
-expect "grep -q 'loading .*puckman.zip' $T/root/logs/boot.log" "clones hidden: the Classics tab starts with Puck Man"
+expect "grep -q 'loading .*ponpoko.zip' $T/root/logs/boot.log" "clones hidden: Pac-Man is gone from P, Ponpoko comes first"
 nosan "$T"
 fi
 
 if want 12; then
 echo "== 12. CRT shaders: CRT Easymode style by default, every shader draws a vertical and a horizontal game"
-SHADERS=("Off" "CRT Easymode style" "crt-lottes" "crt-lottes-fast" "crt-1tap" "crt-2tap" "crt-hyllian-fast" "crt-nobody" "newpixie-mini" "crt-blurPi-sharp" "crt-blurPi-soft" "monoCRT")
+SHADERS=("Off" "CRT Easymode style" "crt-lottes" "crt-lottes-fast" "crt-1tap" "crt-2tap" "crt-hyllian-fast" "crt-nobody" "newpixie-mini" "crt-blurPi-sharp" "crt-blurPi-soft" "monoCRT" "ScaleFX + rAA + AA style")
 T=$(newroot t12)
 rm -f "$T/root/fbneo-ps5.ini" # a first start: no settings file yet
 addset ponpoko "$T/root/roms"
@@ -335,7 +337,7 @@ sys.exit(0 if max(col) > 150 and min(col) < 0.9 * max(col) and len(set(row)) > 1
 PY" "scanlines and a phosphor mask on the red picture"
 expect "grep -q 'shader [0-9.]* ms' $T/root/logs/boot.log" "the shader's drawing time is logged"
 nosan "$T"
-for s in $(seq 1 11); do
+for s in $(seq 1 12); do
 	for g in ponpoko pacman; do
 		T=$(newroot t12s$s$g)
 		echo "shader=$s" >>"$T/root/fbneo-ps5.ini"

@@ -526,8 +526,9 @@ struct ShelfState
 	std::vector<GameInfo> scanned; // the whole library
 	std::vector<GameInfo> all; // what the settings show of it (clones, incomplete sets)
 	bool shown_clones = true, shown_incomplete = false;
-	int family = -1; // the tab the list below shows
-	std::vector<GameInfo> games; // the games on the shelf: the tab's
+	int family = -1; // the maker the shelf shows (L2 / R2)
+	char letter = 0; // and the letter (Up / Down): '#' for titles that start with a digit or a sign, 'A'..'Z'
+	std::vector<GameInfo> games; // the games on the shelf: that maker's, under that letter
 	CoverService covers;
 	std::vector<CoverPtr> slots;
 	bool started = false;
@@ -592,6 +593,48 @@ std::vector<GameInfo> InFamily(const std::vector<GameInfo>& all, Family f)
 	return out;
 }
 
+// The letter tab of a game: its title's first letter, '#' for a digit or anything else.
+char LetterOf(const GameInfo& g)
+{
+	const unsigned char c = g.title.empty() ? '#' : (unsigned char)g.title[0];
+	return isalpha(c) ? char(toupper(c)) : '#';
+}
+
+constexpr const char* kLetters = "#ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+// Which letters have games among `games` (indexes into kLetters).
+std::vector<bool> LettersWithGames(const std::vector<GameInfo>& games)
+{
+	std::vector<bool> has(27, false);
+	for (const GameInfo& g : games)
+		has[size_t(strchr(kLetters, LetterOf(g)) - kLetters)] = true;
+	return has;
+}
+
+// `want` if it has games, else the nearest letter after it that has some (then before it); 0 when none has.
+char NearestLetter(const std::vector<bool>& has, char want)
+{
+	const char* p = want ? strchr(kLetters, want) : nullptr;
+	const int at = p ? int(p - kLetters) : 0;
+	for (int d = 0; d < 27; d++)
+	{
+		if (at + d < 27 && has[size_t(at + d)])
+			return kLetters[at + d];
+		if (at - d >= 0 && has[size_t(at - d)])
+			return kLetters[at - d];
+	}
+	return 0;
+}
+
+std::vector<GameInfo> InLetter(const std::vector<GameInfo>& games, char letter)
+{
+	std::vector<GameInfo> out;
+	for (const GameInfo& g : games)
+		if (LetterOf(g) == letter)
+			out.push_back(g);
+	return out;
+}
+
 // The library as the settings show it.
 std::vector<GameInfo> Visible(const std::vector<GameInfo>& scanned)
 {
@@ -645,10 +688,19 @@ std::string Shelf()
 	for (size_t i = 0; i < tabs.size(); i++)
 		if (int(tabs[i]) == cfg.shelf_family)
 			tab = int(i);
-	if (!same || !st.started || st.downloads != cfg.covers_download || st.family != int(tabs[size_t(tab)]))
+	// the letter: the last game's, else the one remembered, else the first that has games
+	std::vector<GameInfo> in_family = InFamily(st.all, tabs[size_t(tab)]);
+	char letter = cfg.shelf_letter.empty() ? '#' : cfg.shelf_letter[0];
+	for (const GameInfo& g : in_family)
+		if (g.path == cfg.last_rom)
+			letter = LetterOf(g);
+	letter = NearestLetter(LettersWithGames(in_family), letter);
+	if (!same || !st.started || st.downloads != cfg.covers_download || st.family != int(tabs[size_t(tab)]) ||
+		st.letter != letter)
 	{
 		st.family = int(tabs[size_t(tab)]);
-		st.games = InFamily(st.all, tabs[size_t(tab)]);
+		st.letter = letter;
+		st.games = InLetter(in_family, letter);
 		st.slots.assign(games.size(), nullptr);
 		st.downloads = cfg.covers_download;
 		FBNEO_STAGE(Shelf, "cover service start");
@@ -704,15 +756,39 @@ std::string Shelf()
 			if (rep_r1.Fire(cur & SCE_PAD_BUTTON_R1, now))
 				sel = std::min(n - 1, sel + 10);
 		}
-		if ((down & (SCE_PAD_BUTTON_UP | SCE_PAD_BUTTON_DOWN)) && tabs.size() > 1)
+		// Up / Down: the previous / next letter that has games; L2 / R2: the previous / next maker (the letter kept
+		// when that maker has games under it). The selection stays on the same game when it is still shown.
+		const bool letter_key = (down & (SCE_PAD_BUTTON_UP | SCE_PAD_BUTTON_DOWN)) != 0;
+		const bool maker_key = (down & (SCE_PAD_BUTTON_L2 | SCE_PAD_BUTTON_R2)) != 0 && tabs.size() > 1;
+		if (letter_key || maker_key)
 		{
-			// another system: the shelf shows its games, the selection stays on the same game if it is there
 			const std::string keep = n > 0 ? st.games[size_t(sel)].path : cfg.last_rom;
-			const int dir = (down & SCE_PAD_BUTTON_DOWN) ? 1 : -1;
-			tab = (tab + dir + int(tabs.size())) % int(tabs.size());
-			st.family = int(tabs[size_t(tab)]);
-			cfg.shelf_family = st.family;
-			st.games = InFamily(st.all, tabs[size_t(tab)]);
+			if (maker_key)
+			{
+				const int dir = (down & SCE_PAD_BUTTON_R2) ? 1 : -1;
+				tab = (tab + dir + int(tabs.size())) % int(tabs.size());
+				st.family = int(tabs[size_t(tab)]);
+				cfg.shelf_family = st.family;
+				in_family = InFamily(st.all, tabs[size_t(tab)]);
+				st.letter = NearestLetter(LettersWithGames(in_family), st.letter);
+			}
+			else
+			{
+				const std::vector<bool> has = LettersWithGames(in_family);
+				const int dir = (down & SCE_PAD_BUTTON_DOWN) ? 1 : -1;
+				const char* p = st.letter ? strchr(kLetters, st.letter) : nullptr;
+				int at = p ? int(p - kLetters) : 0;
+				for (int i = 0; i < 27; i++)
+				{
+					at = (at + dir + 27) % 27;
+					if (has[size_t(at)])
+						break;
+				}
+				if (has[size_t(at)])
+					st.letter = kLetters[at];
+			}
+			cfg.shelf_letter = st.letter ? std::string(1, st.letter) : "";
+			st.games = InLetter(in_family, st.letter);
 			st.slots.assign(st.games.size(), nullptr);
 			st.covers.Start(st.games, cfg.covers_download && ShelfDownloads());
 			n = int(st.games.size());
@@ -724,7 +800,7 @@ std::string Shelf()
 			st.covers.SetFocus(sel);
 			sel_since = now;
 			tab_since = now;
-			OrbisLog("[shelf] tab %s: %d game(s)", FamilyName(tabs[size_t(tab)]), n);
+			OrbisLog("[shelf] tab %s, %c: %d game(s)", FamilyName(tabs[size_t(tab)]), st.letter ? st.letter : '-', n);
 			dirty = true;
 		}
 		if (sel != old_sel)
@@ -755,7 +831,9 @@ std::string Shelf()
 					if (int(tabs[i]) == st.family)
 						tab = int(i);
 				st.family = int(tabs[size_t(tab)]);
-				st.games = InFamily(st.all, tabs[size_t(tab)]);
+				in_family = InFamily(st.all, tabs[size_t(tab)]);
+				st.letter = NearestLetter(LettersWithGames(in_family), st.letter);
+				st.games = InLetter(in_family, st.letter);
 				st.slots.assign(st.games.size(), nullptr);
 				st.downloads = cfg.covers_download;
 				st.covers.Start(st.games, cfg.covers_download && ShelfDownloads());
@@ -907,11 +985,23 @@ std::string Shelf()
 		DrawText(84, 118, ver, 2, Rgb(150, 145, 180));
 		// the author's line, under the wordmark, as PS5SX2 shows its author's handles (fe_app.cpp)
 		DrawText(84, 150, (std::string(icon::GitHub) + " " + kAuthorGitHub).c_str(), 3, Rgb(160, 152, 200));
-		if (tabs.size() > 1)
 		{
-			const std::string label = std::string(icon::DpadUpDown) + "  " + FamilyName(tabs[size_t(tab)]);
+			// the letter strip: # A B ... Z, the current one large, the ones with no games dimmed; the maker under it
+			const std::vector<bool> has = LettersWithGames(in_family);
 			const bool flash = now - tab_since < 1.2;
-			CenterText(flash ? 52 : 60, label, flash ? 5 : 4, flash ? Rgb(245, 240, 255) : Rgb(200, 190, 240));
+			const int step = 40, x0 = W / 2 - 13 * step;
+			for (int i = 0; i < 27; i++)
+			{
+				const char t[2] = {kLetters[i], 0};
+				const bool cur_letter = kLetters[i] == st.letter;
+				const int sc = cur_letter ? 5 : 3;
+				const uint32_t col = cur_letter ? Rgb(255, 255, 255) : (has[size_t(i)] ? Rgb(185, 175, 230) : Rgb(80, 75, 105));
+				const int x = x0 + i * step - TextWidth(t, sc) / 2;
+				DrawText(x, cur_letter ? 34 : 46, t, sc, col);
+			}
+			const std::string label = std::string(icon::DpadUpDown) + " Letter      " + icon::L2 + " " + icon::R2 + "  " +
+				FamilyName(tabs[size_t(tab)]);
+			CenterText(104, label, 3, flash ? Rgb(245, 240, 255) : Rgb(190, 180, 230));
 			if (flash)
 				dirty = true;
 		}
@@ -965,10 +1055,10 @@ std::string Shelf()
 		ps5video::DarkenRect(0, H - 78, W, 78);
 		const std::string sp = "      ";
 		const std::string hint = n > 0
-			? std::string(icon::Cross) + " Play" + sp + icon::DpadLeftRight + " Browse" + sp + icon::DpadUpDown + " Maker" +
+			? std::string(icon::Cross) + " Play" + sp + icon::DpadLeftRight + " Browse" + sp + icon::DpadUpDown + " Letter" + sp + icon::L2 + " " + icon::R2 + " Maker" +
 				sp + icon::L1 + " " + icon::R1 + " Skip 10" + sp + icon::Triangle + " Settings" + sp + icon::Square +
 				" Get cover" + sp + icon::Options + " Quit"
-			: std::string(icon::DpadUpDown) + " Maker" + sp + icon::Triangle + " Settings" + sp + icon::Options + " Quit";
+			: std::string(icon::L2) + " " + icon::R2 + " Maker" + sp + icon::Triangle + " Settings" + sp + icon::Options + " Quit";
 		DrawText((W - TextWidth(hint.c_str(), 3)) / 2, H - 60, hint.c_str(), 3, Rgb(205, 200, 228));
 
 		ps5video::Present(0, 0, 0, 0, true);

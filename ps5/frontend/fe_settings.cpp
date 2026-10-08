@@ -27,7 +27,7 @@ int Clamp(int v, int lo, int hi)
 const char* const kButtonKeys[Settings::kButtons] = {"btn_1", "btn_2", "btn_3", "btn_4", "btn_5", "btn_6", "btn_coin",
 	"btn_start"};
 constexpr int kPs5ButtonChoices = 9; // emu::kPs5ButtonCount
-constexpr int kShaderCount = 12; // ps5crt::Shader::Count
+constexpr int kShaderCount = 13; // ps5crt::Shader::Count
 constexpr int kLayoutCount = 4; // emu::kLayoutCount
 } // namespace
 
@@ -103,6 +103,8 @@ void Settings::Load()
 			debug_logs = n != 0;
 		else if (key == "shelf_family")
 			shelf_family = Clamp(n, 0, 64);
+		else if (key == "shelf_letter")
+			shelf_letter = std::string(val).substr(0, 1);
 		else if (key == "last_rom")
 			last_rom = val;
 	}
@@ -140,6 +142,7 @@ void Settings::Save() const
 	fprintf(f, "show_incomplete=%d\n", show_incomplete ? 1 : 0);
 	fprintf(f, "debug_logs=%d\n", debug_logs ? 1 : 0);
 	fprintf(f, "shelf_family=%d\n", shelf_family);
+	fprintf(f, "shelf_letter=%s\n", shelf_letter.c_str());
 	fprintf(f, "last_rom=%s\n", last_rom.c_str());
 	bool ok = ferror(f) == 0;
 	ok = fflush(f) == 0 && ok;

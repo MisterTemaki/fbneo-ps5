@@ -185,11 +185,16 @@ before the art changed, register it again once: select **FBNeo PS5** on the home
 The start screen is a 3D shelf of game covers, like PS5SX2's and Snes9x PS5's, with the author's line under the
 wordmark: **github.com/MisterTemaki**.
 
-- **All your games at once:** every complete set in the ROM folders, sorted by title (a parent before its clones).
-  Each game's line says its board, maker, year, the version (`World 920513`) and the set's name.
-- **By maker:** **Up / Down** switch between "All games" and the makers and boards that have games: Capcom (CPS-1,
+- **A letter at a time:** with thousands of sets, the shelf shows one letter tab at a time -- **`#`** (titles that
+  start with a digit or a sign: *1942*, *'99: The Last War*...) and **A** to **Z** -- sorted by title (a parent
+  before its clones). The strip at the top shows every letter: the current one large, the ones with no games
+  dimmed. **Up / Down** go to the previous / next letter that has games. Each game's line says its board, maker,
+  year, the version (`World 920513`) and the set's name.
+- **By maker:** **L2 / R2** switch between "All games" and the makers and boards that have games: Capcom (CPS-1,
   CPS-2, CPS-3 and the rest), Neo Geo, Sega, Konami, Taito, "Toaplan, Cave, Psikyo", Data East, Irem, Midway, IGS,
-  Classics (the 70s and 80s: Pac-Man, Galaxian and their kind) and Other. The shelf remembers the last one.
+  Classics (the 70s and 80s: Pac-Man, Galaxian and their kind) and Other; the letter tabs then show that maker's
+  games (the letter is kept when the maker has games under it, else the nearest one). The shelf remembers the
+  maker and the letter (and starts on the last game played).
 - **Clones:** the other versions of a game (other regions, revisions, bootlegs) are listed after it; Settings,
   **Show clones**, hides them.
 - **Automatic covers, the PS5SX2 way:** the art comes from libretro-thumbnails' **FBNeo - Arcade Games** collection
@@ -247,7 +252,8 @@ column by column with bilinear filtering, mipmaps and anti-aliased edges, split 
 | Button | Does |
 |---|---|
 | Left / Right (D-pad or stick) | change game (hold to speed up) |
-| Up / Down | change tab (All games, Capcom, Neo Geo, ...) |
+| Up / Down | previous / next letter tab (#, A-Z) |
+| L2 / R2 | previous / next maker (All games, Capcom, Neo Geo, ...) |
 | L1 / R1 | skip 10 games |
 | Cross | play |
 | Triangle | settings |
@@ -309,9 +315,10 @@ Triangle on the shelf, or "Settings" in the pause menu:
 
 ## CRT shaders
 
-Every game starts through a CRT shader -- **CRT Easymode style** unless you pick another one. Eleven shaders are
-built in, the same as Genesis Plus GX PS5's; they work only while a game is running (the shelf is drawn without
-them). Vertical games get them on their upright picture.
+Every game starts through a CRT shader -- **CRT Easymode style** unless you pick another one. Twelve shaders are
+built in, the same as Snes9x PS5's: the eleven CRT ones of Genesis Plus GX PS5 and ScaleFX + rAA + AA style. They
+work only while a game is running (the shelf is drawn without them). Vertical games get them on their upright
+picture.
 
 **How to use them**
 
@@ -335,6 +342,14 @@ them). Vertical games get them on their upright picture.
 | 8 | newpixie-mini | strongly curved TV, colour bleed, vignette, film tone | heavy | Mattias Gustavsson (Unlicense) |
 | 9 / 10 | crt-blurPi-sharp / crt-blurPi-soft | light blur and screen-space scanlines (sharp or bilinear) | light | Oriol Ferrer Mesià (MIT) |
 | 11 | monoCRT | a monochrome monitor (made for black-and-white pictures) | light | hunterk (public domain) |
+| 12 | ScaleFX + rAA + AA style | not a CRT: pixel art redrawn smooth -- staircase edges become clean lines and curves, flat colours stay exact, then a light edge smoothing and deblur | **very heavy** | ScaleFX + rAA post-3x (Sp00kyFox, MIT) from the scalefx+rAA+aa-fast preset; its final steps rewritten for these ports |
+
+**ScaleFX + rAA + AA style** is libretro's `scalefx+rAA+aa-fast` preset: ScaleFX redraws the picture at 3x (edges
+interpolated up to six pixels long, only colours of the original), rAA removes the remaining stair-steps, then a
+smoothing along the edges, the scale to the screen and a deblur. The preset's last three passes (FXAA, guest(r)'s
+AA shader 4.0 and deblur) can't be built in (GPL, or no permission to copy), so original code with the same
+purpose replaces them: the result is close, not identical. It is the heaviest of all: the boards with large
+screens (CPS-3, Midway's 400x256) may not keep full speed with it.
 
 They come from libretro's [slang-shaders](https://github.com/libretro/slang-shaders) (`crt/`), with their default
 parameters, rewritten in C++ for the CPU (`ps5/coreorbis/orbis-shims/ProsperoCrt.cpp`): the PS5 build draws the
@@ -479,7 +494,7 @@ The build has three stages:
 - **CRT shaders** from libretro's [slang-shaders](https://github.com/libretro/slang-shaders), rewritten for the CPU:
   crt-lottes and crt-lottes-fast (Timothy Lottes, public domain), crt-1tap and crt-2tap (fishku, CC0), monoCRT
   (hunterk, public domain), newpixie-mini (Mattias Gustavsson, Unlicense), crt-hyllian-fast and crt-nobody
-  (Hyllian, MIT), crt-blurPi (Oriol Ferrer Mesià, MIT). Their notices are in `ps5/THIRD_PARTY_SHADERS.md`. "CRT
+  (Hyllian, MIT), crt-blurPi (Oriol Ferrer Mesià, MIT), ScaleFX and rAA post-3x (Sp00kyFox, MIT). Their notices are in `ps5/THIRD_PARTY_SHADERS.md`. "CRT
   Easymode style" is original code; the look it follows is EasyMode's crt-easymode.
 - **stb_image / stb_image_resize2 / stb_truetype** (Sean Barrett): public domain or MIT.
 - **UI fonts**, the same as PS5SX2's, in `ps5/frontend/assets/fonts/` with their licenses: Roboto Regular (Google,
