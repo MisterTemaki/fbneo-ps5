@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-# FBNeo PS5: the app's provisional art, drawn from scratch (no logos, no game art): the home screen icon
-# (icon-source.png, icon0.png 512x512) and the background (background-source.png; pic0.dds / pic1.dds, 3840x2160
-# BC7 DX10 DDS without mipmaps, through bc7enc_rdo when it is given).
-#   make_art.py <out dir> <font.ttf> [bc7enc]
+# FBNeo PS5: the app's provisional background, drawn from scratch (no logos, no game art): background-source.png
+# and pic0.dds / pic1.dds (3840x2160 BC7 DX10 DDS without mipmaps, through bc7enc_rdo when it is given). With
+# --icon it also draws a provisional icon (icon-source.png, icon0.png); the app's icon is now the project's own art.
+#   make_art.py <out dir> <font.ttf> [bc7enc] [--icon]
 # SPDX-License-Identifier: MIT
 import math
 import os
@@ -14,7 +14,9 @@ import tempfile
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 out, font_path = sys.argv[1], sys.argv[2]
-bc7enc = sys.argv[3] if len(sys.argv) > 3 else None
+args = [a for a in sys.argv[3:] if a != '--icon']
+bc7enc = args[0] if args else None
+want_icon = '--icon' in sys.argv
 
 
 def lerp(a, b, t):
@@ -147,9 +149,10 @@ def background(w, h):
 
 
 os.makedirs(out, exist_ok=True)
-ic = icon(1254)
-ic.save(os.path.join(out, 'icon-source.png'))
-ic.resize((512, 512), Image.LANCZOS).save(os.path.join(out, 'icon0.png'))
+if want_icon:
+    ic = icon(1254)
+    ic.save(os.path.join(out, 'icon-source.png'))
+    ic.resize((512, 512), Image.LANCZOS).save(os.path.join(out, 'icon0.png'))
 bg = background(3840, 2160)
 bg.resize((1672, 941), Image.LANCZOS).save(os.path.join(out, 'background-source.png'))
 if bc7enc:

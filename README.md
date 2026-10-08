@@ -166,11 +166,12 @@ every set found (`[games] ... -> "<name>"`) and the ROMs a set is missing (`[gam
   sce_sys/pic1.dds       the launch background (the same image)
 ```
 
-The icon and the background are **provisional art** drawn for this port by `ps5/tools/make_art.py` (an arcade
-control panel on a neon grid, no logos): `icon-source.png` (1254x1254) and `icon0.png` (512x512),
-`background-source.png` and the BC7 `pic0.dds`/`pic1.dds` made from it with bc7enc_rdo. To change them, replace
-`ps5/app/sce_sys/icon0.png` (512x512 PNG) and `pic0.dds`/`pic1.dds` (3840x2160 BC7 DX10 DDS) and rebuild. For
-another title ID: `make ps5 TITLE_ID=XXXX00000`.
+The icon is the project's art, `ps5/app/sce_sys/icon-source.png` (512x512): an FBNeo arcade cabinet in an arcade
+hall; `icon0.png` is the same image. The background is still **provisional art** drawn for this port by
+`ps5/tools/make_art.py` (an arcade control panel on a neon grid, no logos): `background-source.png` and the BC7
+`pic0.dds`/`pic1.dds` made from it with bc7enc_rdo. To change them, replace `ps5/app/sce_sys/icon0.png` (512x512
+PNG) and `pic0.dds`/`pic1.dds` (3840x2160 BC7 DX10 DDS) and rebuild. For another title ID:
+`make ps5 TITLE_ID=XXXX00000`.
 
 **Home-screen art:** ShadowMountPlus copies the art in `sce_sys` to `/user/appmeta/PPSA99012/` only when it first
 registers the title. The installer keeps that folder current on every update, but if the title was registered
@@ -443,7 +444,7 @@ The build has three stages:
   - `third_party/`: minizip (unzip.c, ioapi.c), stb.
 - **`ps5/proto/native/`**: ps5-native-app-boilerplate's tools (BlackBearReloaded, GPL-3.0), taken from PS5SX2 and
   PS5_Vulkan (mihawk-99): `ps5-native-tool`, `app_crt.cpp`, `ps5-pie.ld`, `libc_builder.cpp` and its manifests.
-- **`ps5/app/sce_sys/`**: param.json, icon and backgrounds; `ps5/tools/make_art.py` draws them.
+- **`ps5/app/sce_sys/`**: param.json, icon and backgrounds; `ps5/tools/make_art.py` draws the background.
 - **`ps5/host/`** and **`ps5/tests/`**: the PS5 functions implemented on Linux (`sce_host.cpp`), the core alone
   on Linux (`fbneo_headless.cpp`: the drivers, a set's ROMs, a run with a state saved and loaded back, NVRAM), the
   stand-in ROM sets (`make_fake_set.py`: every ROM a driver lists, with its name and its CRC, as FBNeo's split
@@ -482,9 +483,10 @@ The build has three stages:
 - **UI fonts**, the same as PS5SX2's, in `ps5/frontend/assets/fonts/` with their licenses: Roboto Regular (Google,
   Apache 2.0), PromptFont (Yukari "Shinmera" Hafner, SIL OFL 1.1), Font Awesome Brands (Fonticons, Inc.; font
   SIL OFL 1.1, icons CC BY 4.0).
-- **Icon and background:** provisional art drawn for this port (`ps5/tools/make_art.py`), no logos. The games'
-  names, and the boards' and makers' names, are trademarks of their owners; this port is not affiliated with or
-  endorsed by any of them, nor by Team FB Neo.
+- **Icon:** the art chosen for the project (`ps5/app/sce_sys/icon-source.png`). **Background:** provisional art
+  drawn for this port (`ps5/tools/make_art.py`), no logos. The games, their characters and names, and the boards'
+  and makers' names and logos are trademarks of their owners; this port is not affiliated with or endorsed by any
+  of them, nor by Team FB Neo.
 - **Covers:** [libretro-thumbnails](https://github.com/libretro-thumbnails) (FBNeo - Arcade Games), downloaded on
   the console, not included.
 - **Port:** [github.com/MisterTemaki](https://github.com/MisterTemaki).
