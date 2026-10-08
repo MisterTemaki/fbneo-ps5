@@ -22,7 +22,6 @@ FBNEO_INCBIN(fbneo_app_eboot, APP_EBOOT_Z)
 FBNEO_INCBIN(fbneo_app_param, APP_PARAM)
 FBNEO_INCBIN(fbneo_app_icon0, APP_ICON0)
 FBNEO_INCBIN(fbneo_app_pic0, APP_PIC0_Z)
-FBNEO_INCBIN(fbneo_app_pic1, APP_PIC1_Z)
 FBNEO_INCBIN(fbneo_app_libc, APP_LIBC)
 
 const EmbeddedAppFile* EmbeddedAppFiles()
@@ -31,7 +30,7 @@ const EmbeddedAppFile* EmbeddedAppFiles()
 		{"sce_sys/param.json", fbneo_app_param_begin, fbneo_app_param_end, false},
 		{"sce_sys/icon0.png", fbneo_app_icon0_begin, fbneo_app_icon0_end, false},
 		{"sce_sys/pic0.dds", fbneo_app_pic0_begin, fbneo_app_pic0_end, true},
-		{"sce_sys/pic1.dds", fbneo_app_pic1_begin, fbneo_app_pic1_end, true},
+		{"sce_sys/pic1.dds", fbneo_app_pic0_begin, fbneo_app_pic0_end, true}, // the same image, embedded once
 		{"sce_module/libc.prx", fbneo_app_libc_begin, fbneo_app_libc_end, false},
 		{"eboot.bin", fbneo_app_eboot_begin, fbneo_app_eboot_end, true},
 		{nullptr, nullptr, nullptr, false},

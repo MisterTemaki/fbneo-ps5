@@ -124,11 +124,10 @@ build/app/%.dds.z: $(APP_OUT)/sce_sys/%.dds tools/pack_file.py
 	python3 tools/pack_file.py $< $@
 APP_DATA_DEFS = -DAPP_EBOOT_Z='"$(abspath build/app/eboot.bin.z)"' -DAPP_PARAM='"$(abspath $(APP_OUT)/sce_sys/param.json)"' \
 	-DAPP_ICON0='"$(abspath $(APP_OUT)/sce_sys/icon0.png)"' -DAPP_PIC0_Z='"$(abspath build/app/pic0.dds.z)"' \
-	-DAPP_PIC1_Z='"$(abspath build/app/pic1.dds.z)"' \
 	-DAPP_LIBC='"$(abspath $(APP_OUT)/sce_module/libc.prx)"'
 
 $(PS5_OUT)/install_data.o: coreorbis/orbis-shims/install_data.cpp coreorbis/orbis-shims/ProsperoInstall.h $(APP_FILES) \
-		build/app/eboot.bin.z build/app/pic0.dds.z build/app/pic1.dds.z
+		build/app/eboot.bin.z build/app/pic0.dds.z
 	$(PS5_CXX) -std=c++17 $(PS5_OPT) $(DEFS) $(INCS) $(PORT_WARN) $(APP_DATA_DEFS) -c -o $@ $<
 
 $(PS5_OUT)/FBNeoPS5.elf: $(PS5_INSTALLER_OBJ) $(PS5_OUT)/install_data.o
@@ -274,12 +273,11 @@ $(HOST_OUT)/%.dds.z: app/sce_sys/%.dds tools/pack_file.py
 	python3 tools/pack_file.py $< $@
 HOST_APP_DEFS = -DAPP_EBOOT_Z='"$(abspath $(HOST_OUT)/fake-eboot.bin.z)"' -DAPP_PARAM='"$(abspath app/sce_sys/param.json)"' \
 	-DAPP_ICON0='"$(abspath app/sce_sys/icon0.png)"' -DAPP_PIC0_Z='"$(abspath $(HOST_OUT)/pic0.dds.z)"' \
-	-DAPP_PIC1_Z='"$(abspath $(HOST_OUT)/pic1.dds.z)"' \
 	-DAPP_LIBC='"$(abspath tests/fake-libc.prx)"'
 
 $(HOST_OUT)/install_data.o: coreorbis/orbis-shims/install_data.cpp coreorbis/orbis-shims/ProsperoInstall.h \
 		$(HOST_OUT)/fake-eboot.bin.z tests/fake-libc.prx app/sce_sys/param.json app/sce_sys/icon0.png \
-		$(HOST_OUT)/pic0.dds.z $(HOST_OUT)/pic1.dds.z
+		$(HOST_OUT)/pic0.dds.z
 	@mkdir -p $(dir $@)
 	$(HOST_CXX) -std=c++17 $(HOST_OPT) $(DEFS) $(INCS) $(PORT_WARN) $(HOST_APP_DEFS) -c -o $@ $<
 

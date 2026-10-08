@@ -48,8 +48,8 @@ payload you send is its installer:
 | `sce_module/libc.prx` | the C runtime module every native app carries | the same file, byte for byte |
 | `FBNeoPS5.elf` (payload) | the **installer**: installs or updates the app, then stays running as the **helper** | PS5SX2Installer.elf + PS5SX2Helper.elf |
 
-FBNeo is big (`eboot.bin` is 43 MB), so the installer carries it compressed and unpacks it on the console:
-`FBNeoPS5.elf` is about 14 MB.
+FBNeo is big (`eboot.bin` is 43 MB), so the installer carries it and the background compressed and unpacks them
+on the console: `FBNeoPS5.elf` is about 22 MB.
 
 When it opens, the app asks the helper to let it out of its sandbox; without that an app sees neither `/data`
 nor USB drives. The request is the one PS5SX2 makes:
@@ -166,12 +166,14 @@ every set found (`[games] ... -> "<name>"`) and the ROMs a set is missing (`[gam
   sce_sys/pic1.dds       the launch background (the same image)
 ```
 
-The icon is the project's art, `ps5/app/sce_sys/icon-source.png` (512x512): an FBNeo arcade cabinet in an arcade
-hall; `icon0.png` is the same image. The background is still **provisional art** drawn for this port by
-`ps5/tools/make_art.py` (an arcade control panel on a neon grid, no logos): `background-source.png` and the BC7
-`pic0.dds`/`pic1.dds` made from it with bc7enc_rdo. To change them, replace `ps5/app/sce_sys/icon0.png` (512x512
-PNG) and `pic0.dds`/`pic1.dds` (3840x2160 BC7 DX10 DDS) and rebuild. For another title ID:
-`make ps5 TITLE_ID=XXXX00000`.
+The icon and the background are the project's art. The icon, `ps5/app/sce_sys/icon-source.png` (512x512), is an
+FBNeo arcade cabinet in an arcade hall; `icon0.png` is the same image. The background -- the large image behind the
+icon when FBNeo PS5 is selected on the home screen, and the launch screen -- is the project's key art,
+`ps5/app/sce_sys/background-source.png` (3840x2160), encoded to `pic0.dds`/`pic1.dds` as BC7 by
+`ps5/tools/make_art.py` (bc7enc_rdo, as ps5-native-app-boilerplate's `tools/prepare-assets.sh --background` does).
+To change them, replace `icon0.png` (512x512 PNG) or `background-source.png` (16:9), run
+`python3 tools/make_art.py app/sce_sys frontend/assets/fonts/Roboto-Regular.ttf <bc7enc>` for the backgrounds, and
+rebuild. For another title ID: `make ps5 TITLE_ID=XXXX00000`.
 
 **Home-screen art:** ShadowMountPlus copies the art in `sce_sys` to `/user/appmeta/PPSA99012/` only when it first
 registers the title. The installer keeps that folder current on every update, but if the title was registered
@@ -444,7 +446,7 @@ The build has three stages:
   - `third_party/`: minizip (unzip.c, ioapi.c), stb.
 - **`ps5/proto/native/`**: ps5-native-app-boilerplate's tools (BlackBearReloaded, GPL-3.0), taken from PS5SX2 and
   PS5_Vulkan (mihawk-99): `ps5-native-tool`, `app_crt.cpp`, `ps5-pie.ld`, `libc_builder.cpp` and its manifests.
-- **`ps5/app/sce_sys/`**: param.json, icon and backgrounds; `ps5/tools/make_art.py` draws the background.
+- **`ps5/app/sce_sys/`**: param.json, icon and backgrounds; `ps5/tools/make_art.py` encodes the background.
 - **`ps5/host/`** and **`ps5/tests/`**: the PS5 functions implemented on Linux (`sce_host.cpp`), the core alone
   on Linux (`fbneo_headless.cpp`: the drivers, a set's ROMs, a run with a state saved and loaded back, NVRAM), the
   stand-in ROM sets (`make_fake_set.py`: every ROM a driver lists, with its name and its CRC, as FBNeo's split
@@ -483,8 +485,8 @@ The build has three stages:
 - **UI fonts**, the same as PS5SX2's, in `ps5/frontend/assets/fonts/` with their licenses: Roboto Regular (Google,
   Apache 2.0), PromptFont (Yukari "Shinmera" Hafner, SIL OFL 1.1), Font Awesome Brands (Fonticons, Inc.; font
   SIL OFL 1.1, icons CC BY 4.0).
-- **Icon:** the art chosen for the project (`ps5/app/sce_sys/icon-source.png`). **Background:** provisional art
-  drawn for this port (`ps5/tools/make_art.py`), no logos. The games, their characters and names, and the boards'
+- **Icon and background:** the art chosen for the project (`ps5/app/sce_sys/icon-source.png`,
+  `ps5/app/sce_sys/background-source.png`). The games, their characters and names, and the boards'
   and makers' names and logos are trademarks of their owners; this port is not affiliated with or endorsed by any
   of them, nor by Team FB Neo.
 - **Covers:** [libretro-thumbnails](https://github.com/libretro-thumbnails) (FBNeo - Arcade Games), downloaded on
