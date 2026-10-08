@@ -1,0 +1,11 @@
+# FBNeo PS5 build outputs
+build/
+proto/native/build/
+tests/__pycache__/
+*.o
+*.part
+
+# release files (published as GitHub Releases, not in the source)
+*.elf
+*.bundle
+*-src.zip
