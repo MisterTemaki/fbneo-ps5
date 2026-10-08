@@ -35,7 +35,7 @@ switches, states, NVRAM, the picture turned the right way up and the sound.
 > run the same code (FBNeo's core included) on Linux with the PS5 calls simulated: two arcade boards running a tiny
 > test program each (a vertical and a horizontal game) are played through the whole chain -- the shelf, the pad,
 > the core, the video and sound output -- and 26 more boards start, run, save and load a state under
-> AddressSanitizer. Not yet confirmed on a console. If something fails, the logs in `/data/fbneo/logs/` say where.
+> AddressSanitizer. If something fails, the logs in `/data/fbneo/logs/` say where.
 
 ## How it works
 
@@ -419,7 +419,6 @@ covers, emu, menu), and the return addresses, which map into `ps5/build/app/fbne
 
 ## Known limitations
 
-- Not yet confirmed on a console.
 - Arcade games only: no console drivers, no Neo Geo CD.
 - The PS and Create buttons are not reported by `scePadReadState`, so Coin is on the touchpad.
 - No light-gun aiming beyond the left stick, no mouse, no keyboard games (mahjong panels, typing games).
