@@ -699,6 +699,36 @@ expect "grep -q '^Unused=' $WORK/fbneo-headless/dogfgt.dip" "the .dip file keeps
 expect "! grep -q 'AddressSanitizer\|runtime error' $WORK/h23.err" "no sanitizer reports"
 fi
 
+if want 24; then
+echo "== 24. Settings, BIOS sets: which BIOS sets your games need, and whether each is there and complete"
+T=$(newroot t24)
+addset pacman "$T/root/roms"
+mkset mslug
+cp "$SETS/mslug/mslug.zip" "$T/root/roms/" # Metal Slug without neogeo.zip
+# Triangle -> Settings; Up x3 from Shader: Back, Debug logs, BIOS sets; Cross -> the BIOS screen; Circle x2; quit
+PAD="0:0;30:$TRIANGLE;32:0;40:$UP;42:0;48:$UP;50:0;56:$UP;58:0;70:$CROSS;72:0;100:$CIRCLE;102:0;110:$CIRCLE;112:0;$(SHELFQUIT_AT 130)"
+rc=$(run "$T" "$PAD" "90")
+expect "[ $rc = 0 ]" "exit code 0 (got $rc)"
+expect "grep -q '\[bios\] neogeo.zip (Neo Geo): not found; needed by 1 of your games' $T/root/logs/boot.log" "neogeo.zip missing, needed by Metal Slug"
+expect "grep -q '\[bios\] pgm.zip (.*): not found; needed by 0 of your games' $T/root/logs/boot.log" "the other BIOS sets are listed too (PGM: none of your games)"
+expect "grep -q '\[bios\] screen: [0-9]* BIOS set(s)' $T/root/logs/boot.log" "Settings, BIOS sets opened the BIOS screen"
+expect "[ -f $T/dump/flip00090.ppm ]" "the BIOS screen was drawn"
+mkset neogeo
+cp "$SETS/neogeo/neogeo.zip" "$T/root/roms/"
+rc=$(run "$T" "$PAD" "")
+expect "grep -q '\[bios\] neogeo.zip (Neo Geo): OK; needed by 1 of your games' $T/root/logs/boot.log" "neogeo.zip added: OK"
+python3 - "$SETS/neogeo/neogeo.zip" "$T/root/roms/neogeo.zip" <<'PY'
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as z, zipfile.ZipFile(sys.argv[2], "w") as out:
+    for n in z.namelist():
+        if n != "sfix.sfix":
+            out.writestr(n, z.read(n))
+PY
+rc=$(run "$T" "$PAD" "")
+expect "grep -q '\[bios\] neogeo.zip (Neo Geo): incomplete, 1 ROM(s) missing, first sfix.sfix' $T/root/logs/boot.log" "a neogeo.zip without sfix.sfix: incomplete, the ROM named"
+nosan "$T"
+fi
+
 echo
 echo "passed $PASS, failed $FAIL  (work dir $WORK)"
 [ $FAIL = 0 ]

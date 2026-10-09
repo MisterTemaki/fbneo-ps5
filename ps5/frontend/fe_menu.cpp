@@ -8,6 +8,7 @@
 #include "fe_menu.h"
 
 #include "fe_emu.h"
+#include "fe_games.h"
 #include "fe_settings.h"
 #include "fe_text.h"
 
@@ -129,13 +130,16 @@ struct Row
 	std::string value; // "" = an action
 	bool enabled = true;
 	bool header = false;
+	bool action = false; // a value shown without "< >": Cross opens something, Left / Right change nothing
+	uint32_t value_color = 0; // the value's colour (0: the usual)
 };
 
-void DrawOptionBox(const std::string& title, const std::vector<Row>& rows, int sel, bool over_game)
+// Returns the box's bottom edge.
+int DrawOptionBox(const std::string& title, const std::vector<Row>& rows, int sel, bool over_game, int max_rows = 16)
 {
 	const int scale = 3;
 	const int row_h = 46;
-	const int visible = std::min(int(rows.size()), 16);
+	const int visible = std::min(int(rows.size()), max_rows);
 	const int bw = 1180;
 	const int bh = 120 + visible * row_h + 30;
 	const int bx = (W - bw) / 2;
@@ -164,8 +168,9 @@ void DrawOptionBox(const std::string& title, const std::vector<Row>& rows, int s
 		DrawText(bx + 40, y, row.label.c_str(), scale, col);
 		if (!row.value.empty())
 		{
-			const std::string v = (top + i == sel ? "< " + row.value + " >" : row.value);
-			DrawText(bx + bw - 40 - TextWidth(v.c_str(), scale), y, v.c_str(), scale, top + i == sel ? kText : kAccent);
+			const std::string v = (top + i == sel && !row.action ? "< " + row.value + " >" : row.value);
+			const uint32_t vcol = top + i == sel ? kText : row.value_color ? row.value_color : kAccent;
+			DrawText(bx + bw - 40 - TextWidth(v.c_str(), scale), y, v.c_str(), scale, vcol);
 		}
 	}
 	if (int(rows.size()) > visible)
@@ -175,6 +180,7 @@ void DrawOptionBox(const std::string& title, const std::vector<Row>& rows, int s
 		const int ty = by + 104 + (track - thumb) * top / std::max(1, int(rows.size()) - visible);
 		ps5video::FillRect(bx + bw - 12, ty, 6, thumb, kAccent);
 	}
+	return by + bh;
 }
 
 int Step(int sel, int dir, const std::vector<Row>& rows)
@@ -219,6 +225,7 @@ enum SettingRow
 	S_COVERS,
 	S_CLONES,
 	S_INCOMPLETE,
+	S_BIOS,
 	H_SYSTEM,
 	S_DEBUGLOGS,
 	S_COUNT
@@ -263,6 +270,21 @@ Row SettingRowFor(int s)
 		case S_COVERS: return {"Download covers", OnOff(c.covers_download)};
 		case S_CLONES: return {"Show clones (other versions)", OnOff(c.show_clones)};
 		case S_INCOMPLETE: return {"Show incomplete sets", OnOff(c.show_incomplete)};
+		case S_BIOS:
+		{
+			// the BIOS sets your games need: all there, or how many are missing / incomplete
+			int needed = 0, bad = 0;
+			for (const BiosStatus& b : BiosReport())
+				if (b.games > 0)
+				{
+					needed++;
+					bad += b.ok() ? 0 : 1;
+				}
+			std::string v = needed == 0 ? "None needed" : bad == 0 ? "All OK" : std::to_string(bad) + (bad == 1 ? " missing" : " missing");
+			Row r{"BIOS sets (Cross: details)", v};
+			r.action = true;
+			return r;
+		}
 		case H_SYSTEM: return {"SYSTEM", "", true, true};
 		case S_DEBUGLOGS: return {"Debug logs", OnOff(c.debug_logs)};
 		default:
@@ -360,6 +382,8 @@ void Background(bool over_game)
 		Header("Settings");
 }
 
+void BiosScreen(bool over_game);
+
 void SettingsScreen(bool over_game)
 {
 	NavReader nav;
@@ -377,7 +401,12 @@ void SettingsScreen(bool over_game)
 			sel = Step(sel, -1, rows);
 		if (n.down)
 			sel = Step(sel, 1, rows);
-		if (sel < S_COUNT && (n.left || n.right || n.ok))
+		if (sel == S_BIOS)
+		{
+			if (n.ok)
+				BiosScreen(over_game);
+		}
+		else if (sel < S_COUNT && (n.left || n.right || n.ok))
 			ChangeSetting(sel, n.left ? -1 : 1);
 		if (n.back || n.options || n.menu || (n.ok && sel == S_COUNT))
 		{
@@ -453,6 +482,100 @@ std::vector<std::string> Wrap(const std::string& text, int scale, int max_px)
 	if (!cur.empty())
 		lines.push_back(cur);
 	return lines;
+}
+// Settings, BIOS sets: each BIOS set FBNeo's games use (the last library scan's check), those your games need
+// first; the selected one's details under the list.
+void BiosScreen(bool over_game)
+{
+	const std::vector<BiosStatus> report = BiosReport();
+	std::vector<Row> rows;
+	std::vector<int> index; // row -> report entry (-1: a header or Back)
+	bool other_header = false;
+	if (!report.empty() && report[0].games > 0)
+	{
+		rows.push_back({"NEEDED BY YOUR GAMES", "", true, true});
+		index.push_back(-1);
+	}
+	for (size_t i = 0; i < report.size(); i++)
+	{
+		const BiosStatus& b = report[i];
+		if (b.games == 0 && !other_header)
+		{
+			rows.push_back({"OTHER BIOS SETS (none of your games needs them)", "", true, true});
+			index.push_back(-1);
+			other_header = true;
+		}
+		std::string v = b.path.empty() ? (b.games > 0 ? "Missing" : "Not found")
+			: b.missing.empty() ? "OK"
+			: std::to_string(b.missing.size()) + (b.missing.size() == 1 ? " ROM missing" : " ROMs missing");
+		Row r{b.set + ".zip  -  " + b.title, v, b.games > 0 || !b.path.empty()};
+		r.action = true;
+		r.value_color = b.ok() ? Rgb(120, 220, 140) : b.games > 0 ? Rgb(255, 120, 120) : kDim;
+		rows.push_back(r);
+		index.push_back(int(i));
+	}
+	rows.push_back({"Back", ""});
+	index.push_back(-1);
+	OrbisLog("[bios] screen: %zu BIOS set(s)", report.size());
+
+	NavReader nav;
+	int sel = Step(int(rows.size()) - 1, 1, rows); // the first row that isn't a header
+	for (;;)
+	{
+		Background(over_game);
+		const int bottom = DrawOptionBox("BIOS sets", rows, sel, over_game, 12);
+		// the selected set's details
+		std::string detail;
+		const int e = index[size_t(sel)];
+		if (e >= 0)
+		{
+			const BiosStatus& b = report[size_t(e)];
+			const std::string need = b.games > 0
+				? "Needed by " + std::to_string(b.games) + (b.games == 1 ? " of your games" : " of your games") + " (" +
+					  std::to_string(b.drivers) + " in FBNeo)."
+				: "Needed by " + std::to_string(b.drivers) + " of FBNeo's games, none of them in your library.";
+			if (b.path.empty())
+				detail = need + " Not found: put " + b.set + ".zip (FBNeo " FBNEO_CORE_VERSION "'s set) in /data/fbneo/roms or fbneo/roms on a USB drive.";
+			else if (!b.missing.empty())
+			{
+				std::string list;
+				for (size_t m = 0; m < b.missing.size() && m < 8; m++)
+					list += (m ? ", " : "") + b.missing[m];
+				if (b.missing.size() > 8)
+					list += " and " + std::to_string(b.missing.size() - 8) + " more";
+				detail = need + " " + b.path + " lacks: " + list + ".";
+			}
+			else
+			{
+				detail = need + " Found: " + b.path + ".";
+				if (b.optional > 0)
+					detail += " Optional versions found: " + std::to_string(b.optional_found) + " of " +
+							  std::to_string(b.optional) + (b.set == "neogeo" ? " (the BIOS DIP switch picks one)." : ".");
+			}
+		}
+		else if (report.empty())
+			detail = "No game in FBNeo's list needs a BIOS set.";
+		else
+			detail = "The list is from the last time the game list was read (the shelf reads it each time it opens).";
+		int y = bottom + 14;
+		for (const std::string& line : Wrap(detail, 2, W - 200))
+		{
+			if (y > H - (over_game ? 40 : 110))
+				break;
+			DrawText(100, y, line.c_str(), 2, kText);
+			y += 34;
+		}
+		if (!over_game)
+			Footer(std::string(icon::DpadUpDown) + " Browse     " + icon::Circle + " Back");
+		Present();
+		const Nav n = nav.Read();
+		if (n.up)
+			sel = Step(sel, -1, rows);
+		if (n.down)
+			sel = Step(sel, 1, rows);
+		if (n.back || n.options || n.menu || (n.ok && sel == int(rows.size()) - 1))
+			return;
+	}
 }
 } // namespace
 

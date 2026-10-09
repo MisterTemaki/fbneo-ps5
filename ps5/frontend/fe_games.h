@@ -67,6 +67,7 @@ struct GameInfo
 	std::string region;    // the rest of the name: "World 920513"
 	std::string parent_title; // the parent set's full name (a clone's cover falls back to it), or ""
 	std::string parent;       // the parent set's name: "sf2" (a clone), or ""
+	std::string bios;         // the BIOS set it also needs: "neogeo", "pgm"... or ""
 	std::string year, maker, board; // "1992", "Capcom", "CPS1"
 	Family family = Family::Other;
 	int driver = -1;       // the core's driver index
@@ -80,6 +81,21 @@ struct GameInfo
 // Every arcade set under the ROM folders (sub-folders included, 4 levels), sorted by title. The driver list must
 // be up (burn::Init) and no game running (the check uses the core's tables).
 std::vector<GameInfo> ScanGames();
+// The BIOS sets (the sets FBNeo's drivers name as their board: neogeo, pgm, decocass...), as the last scan found
+// them: Settings, BIOS sets, shows this.
+struct BiosStatus
+{
+	std::string set;   // "neogeo"
+	std::string title; // "Neo Geo"
+	std::string path;  // its zip, or "" when there is none
+	std::vector<std::string> missing; // the ROMs it must have that it hasn't (its zip found)
+	int optional = 0, optional_found = 0; // other versions it can have (the Neo Geo's BIOSes)
+	int games = 0;   // games of your library that need it
+	int drivers = 0; // FBNeo's games that need it
+	bool ok() const { return !path.empty() && missing.empty(); }
+};
+std::vector<BiosStatus> BiosReport();
+
 // The zip of a ROM set by its name, from the last scan ("" when there is none): what burn::Load looks for.
 std::string FindSetZip(const std::string& set);
 } // namespace fe

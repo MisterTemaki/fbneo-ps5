@@ -63,6 +63,7 @@ Family FamilyOf(uint32_t hw)
 // The library's zips: set name (lower case) -> path; the internal folder first, then the USB drives.
 std::mutex s_lock;
 std::unordered_map<std::string, std::string> s_zips;
+std::vector<BiosStatus> s_bios; // the last scan's (BiosReport)
 
 struct Zip
 {
@@ -228,6 +229,12 @@ void PrepareFolders()
 	OrbisMkdirs(OrbisDir("hiscore"));
 }
 
+std::vector<BiosStatus> BiosReport()
+{
+	std::lock_guard<std::mutex> lk(s_lock);
+	return s_bios;
+}
+
 std::string FindSetZip(const std::string& set)
 {
 	std::lock_guard<std::mutex> lk(s_lock);
@@ -254,12 +261,17 @@ std::vector<GameInfo> ScanGames()
 	// and a set other drivers name as their BIOS is never a game)
 	std::unordered_map<std::string, int> by_name;
 	std::unordered_map<std::string, bool> boards;
+	std::map<std::string, int> board_drivers; // a BIOS set -> how many arcade drivers need it
 	for (int i = 0; i < burn::DriverCount(); i++)
 		if (burn::GetDriver(i, &drivers[size_t(i)]))
 		{
 			by_name.emplace(drivers[size_t(i)].name, i);
 			if (!drivers[size_t(i)].board.empty())
+			{
 				boards[drivers[size_t(i)].board] = true;
+				if (drivers[size_t(i)].arcade)
+					board_drivers[drivers[size_t(i)].board]++;
+			}
 		}
 
 	CheckCache cache;
@@ -291,6 +303,7 @@ std::vector<GameInfo> ScanGames()
 		g.nointro = d.title;
 		SplitName(d.title, &g.title, &g.region);
 		g.parent = d.parent;
+		g.bios = d.board;
 		if (!d.parent.empty())
 		{
 			auto pt = by_name.find(d.parent);
@@ -345,6 +358,51 @@ std::vector<GameInfo> ScanGames()
 		}
 	}
 	cache.Save();
+
+	// the BIOS sets: found or not, complete or not, and how many of your games need each
+	{
+		std::vector<BiosStatus> report;
+		for (const auto& b : board_drivers)
+		{
+			auto it = by_name.find(b.first);
+			if (it == by_name.end())
+				continue;
+			const burn::Driver& bd = drivers[size_t(it->second)];
+			if (!bd.bios)
+				continue; // a game a few clones also load from (sfa2ur1...), not a BIOS
+			BiosStatus st;
+			st.set = b.first;
+			st.drivers = b.second;
+			st.title = bd.title;
+			for (const GameInfo& g : games)
+				st.games += g.bios == b.first ? 1 : 0;
+			auto z = found.find(Lower(b.first));
+			if (z != found.end())
+			{
+				st.path = z->second.path;
+				const burn::RomCheck rc = burn::CheckRoms(bd.index, [](const std::string& set) { return FindSetZip(set); });
+				st.missing = rc.missing;
+				st.optional = rc.optional;
+				st.optional_found = rc.optional_found;
+			}
+			const std::string what = st.path.empty() ? "not found"
+				: st.missing.empty() ? "OK"
+				: "incomplete, " + std::to_string(st.missing.size()) + " ROM(s) missing, first " + st.missing[0];
+			OrbisLog("[bios] %s.zip (%s): %s; needed by %d of your games (%d in FBNeo)", st.set.c_str(), st.title.c_str(),
+				what.c_str(), st.games, st.drivers);
+			report.push_back(std::move(st));
+		}
+		// the ones your games need first (missing before OK), then the rest by name
+		std::stable_sort(report.begin(), report.end(), [](const BiosStatus& a, const BiosStatus& b) {
+			if ((a.games > 0) != (b.games > 0))
+				return a.games > 0;
+			if (a.games > 0 && a.ok() != b.ok())
+				return !a.ok();
+			return strcasecmp(a.title.c_str(), b.title.c_str()) < 0;
+		});
+		std::lock_guard<std::mutex> lk(s_lock);
+		s_bios = std::move(report);
+	}
 
 	std::sort(games.begin(), games.end(), [](const GameInfo& a, const GameInfo& b) {
 		const int c = strcasecmp(a.title.c_str(), b.title.c_str());

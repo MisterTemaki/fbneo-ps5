@@ -55,6 +55,7 @@ struct RomCheck
 	bool ok = false;
 	std::vector<std::string> missing; // "sf2ce.zip: s92e_23b.8f" (essential ROMs only)
 	std::vector<std::string> bad_crc; // found by name with another CRC (used anyway, as FBNeo does)
+	int optional = 0, optional_found = 0; // the ROMs the driver can do without (a BIOS set's other versions)
 	std::vector<std::string> sets;    // the zips it looked in: "sf2ce", "sf2"
 };
 // Checks that every ROM the driver needs is in its zips (by CRC, then by name).

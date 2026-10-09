@@ -31,7 +31,7 @@ make (the driver list, Musashi's 68000 core, the CPS, Neo Geo, Cave, Psikyo, Toa
 frontends (`src/burner`) and its libretro port host the core: ROM loading from the sets' zips, inputs, DIP
 switches, states, NVRAM, the picture turned the right way up and the sound.
 
-> **Status (1.4):** builds with the ps5-payload-dev SDK into a signed native app, and passes 212 host tests, which
+> **Status (1.5):** builds with the ps5-payload-dev SDK into a signed native app, and passes 220 host tests, which
 > run the same code (FBNeo's core included) on Linux with the PS5 calls simulated: two arcade boards running a tiny
 > test program each (a vertical and a horizontal game) are played through the whole chain -- the shelf, the pad,
 > the core, the video and sound output -- and 26 more boards start, run, save and load a state under
@@ -67,9 +67,12 @@ next to Snes9x PS5 (PPSA99009, helper port 9075), Mesen2 PS5 (PPSA99010, port 90
 
 ## Versions
 
-Every release carries its version in the file name: `FBNeoPS5-v1.4.elf` (`make dist`). When updating, replace the
+Every release carries its version in the file name: `FBNeoPS5-v1.5.elf` (`make dist`). When updating, replace the
 old ELF with the new one in your autoload or Payload Manager. In this README, "`FBNeoPS5.elf`" always means the
 current release's ELF.
+
+**1.5:** **Settings, BIOS sets:** which BIOS sets your games need, and for each one whether its zip is there and
+complete, with the missing ROMs named (see [ROM sets](#rom-sets)).
 
 **1.4:**
 
@@ -126,10 +129,10 @@ Every screen and notification of FBNeo PS5 is in English.
 
 1. **Send `FBNeoPS5.elf`** with PS5 Payload Manager, or from a PC on the same network:
    ```sh
-   nc -q0 PS5_IP 9021 < FBNeoPS5-v1.4.elf
+   nc -q0 PS5_IP 9021 < FBNeoPS5-v1.5.elf
    ```
    It installs the app in `/data/homebrew/PPSA99012/` (`eboot.bin`, `sce_module/libc.prx`, `param.json`, the
-   icon and the backgrounds), shows **"FBNeo PS5 1.4 installed. Open it from the FBNeo PS5 icon on the home
+   icon and the backgrounds), shows **"FBNeo PS5 1.5 installed. Open it from the FBNeo PS5 icon on the home
    screen."** and stays running as the helper.
 2. **Open the FBNeo PS5 icon.** The game shelf appears and the controller works.
 3. **Copy your ROM sets** to `/data/fbneo/roms/` (over FTP, for example), or to `fbneo/roms/` on a USB drive.
@@ -162,9 +165,13 @@ names. As in every FBNeo build:
   |---|---|
   | Neo Geo MVS / AES | `neogeo.zip` |
   | IGS PGM | `pgm.zip` |
-  | other boards with a BIOS | the set FBNeo names for them (the log says which, see below) |
+  | other boards with a BIOS | the set FBNeo names for them: `decocass`, `skns`, `isgsm`, `bubsys`, `atarisy1`... and the chips' internal ROMs (`cchip`, `nmk004`, `ym2608`, `midssio`, `namcoc69`/`70`/`75`) |
 
-  The BIOS sets are not games: they are not listed on the shelf.
+  The BIOS sets are not games: they are not listed on the shelf. **Settings, BIOS sets** (Cross) shows them all:
+  first the ones your games need, each **OK** (green), **Missing** (red: no zip) or **N ROMs missing** (red: the
+  zip lacks some, named under the list), then the others. Under the list: where the zip is, how many of your games
+  need it, and for `neogeo.zip` how many of its optional BIOS versions it has (the BIOS DIP switch picks one). The
+  check is the one made when the shelf last read the game list; `boot.log` has it too (`[bios] ...` lines).
 - **The set must match FBNeo 1.0.0.3:** ROMs are found by their CRC, then by their name. A set made for another
   emulator, or for a much older or newer FBNeo, can miss ROMs or have others.
 - **Samples:** the few games that play recorded sounds (Donkey Kong's walk, for example) look for their sample set
@@ -354,7 +361,8 @@ Triangle on the shelf, or "Settings" in the pause menu:
   the rows show the game's own names for its buttons (`Button 1 (Weak Punch)`). Changing a button makes the layout
   Custom, starting from the one shown; **Default button layout** goes back to Auto. L2, R2, L3 and R3 stay for the
   hot keys and menus. Saved in `fbneo-ps5.ini` (`layout`, `btn_1`...`btn_start`).
-- **Library:** download covers, show clones, show incomplete sets.
+- **Library:** download covers, show clones, show incomplete sets, **BIOS sets** (Cross: which BIOS sets your
+  games need and whether each is there; see [ROM sets](#rom-sets)).
 - **System:** **Debug logs** (On by default) -- see [Debugging](#debugging-logs-and-crashes).
 
 ## CRT shaders
@@ -459,7 +467,7 @@ make ps5 -j$(nproc)              # build/ps5/FBNeoPS5.elf (installer + helper, w
 make send PS5_HOST=192.168.0.10  # sends it to elfldr (port 9021)
 make dist                        # build/dist/FBNeoPS5-v<version>.elf
 make app                         # only build/app/PPSA99012/, to copy by hand
-make test                        # Linux builds (app, installer, helper, headless core) + 212 host tests (ASan/UBSan)
+make test                        # Linux builds (app, installer, helper, headless core) + 220 host tests (ASan/UBSan)
 ```
 
 The first build compiles FBNeo's 1,039 core files (about 15 minutes on 2 cores; `make core-ps5` builds just those).
@@ -511,14 +519,14 @@ The build has three stages:
   DIP switches saved and read back and in place before a driver starts, a frame's and a save state's time, a driver's palette made at start), the
   stand-in ROM sets (`make_fake_set.py`: every ROM a driver lists, with its name and its CRC, as FBNeo's split
   sets are made), the test programs (`tests/data`: a tiny Z80 program on the Pac-Man board, red screen, green
-  while the joystick or the button is pressed), and the 212 tests: picture, rotation, input and states on a
+  while the joystick or the button is pressed), and the 220 tests: picture, rotation, input and states on a
   vertical and a horizontal game, the library (parents, BIOS sets, incomplete sets, the check's cache), a set with
   a ROM missing, DIP switches, button layouts, sound latency and pacing by the sound, 720p, install (packed
   files), covers (flyer, parent's flyer, screenshot, 404), tabs and clones, the CRT shaders (each one, both
   orientations, under ASan/UBSan), settings, fast forward (and no rewind), the pad, the helper and sandbox request
   (unknown titles refused, slow clients, links), covers downloaded by the helper while the shelf runs (and the
   prefetch with an older helper), debug logs, 26 boards started under ASan with a state round trip, Cabal's
-  palette, the DIP switches set before a driver starts, NVRAM, and the fixes of the 1.0 code review (merged sets, clones of a hidden parent,
+  palette, the DIP switches set before a driver starts, Settings' BIOS sets screen (missing, OK, incomplete), NVRAM, and the fixes of the 1.0 code review (merged sets, clones of a hidden parent,
   the check's version, repeated DIP switch names, ROMs larger than the set says).
 
 ## License and credits

@@ -275,6 +275,7 @@ void FindRoms(burn::RomCheck* check)
 {
 	check->missing.clear();
 	check->bad_crc.clear();
+	check->optional = check->optional_found = 0;
 	g.roms.clear();
 	for (UINT32 i = 0; i < 1024; i++)
 	{
@@ -313,6 +314,11 @@ void FindRoms(burn::RomCheck* check)
 			const bool needed = !(ri.nType & (BRF_OPT | BRF_NODUMP));
 			if (loc.zip < 0 && needed)
 				check->missing.push_back(std::string(first ? first : "?"));
+			if (ri.nType & BRF_OPT)
+			{
+				check->optional++;
+				check->optional_found += loc.zip >= 0 ? 1 : 0;
+			}
 		}
 		g.roms.push_back(loc);
 	}
