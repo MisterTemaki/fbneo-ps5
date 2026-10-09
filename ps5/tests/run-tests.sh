@@ -70,33 +70,33 @@ run() { # dir pad dumps [args...]
 nosan() { expect "! grep -q 'runtime error\|AddressSanitizer' $1/out.txt" "no sanitizer reports"; }
 
 if want 1; then
-echo "== 1. a vertical game from the command line (Pac-Man): picture turned upright, input, quick save, quit"
+echo "== 1. a vertical game from the command line (Pac-Man): picture turned upright, input, save state from the pause menu, quit"
 T=$(newroot t1)
 addset pacman "$T/root/roms"
-rc=$(run "$T" "0:0;100:$UP;140:0;200:$L2UP;205:0;$(QUITAT 220)" "90,130" "$T/root/roms/pacman.zip")
+rc=$(run "$T" "0:0;100:$UP;140:0;200:$L3R3;202:0;210:$DOWN;212:0;220:$CROSS;222:0;230:$CIRCLE;232:0;$(QUITAT 240)" "90,130" "$T/root/roms/pacman.zip")
 expect "[ $rc = 0 ]" "exit code 0 (got $rc)"
 expect "grep -q 'running pacman \"Pac-Man (Midway)\" (Pac-man), 60.000 fps (at 60 Hz, vsync), aspect 0.7500' $T/root/logs/boot.log" "FBNeo runs the set (60 Hz, a 3:4 monitor)"
 expect "grep -q 'picture 224x288' $T/root/logs/boot.log" "the 288x224 screen is turned upright: 224x288"
 expect "$RECT $T/dump/flip00090.ppm $T/root/logs/boot.log red >/dev/null" "red picture where the log says, black around it"
 expect "grep -q -- '-> [0-9]*,0 810x1080' $T/root/logs/boot.log" "a tall picture: 810x1080 in the middle of the screen"
 expect "$CHECK $T/dump/flip00130.ppm 960 540 green >/dev/null" "Up -> the game sees the joystick (green)"
-expect "[ -f $T/root/states/pacman.state1 ]" "L2 + Up wrote states/pacman.state1"
+expect "[ -f $T/root/states/pacman.state1 ]" "the pause menu's Save state wrote states/pacman.state1"
 expect "grep -q 'save state 1: ok' $T/root/logs/boot.log" "logged the save"
 expect "grep -q '\[burn\] FBNeo 1.0.0.3, [0-9]* drivers' $T/root/logs/boot.log" "the core's own log reaches boot.log"
 nosan "$T"
 fi
 
 if want 2; then
-echo "== 2. a horizontal game with a button (Ponpoko): Cross is button 1; load state with L2 + Down"
+echo "== 2. a horizontal game with a button (Ponpoko): Cross is button 1; save and load a state from the pause menu"
 T=$(newroot t2)
 addset ponpoko "$T/root/roms"
-rc=$(run "$T" "0:0;60:$L2UP;62:0;100:$CROSS;140:0;160:$L2DOWN;162:0;$(QUITAT 200)" "90,130" "$T/root/roms/ponpoko.zip")
+rc=$(run "$T" "0:0;40:$L3R3;42:0;48:$DOWN;50:0;56:$CROSS;58:0;64:$CIRCLE;66:0;100:$CROSS;140:0;160:$L3R3;162:0;168:$DOWN;170:0;176:$DOWN;178:0;184:$CROSS;186:0;$(QUITAT 210)" "90,130" "$T/root/roms/ponpoko.zip")
 expect "[ $rc = 0 ]" "exit code 0 (got $rc)"
 expect "grep -q 'running ponpoko \"Ponpoko\" (Pac-man), 60.000 fps (at 60 Hz, vsync), aspect 1.3333, 1 button(s)' $T/root/logs/boot.log" "a 4:3 game with one button"
 expect "$RECT $T/dump/flip00090.ppm $T/root/logs/boot.log red >/dev/null" "red picture where the log says"
 expect "grep -q -- '-> 240,0 1440x1080' $T/root/logs/boot.log" "a 4:3 picture: 1440x1080"
 expect "$CHECK $T/dump/flip00130.ppm 960 540 green >/dev/null" "Cross -> button 1 (green)"
-expect "grep -q 'load state 1: ok' $T/root/logs/boot.log" "L2 + Down loaded the state"
+expect "grep -q 'load state 1: ok' $T/root/logs/boot.log" "the pause menu's Load state loaded it"
 nosan "$T"
 fi
 
@@ -177,33 +177,31 @@ addset ponpoko "$T/root/roms"
 printf 'layout=2\n' >>"$T/root/fbneo-ps5.ini"
 rc=$(run "$T" "0:0;100:$CROSS;140:0;160:$SQUARE;200:0;$(QUITAT 220)" "130,190" "$T/root/roms/ponpoko.zip")
 expect "$CHECK $T/dump/flip00130.ppm 960 540 red >/dev/null && $CHECK $T/dump/flip00190.ppm 960 540 green >/dev/null" "fighting layout: button 1 is Square"
-# L2 and R2 as game buttons (1.6): button 1 on R2 -> R2 presses it and fast forward steps aside
+# L2 and R2 as game buttons (no hot keys on them since 1.7): button 1 on R2, then on L2
 T=$(newroot t6d)
 addset ponpoko "$T/root/roms"
 printf 'layout=3\nbtn_1=10\n' >>"$T/root/fbneo-ps5.ini"
 rc=$(run "$T" "0:0;100:$CROSS;140:0;160:$R2;200:0;$(QUITAT 220)" "130,190" "$T/root/roms/ponpoko.zip")
 expect "$CHECK $T/dump/flip00130.ppm 960 540 red >/dev/null && $CHECK $T/dump/flip00190.ppm 960 540 green >/dev/null" "custom: button 1 on R2, R2 presses it"
-expect "grep -q 'R2 is a game button (no fast forward)' $T/root/logs/boot.log && ! grep -q 'fast forward on' $T/root/logs/boot.log" "R2 held: the game's button, no fast forward"
-# button 1 on L2 -> L2 presses it, and L2 + Up is no longer the save-state hot key
 T=$(newroot t6e)
 addset ponpoko "$T/root/roms"
 printf 'layout=3\nbtn_1=9\n' >>"$T/root/fbneo-ps5.ini"
 rc=$(run "$T" "0:0;100:$CROSS;140:0;160:$L2;200:0;210:$L2UP;215:0;$(QUITAT 230)" "130,190" "$T/root/roms/ponpoko.zip")
 expect "$CHECK $T/dump/flip00130.ppm 960 540 red >/dev/null && $CHECK $T/dump/flip00190.ppm 960 540 green >/dev/null" "custom: button 1 on L2, L2 presses it"
-expect "grep -q 'L2 is a game button (no L2 hot keys)' $T/root/logs/boot.log && ! grep -q 'save state' $T/root/logs/boot.log" "L2 + Up: no state saved (L2 is the game's)"
-# the Fighting (R1 R2) layout: button 6 on R2 (Capcom's PS layout), so R2 is no fast forward there
+expect "! grep -q 'save state' $T/root/logs/boot.log" "L2 + Up saves nothing (no hot key)"
+# the Fighting (R1 R2) layout: button 1 on Square
 T=$(newroot t6f)
 addset ponpoko "$T/root/roms"
 printf 'layout=4\n' >>"$T/root/fbneo-ps5.ini"
 rc=$(run "$T" "0:0;100:$SQUARE;140:0;$(QUITAT 160)" "130" "$T/root/roms/ponpoko.zip")
-expect "$CHECK $T/dump/flip00130.ppm 960 540 green >/dev/null && grep -q 'R2 is a game button' $T/root/logs/boot.log" "Fighting (R1 R2): button 1 on Square, R2 a game button"
+expect "$CHECK $T/dump/flip00130.ppm 960 540 green >/dev/null" "Fighting (R1 R2): button 1 on Square"
 nosan "$T"
 # the settings screen: Button 1 row Right -> the layout becomes custom
 T=$(newroot t6c)
 addset ponpoko "$T/root/roms"
-# Shader, then Down x11 to "Button 1" (Screen size, Aspect, Smooth, Scanlines, FPS, Sound, Volume, FF, High scores, Button layout, Button 1)
+# Shader, then Down x10 to "Button 1" (Screen size, Aspect, Smooth, Scanlines, FPS, Sound, Volume, High scores, Button layout, Button 1)
 P="0:0;30:$TRIANGLE;32:0"; t=40
-for i in $(seq 1 11); do P="$P;$t:$DOWN;$((t + 2)):0"; t=$((t + 6)); done
+for i in $(seq 1 10); do P="$P;$t:$DOWN;$((t + 2)):0"; t=$((t + 6)); done
 P="$P;$t:$RIGHT;$((t + 2)):0;$((t + 10)):$CIRCLE;$((t + 12)):0;$(SHELFQUIT_AT $((t + 30)))"
 rc=$(run "$T" "$P" "")
 expect "grep -q '^layout=3$' $T/root/fbneo-ps5.ini && grep -q '^btn_1=1$' $T/root/fbneo-ps5.ini && grep -q '^btn_2=1$' $T/root/fbneo-ps5.ini" "the settings screen made a custom layout from the classic one (button 1: Cross -> Circle)"
@@ -370,15 +368,16 @@ done
 fi
 
 if want 13; then
-echo "== 13. settings from the shelf (Triangle); fast forward (R2), L2 + R2 does nothing (no rewind); the pause menu saves a state"
+echo "== 13. settings from the shelf (Triangle); R2 and L2 + R2 do nothing (no fast forward, no rewind); the pause menu saves a state and presses Service"
 T=$(newroot t13)
 addset ponpoko "$T/root/roms"
-rc=$(FBNEO_HOST_REALTIME=1 run "$T" "0:0;30:$TRIANGLE;32:0;36:$DOWN;38:0;40:$RIGHT;42:0;50:$CIRCLE;52:0;70:$CROSS;72:0;150:$R2;250:0;300:$L2R2;340:0;360:$L3R3;362:0;370:$DOWN;372:0;380:$CROSS;382:0;400:$CIRCLE;402:0;$(QUITAT 440)" "45")
+rc=$(FBNEO_HOST_REALTIME=1 run "$T" "0:0;30:$TRIANGLE;32:0;36:$DOWN;38:0;40:$RIGHT;42:0;50:$CIRCLE;52:0;70:$CROSS;72:0;150:$R2;250:0;300:$L2R2;340:0;360:$L3R3;362:0;370:$DOWN;372:0;380:$CROSS;382:0;400:$CIRCLE;402:0;420:$L3R3;422:0;428:$DOWN;430:0;434:$DOWN;436:0;440:$DOWN;442:0;446:$DOWN;448:0;452:$DOWN;454:0;460:$CROSS;462:0;$(QUITAT 500)" "45")
 expect "[ $rc = 0 ]" "exit code 0 (got $rc)"
 expect "grep -q '^scale=1$' $T/root/fbneo-ps5.ini" "the settings screen changed the screen size"
-expect "grep -q 'fast forward on' $T/root/logs/boot.log && grep -q 'fast forward off' $T/root/logs/boot.log" "R2 held: fast forward"
+expect "! grep -qi 'fast forward' $T/root/logs/boot.log && ! grep -q '^ff_speed' $T/root/fbneo-ps5.ini" "R2 held: no fast forward (gone, setting too)"
 expect "! grep -qi 'rewind' $T/root/logs/boot.log && ! grep -qi 'rewind' $T/root/fbneo-ps5.ini" "no rewind: L2 + R2 does nothing, and the setting is gone"
 expect "[ -f '$T/root/states/ponpoko.state1' ]" "the pause menu's Save state wrote slot 1"
+expect "grep -q 'service button (pause menu)' $T/root/logs/boot.log" "the pause menu's Service button (it replaced L2 + OPTIONS)"
 nosan "$T"
 fi
 

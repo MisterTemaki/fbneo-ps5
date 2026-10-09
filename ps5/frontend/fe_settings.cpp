@@ -77,8 +77,6 @@ void Settings::Load()
 			audio = n != 0;
 		else if (key == "volume")
 			volume = Clamp(n, 0, 100);
-		else if (key == "ff_speed")
-			ff_speed = n == 0 ? 0 : Clamp(n, 150, 1000);
 		else if (key == "hiscores")
 			hiscores = n != 0;
 		else if (key == "layout")
@@ -128,7 +126,6 @@ void Settings::Save() const
 	fprintf(f, "show_fps=%d\n", show_fps ? 1 : 0);
 	fprintf(f, "audio=%d\n", audio ? 1 : 0);
 	fprintf(f, "volume=%d\n", volume);
-	fprintf(f, "ff_speed=%d\n", ff_speed);
 	fprintf(f, "hiscores=%d\n", hiscores ? 1 : 0);
 	fprintf(f, "layout=%d\n", layout);
 	for (int i = 0; i < kButtons; i++)

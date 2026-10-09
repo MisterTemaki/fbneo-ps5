@@ -175,9 +175,8 @@ struct State
 	bool wait_release = true;
 	bool service = false, test = false;
 
-	// fast forward
-	bool turbo = false;
-	bool l2_game = false, r2_game = false; // the layout puts a game button on L2 / R2
+	// the pause menu's Service / Test: frames left to hold the machine's button
+	int service_frames = 0, test_frames = 0;
 
 	// saves
 	double next_nvram_check = 0;
@@ -210,18 +209,8 @@ void ApplyLayout()
 {
 	const int layout = fe::Config().layout % emu::kLayoutCount;
 	const int n = burn::ButtonCount();
-	const bool l2_was = g.l2_game, r2_was = g.r2_game;
-	g.l2_game = g.r2_game = false;
 	for (int i = 0; i < emu::kArcadeButtonCount; i++)
-	{
 		g.map[i] = emu::kPs5Buttons[emu::LayoutButton(layout, i, n)].bit;
-		g.l2_game = g.l2_game || g.map[i] == SCE_PAD_BUTTON_L2;
-		g.r2_game = g.r2_game || g.map[i] == SCE_PAD_BUTTON_R2;
-	}
-	// L2 / R2 as game buttons: their hot keys step aside (L2's: states, service, test; R2's: fast forward)
-	if (g.l2_game != l2_was || g.r2_game != r2_was)
-		OrbisLog("[emu] L2 %s, R2 %s", g.l2_game ? "is a game button (no L2 hot keys)" : "is the hot keys' modifier",
-			g.r2_game ? "is a game button (no fast forward)" : "is fast forward");
 }
 
 int8_t Axis(uint8_t v)
@@ -238,26 +227,18 @@ burn::Input ReadPads()
 		const ps5input::PadState s = ps5input::Snapshot(p);
 		if (!s.connected)
 			continue;
-		// player 1 while the buttons that closed a menu (or opened it) are held: nothing reaches the game; with L2
-		// held (the hot keys' modifier) the D-pad and OPTIONS / touchpad stay with the hot keys
+		// player 1 while the buttons that closed a menu (or opened it) are held: nothing reaches the game
 		if (p == 0 && g.wait_release)
 			continue;
-		const bool l2 = p == 0 && (s.raw_buttons & SCE_PAD_BUTTON_L2) && !g.l2_game;
 		burn::PlayerInput& pi = in.player[p];
-		if (!l2)
-		{
-			pi.up = s.buttons & SCE_PAD_BUTTON_UP; // the D-pad, or the left stick
-			pi.down = s.buttons & SCE_PAD_BUTTON_DOWN;
-			pi.left = s.buttons & SCE_PAD_BUTTON_LEFT;
-			pi.right = s.buttons & SCE_PAD_BUTTON_RIGHT;
-		}
+		pi.up = s.buttons & SCE_PAD_BUTTON_UP; // the D-pad, or the left stick
+		pi.down = s.buttons & SCE_PAD_BUTTON_DOWN;
+		pi.left = s.buttons & SCE_PAD_BUTTON_LEFT;
+		pi.right = s.buttons & SCE_PAD_BUTTON_RIGHT;
 		for (int b = 0; b < 6; b++)
 			pi.button[b] = g.map[b] && (s.raw_buttons & g.map[b]);
-		if (!l2)
-		{
-			pi.coin = g.map[6] && (s.raw_buttons & g.map[6]);
-			pi.start = g.map[7] && (s.raw_buttons & g.map[7]);
-		}
+		pi.coin = g.map[6] && (s.raw_buttons & g.map[6]);
+		pi.start = g.map[7] && (s.raw_buttons & g.map[7]);
 		pi.stick_x = Axis(s.lx);
 		pi.stick_y = Axis(s.ly);
 		pi.stick2_x = Axis(s.rx);
@@ -479,7 +460,7 @@ bool LoadGame(const std::string& path, std::string* error)
 	g.wait_release = true;
 	g.prev_p1 = 0;
 	g.service = g.test = false;
-	g.turbo = false;
+	g.service_frames = g.test_frames = 0;
 	g.frac = 0;
 	g.prev_l = g.prev_r = 0;
 	g.frames = 0;
@@ -582,6 +563,18 @@ void Reset()
 	OrbisLog("[emu] reset");
 }
 
+void PressService()
+{
+	g.service_frames = 15; // a quarter of a second
+	OrbisLog("[emu] service button (pause menu)");
+}
+
+void PressTest()
+{
+	g.test_frames = 15;
+	OrbisLog("[emu] test switch (pause menu)");
+}
+
 void PowerCycle()
 {
 	if (!g.loaded)
@@ -640,7 +633,7 @@ FrameResult RunFrame()
 		return FrameResult::Stopped;
 	fe::Settings& cfg = fe::Config();
 
-	// -- hot keys (player 1)
+	// -- the pause menu's combination (player 1)
 	ps5input::Poll();
 	const uint32_t raw = ps5input::Pad(0).raw_buttons;
 	if (g.wait_release)
@@ -654,55 +647,22 @@ FrameResult RunFrame()
 	if ((raw & menu_combo) == menu_combo && (pressed & menu_combo))
 		return FrameResult::OpenMenu;
 
-	// L2 / R2 mapped to a game button are the game's: no hot key then
-	const bool l2 = (raw & SCE_PAD_BUTTON_L2) != 0 && !g.l2_game;
-	const bool r2 = (raw & SCE_PAD_BUTTON_R2) != 0 && !g.r2_game;
-	if (l2 && !r2)
-	{
-		if (pressed & SCE_PAD_BUTTON_UP)
-			SaveState(cfg.state_slot);
-		else if (pressed & SCE_PAD_BUTTON_DOWN)
-			LoadState(cfg.state_slot);
-		else if (pressed & (SCE_PAD_BUTTON_LEFT | SCE_PAD_BUTTON_RIGHT))
-		{
-			cfg.state_slot = (pressed & SCE_PAD_BUTTON_RIGHT) ? cfg.state_slot % 10 + 1 : (cfg.state_slot + 8) % 10 + 1;
-			Osd("State slot " + std::to_string(cfg.state_slot) + (StateExists(cfg.state_slot) ? " (used)" : " (empty)"));
-			OrbisLog("[emu] state slot %d", cfg.state_slot);
-			cfg.Save();
-		}
-	}
-	// the machine's service and test buttons: L2 + OPTIONS, L2 + touchpad (held)
-	const bool service = l2 && (raw & SCE_PAD_BUTTON_OPTIONS);
-	const bool test = l2 && (raw & SCE_PAD_BUTTON_TOUCH_PAD);
-	if (service != g.service || test != g.test)
-		OrbisLog("[emu] service %s, test %s", service ? "on" : "off", test ? "on" : "off");
-	g.service = service;
-	g.test = test;
-	const bool want_turbo = r2 && !l2;
-	if (want_turbo != g.turbo)
-	{
-		g.turbo = want_turbo;
-		OrbisLog("[emu] fast forward %s", want_turbo ? "on" : "off");
-	}
+	// the machine's service and test buttons: held for a few frames after the pause menu's Service / Test
+	g.service = g.service_frames > 0;
+	g.test = g.test_frames > 0;
+	if (g.service_frames > 0)
+		g.service_frames--;
+	if (g.test_frames > 0)
+		g.test_frames--;
 
 	// -- emulate
 	FBNEO_STAGE(Emu, "frame");
 	const burn::Input in = ReadPads();
-	{
-		const int runs = g.turbo ? (cfg.ff_speed == 0 ? 8 : std::max(2, (cfg.ff_speed + 50) / 100)) : 1;
-		for (int i = 0; i < runs; i++)
-		{
-			const bool last = i == runs - 1;
-			g.mute = g.turbo;
-			burn::RunFrame(in, last); // fast forward: only the last frame of the batch is drawn
-			if (last)
-				TakePicture();
-			FlushAudio();
-			g.frames++;
-			g.fps_frames++;
-		}
-		g.mute = false;
-	}
+	burn::RunFrame(in, true);
+	TakePicture();
+	FlushAudio();
+	g.frames++;
+	g.fps_frames++;
 	if (std::fabs(burn::Fps() - g.fps) > 0.01)
 	{
 		// a driver that changed its refresh rate (a few do, at start)
@@ -723,11 +683,10 @@ FrameResult RunFrame()
 		g.new_frame = false;
 		ps5video::Rect r = DrawLast();
 		ShowOverlays(&r);
-		ps5video::Present(r.x, r.y, r.w, r.h, g.vsynced && !g.turbo);
+		ps5video::Present(r.x, r.y, r.w, r.h, g.vsynced);
 	}
 
 	// -- pacing on the sound: the games not at 60 Hz, or a ring filling up
-	if (!g.turbo)
 	{
 		if (cfg.audio && ps5audio::Available())
 		{

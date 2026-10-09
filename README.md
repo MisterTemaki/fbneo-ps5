@@ -31,7 +31,7 @@ make (the driver list, Musashi's 68000 core, the CPS, Neo Geo, Cave, Psikyo, Toa
 frontends (`src/burner`) and its libretro port host the core: ROM loading from the sets' zips, inputs, DIP
 switches, states, NVRAM, the picture turned the right way up and the sound.
 
-> **Status (1.6):** builds with the ps5-payload-dev SDK into a signed native app, and passes 226 host tests, which
+> **Status (1.7):** builds with the ps5-payload-dev SDK into a signed native app, and passes 226 host tests, which
 > run the same code (FBNeo's core included) on Linux with the PS5 calls simulated: two arcade boards running a tiny
 > test program each (a vertical and a horizontal game) are played through the whole chain -- the shelf, the pad,
 > the core, the video and sound output -- and 26 more boards start, run, save and load a state under
@@ -67,14 +67,17 @@ next to Snes9x PS5 (PPSA99009, helper port 9075), Mesen2 PS5 (PPSA99010, port 90
 
 ## Versions
 
-Every release carries its version in the file name: `FBNeoPS5-v1.6.elf` (`make dist`). When updating, replace the
+Every release carries its version in the file name: `FBNeoPS5-v1.7.elf` (`make dist`). When updating, replace the
 old ELF with the new one in your autoload or Payload Manager. In this README, "`FBNeoPS5.elf`" always means the
 current release's ELF.
 
+**1.7:** **No hot keys on L2 and R2:** fast forward (R2) and the L2 combinations are gone. Save and load states,
+change the slot, and press the machine's **Service** button or **Test** switch from the pause menu (L3 + R3), which
+gains those two items. L2 and R2 do nothing unless the button layout puts a game button on them.
+
 **1.6:** **L2 and R2 as game buttons**, handy in 6-button games: any arcade button can go to L2 or R2 in the
 Custom layout, and a new **Fighting (R1 R2)** layout puts the punches on Square, Triangle, R1 and the kicks on
-Cross, Circle, R2 (Capcom's own PlayStation layout). A trigger used by the game leaves its hot keys aside (see
-[Controls](#controls)).
+Cross, Circle, R2 (Capcom's own PlayStation layout). (See [Controls](#controls).)
 
 **1.5:** **Settings, BIOS sets:** which BIOS sets your games need, and for each one whether its zip is there and
 complete, with the missing ROMs named (see [ROM sets](#rom-sets)).
@@ -83,7 +86,7 @@ complete, with the missing ROMs named (see [ROM sets](#rom-sets)).
 
 - **Rewind removed.** Holding L2 + R2 does nothing now, and the setting is gone from the Settings screen. No
   snapshots are taken while you play, so no game spends any time on them (CPS-3's state is 10 MB). Save states
-  (L2 + Up / Down, and the pause menu) are unchanged.
+  (in the pause menu) are unchanged.
 
 **1.3:**
 
@@ -134,10 +137,10 @@ Every screen and notification of FBNeo PS5 is in English.
 
 1. **Send `FBNeoPS5.elf`** with PS5 Payload Manager, or from a PC on the same network:
    ```sh
-   nc -q0 PS5_IP 9021 < FBNeoPS5-v1.6.elf
+   nc -q0 PS5_IP 9021 < FBNeoPS5-v1.7.elf
    ```
    It installs the app in `/data/homebrew/PPSA99012/` (`eboot.bin`, `sce_module/libc.prx`, `param.json`, the
-   icon and the backgrounds), shows **"FBNeo PS5 1.6 installed. Open it from the FBNeo PS5 icon on the home
+   icon and the backgrounds), shows **"FBNeo PS5 1.7 installed. Open it from the FBNeo PS5 icon on the home
    screen."** and stays running as the helper.
 2. **Open the FBNeo PS5 icon.** The game shelf appears and the controller works.
 3. **Copy your ROM sets** to `/data/fbneo/roms/` (over FTP, for example), or to `fbneo/roms/` on a USB drive.
@@ -328,26 +331,22 @@ buttons follow the **button layout** (Settings, CONTROLS):
 | Triangle | Button 4 (Neo Geo D) | Button 2 (medium punch) | Button 2 (medium punch) |
 | L1 | Button 5 | Button 6 (heavy kick) | -- |
 | R1 | Button 6 | Button 3 (heavy punch) | Button 3 (heavy punch) |
-| R2 | (fast forward) | (fast forward) | Button 6 (heavy kick) |
+| R2 | -- | -- | Button 6 (heavy kick) |
 | touchpad click | Coin | Coin | Coin |
 | OPTIONS | Start | Start | Start |
 
 The **Auto** layout (the default) uses the fighting layout for games with six buttons and the classic one for the
 rest, as FBNeo's libretro core does with a pad. **Fighting (R1 R2)** is Capcom's own PlayStation layout (punches
 on Square, Triangle, R1; kicks on Cross, Circle, R2). In **Custom**, any arcade button can go to L2 or R2 too.
-**L2 and R2 as game buttons:** when the layout puts a game button on R2, R2 is that button and fast forward is off
-for it; on L2, L2 is that button and the L2 hot keys below are off (save and load states from the pause menu,
-L3 + R3, then). Games with analog controls (wheels, dials, trackballs, guns) read
+L2 and R2 do nothing unless the layout gives them a game button: there are no hot keys on them. Games with analog
+controls (wheels, dials, trackballs, guns) read
 the left stick (and the right stick for a second axis or pedal).
 
 | Combination | Does |
 |---|---|
-| L3 + R3 | pause menu: save / load state, slot, **DIP switches**, settings, reset, power cycle, back to the list, quit |
-| L2 + Up / Down | save / load the state in the current slot (the L2 hot keys: unless the layout puts a game button on L2) |
-| L2 + Left / Right | change slot (1-10) |
-| hold R2 | fast forward (speed in the settings), unless the layout puts a game button on R2 |
-| hold L2 + OPTIONS | the machine's **service** button |
-| hold L2 + touchpad | the machine's **test** switch (its own setup menu, on the boards that have one) |
+| L3 + R3 | pause menu: save / load state, slot, **DIP switches**, the machine's **service** button and **test** switch (its own setup menu, on the boards that have one), settings, reset, power cycle, back to the list, quit |
+
+That is the only combination: there is no fast forward, and saving or loading a state goes through the pause menu.
 
 Up to four players: players 2 to 4 are the other signed-in users' controllers, with the same layout.
 
@@ -365,12 +364,12 @@ Triangle on the shelf, or "Settings" in the pause menu:
   screen, integer scale, stretch), aspect ratio (the game's monitor -- 4:3, or 3:4 for vertical games --, square
   pixels, 16:9 stretched), smooth picture and scanlines (for the plain picture, with the shader Off), FPS counter.
 - **Audio:** sound on/off, volume.
-- **Emulation:** fast-forward speed (150% to unlimited), save high scores.
+- **Emulation:** save high scores.
 - **Controls:** **button layout** (Auto, Classic, Fighting, Fighting (R1 R2), Custom), then the PS5 button of
   each arcade button (Button 1 to 6, Coin, Start: Cross, Circle, Square, Triangle, L1, R1, L2, R2, OPTIONS, the
   touchpad, or none). In a game the rows show the game's own names for its buttons (`Button 1 (Weak Punch)`).
   Changing a button makes the layout Custom, starting from the one shown; **Default button layout** goes back to
-  Auto. L3 and R3 stay for the menus; L2 and R2 are the hot keys' unless the layout gives them a game button.
+  Auto. L3 and R3 stay for the pause menu.
   Saved in `fbneo-ps5.ini` (`layout`, `btn_1`...`btn_start`; L2 is 9 and R2 is 10 there).
 - **Library:** download covers, show clones, show incomplete sets, **BIOS sets** (Cross: which BIOS sets your
   games need and whether each is there; see [ROM sets](#rom-sets)).
@@ -432,7 +431,7 @@ original code aiming at the same look. Every minute in a game, `boot.log` says h
   the display's 60 Hz, paced by vsync -- smooth scrolling, the game up to 2.5% faster than the real board, its
   sound resampled to match (a small rate control, within 0.5%, keeps about 60 ms queued). The others (Mortal
   Kombat's 54.7 Hz, R-Type's 55 Hz, DoDonPachi's 57.55 Hz...) run at their own speed, paced by the sound.
-- Fast forward runs several frames per display frame (only the last one drawn), muted. There is no rewind.
+- There is no fast forward and no rewind: one emulated frame per display frame.
 
 ## Debugging (logs and crashes)
 
@@ -513,7 +512,7 @@ The build has three stages:
   - `fe_burn.cpp`: the core behind a small API -- the drivers, the ROMs from the sets' zips (by CRC, then by name;
     the set, its BIOS set and its parents), inputs, DIP switches, the picture turned upright, the sound, save
     states and NVRAM (with their layout checked on load), hiscores;
-  - `fe_emu.cpp`: the running game on the PS5 -- pads and button layouts, hot keys, pacing, the resampler,
+  - `fe_emu.cpp`: the running game on the PS5 -- pads and button layouts, pacing, the resampler,
     the picture and its overlays;
   - `fe_games.cpp`: the library (sets, parents, BIOS sets, the ROM check and its cache, the tabs);
   - `fe_shelf.cpp`, `fe_covers.cpp`, `fe_prefetch.cpp`, `fe_http.cpp`: the 3D shelf and covers;
@@ -534,7 +533,7 @@ The build has three stages:
   vertical and a horizontal game, the library (parents, BIOS sets, incomplete sets, the check's cache), a set with
   a ROM missing, DIP switches, button layouts, sound latency and pacing by the sound, 720p, install (packed
   files), covers (flyer, parent's flyer, screenshot, 404), tabs and clones, the CRT shaders (each one, both
-  orientations, under ASan/UBSan), settings, fast forward (and no rewind), the pad, the helper and sandbox request
+  orientations, under ASan/UBSan), settings, no fast forward or rewind, the pause menu's Service, the pad, the helper and sandbox request
   (unknown titles refused, slow clients, links), covers downloaded by the helper while the shelf runs (and the
   prefetch with an older helper), debug logs, 26 boards started under ASan with a state round trip, Cabal's
   palette, the DIP switches set before a driver starts, Settings' BIOS sets screen (missing, OK, incomplete), L2 / R2 as game buttons, NVRAM, and the fixes of the 1.0 code review (merged sets, clones of a hidden parent,

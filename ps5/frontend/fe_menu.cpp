@@ -214,7 +214,6 @@ enum SettingRow
 	S_AUDIO,
 	S_VOLUME,
 	H_EMU,
-	S_FF,
 	S_HISCORES,
 	H_CONTROLS,
 	S_LAYOUT,
@@ -231,8 +230,6 @@ enum SettingRow
 	S_COUNT
 };
 
-const int kFfSteps[] = {150, 200, 300, 400, 500, 1000, 0};
-constexpr int kFfCount = int(sizeof(kFfSteps) / sizeof(kFfSteps[0]));
 
 // The game's buttons, when one is running (the layouts depend on how many it has: auto)
 int GameButtons()
@@ -257,11 +254,6 @@ Row SettingRowFor(int s)
 		case S_AUDIO: return {"Sound", OnOff(c.audio)};
 		case S_VOLUME: snprintf(buf, sizeof(buf), "%d%%", c.volume); return {"Volume", buf};
 		case H_EMU: return {"EMULATION", "", true, true};
-		case S_FF:
-			if (c.ff_speed == 0)
-				return {"Fast forward speed (hold R2)", "Unlimited"};
-			snprintf(buf, sizeof(buf), "%d%%", c.ff_speed);
-			return {"Fast forward speed (hold R2)", buf};
 		case S_HISCORES: return {"Save high scores (hiscore.dat)", OnOff(c.hiscores)};
 		case H_CONTROLS: return {"CONTROLS (arcade button  ->  PS5 button)", "", true, true};
 		case S_LAYOUT: return {"Button layout", emu::kLayouts[c.layout % emu::kLayoutCount].name};
@@ -320,14 +312,6 @@ void ChangeSetting(int s, int dir)
 		case S_FPS: c.show_fps = !c.show_fps; break;
 		case S_AUDIO: c.audio = !c.audio; break;
 		case S_VOLUME: c.volume = std::max(0, std::min(100, c.volume + dir * 10)); break;
-		case S_FF:
-		{
-			int i = 0;
-			while (i < kFfCount - 1 && kFfSteps[i] != c.ff_speed)
-				i++;
-			c.ff_speed = kFfSteps[Cycle(i, dir, kFfCount)];
-			break;
-		}
 		case S_HISCORES: c.hiscores = !c.hiscores; break;
 		case S_LAYOUT: c.layout = emu::NextLayout(c.layout % emu::kLayoutCount, dir); break;
 		case S_COVERS: c.covers_download = !c.covers_download; break;
@@ -595,6 +579,8 @@ PauseAction PauseMenu()
 		I_LOAD,
 		I_SLOT,
 		I_DIPS,
+		I_SERVICE,
+		I_TEST,
 		I_SETTINGS,
 		I_RESET,
 		I_POWER,
@@ -618,6 +604,8 @@ PauseAction PauseMenu()
 		snprintf(buf, sizeof(buf), "%d%s", cfg.state_slot, emu::StateExists(cfg.state_slot) ? " (used)" : " (empty)");
 		rows[I_SLOT] = {"State slot", buf};
 		rows[I_DIPS] = {"DIP switches", "", !emu::Dips().empty()};
+		rows[I_SERVICE] = {"Service button", ""};
+		rows[I_TEST] = {"Test switch (the machine's own menu)", ""};
 		rows[I_SETTINGS] = {"Settings", ""};
 		rows[I_RESET] = {"Reset", ""};
 		rows[I_POWER] = {"Power cycle", ""};
@@ -673,6 +661,12 @@ PauseAction PauseMenu()
 						nav = NavReader();
 					}
 					break;
+				case I_SERVICE:
+					emu::PressService();
+					return PauseAction::Resume;
+				case I_TEST:
+					emu::PressTest();
+					return PauseAction::Resume;
 				case I_SETTINGS:
 					SettingsScreen(true);
 					nav = NavReader();

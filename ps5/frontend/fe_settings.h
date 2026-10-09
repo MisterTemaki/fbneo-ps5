@@ -19,7 +19,6 @@ struct Settings
 	bool audio = true;
 	int volume = 100; // 0..100
 	// emulation
-	int ff_speed = 300; // % while R2 is held; 0 = as fast as possible
 	bool hiscores = true; // FBNeo's high score saving (needs hiscore.dat in /data/fbneo/hiscore)
 	int state_slot = 1; // 1..10
 	// controls: the button layout (emu::kLayouts: auto, classic, fighting, custom) and the custom one: the PS5

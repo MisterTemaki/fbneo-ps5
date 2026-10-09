@@ -76,9 +76,8 @@ enum class FrameResult
 };
 // One frame: the pads and hot keys, the core's frame, the picture (and the messages) on the screen, the sound to
 // the audio ring. Games at 58.5..61.5 Hz run at the display's 60 Hz (vsync paces them, the sound is resampled to
-// match); the others are paced by the sound. Hot keys: L2 + Up / Down = save / load the state slot, L2 + Left /
-// Right = change the slot, R2 held = fast forward, L2 + OPTIONS = service, L2 + touchpad =
-// test (the machine's service menu).
+// match); the others are paced by the sound. The one hot key: L3 + R3 opens the pause menu (states, DIP switches,
+// the machine's service button and test switch...); L2 and R2 are buttons like the others (1.7).
 FrameResult RunFrame();
 
 void Pause(); // nothing runs between frames; kept for the menus' symmetry
@@ -89,6 +88,9 @@ bool LoadState(int slot);
 bool StateExists(int slot);
 void Reset(); // the machine's reset button
 void PowerCycle(); // the game loaded again, as switching the machine off and on
+// The machine's service button / test switch, held for a quarter of a second once the game runs again.
+void PressService();
+void PressTest();
 void Osd(const std::string& text); // a message over the game for a few seconds
 
 // The game's DIP switches (the pause menu): changes are kept per game in /data/fbneo/config/<set>.dip.
