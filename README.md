@@ -31,7 +31,7 @@ make (the driver list, Musashi's 68000 core, the CPS, Neo Geo, Cave, Psikyo, Toa
 frontends (`src/burner`) and its libretro port host the core: ROM loading from the sets' zips, inputs, DIP
 switches, states, NVRAM, the picture turned the right way up and the sound.
 
-> **Status (1.7):** builds with the ps5-payload-dev SDK into a signed native app, and passes 226 host tests, which
+> **Status (1.8):** builds with the ps5-payload-dev SDK into a signed native app, and passes 237 host tests, which
 > run the same code (FBNeo's core included) on Linux with the PS5 calls simulated: two arcade boards running a tiny
 > test program each (a vertical and a horizontal game) are played through the whole chain -- the shelf, the pad,
 > the core, the video and sound output -- and 26 more boards start, run, save and load a state under
@@ -54,7 +54,8 @@ on the console: `FBNeoPS5.elf` is about 22 MB.
 When it opens, the app asks the helper to let it out of its sandbox; without that an app sees neither `/data`
 nor USB drives. The request is the one PS5SX2 makes:
 
-- **Who is asked, in order:** the FBNeo helper (127.0.0.1:9079; 1.0's helper used 9078 and is left alone),
+- **Who is asked, in order:** the FBNeo helper (127.0.0.1:9082; older helpers used 9078 in 1.0 and 9079 up to
+  1.7, and are left alone),
   then etaHEN (9028) and the daemon on port 9069.
 - **If nobody answers:** the app carries a copy of the helper (`FBNeoPS5-helper.elf`), sends it to the ELF loader
   (127.0.0.1:9021) and asks again. So the icon keeps working after a reboot, as long as the ELF loader runs.
@@ -67,9 +68,17 @@ next to Snes9x PS5 (PPSA99009, helper port 9075), Mesen2 PS5 (PPSA99010, port 90
 
 ## Versions
 
-Every release carries its version in the file name: `FBNeoPS5-v1.7.elf` (`make dist`). When updating, replace the
+Every release carries its version in the file name: `FBNeoPS5-v1.8.elf` (`make dist`). When updating, replace the
 old ELF with the new one in your autoload or Payload Manager. In this README, "`FBNeoPS5.elf`" always means the
 current release's ELF.
+
+**1.8:** **The helper downloads the covers with its own HTTPS.** Up to 1.7 the helper got nothing on the console:
+the console's own HTTPS (libSceSsl) fails outside the app's sandbox, and every cover failed in a few milliseconds
+while the counter went down. The helper now has its own HTTPS, as Genesis Plus GX PS5 1.6 and Snes9x PS5 2.3 do:
+Mbed TLS, with Mozilla's list of certificate authorities, the server's certificate checked as a browser does. It
+also keeps one connection for all its downloads. After updating, send `FBNeoPS5-v1.8.elf` once (or let the app
+start its helper itself): the older helper keeps running until the console restarts, but 1.8 uses its own (port
+9082).
 
 **1.7:** **No hot keys on L2 and R2:** fast forward (R2) and the L2 combinations are gone. Save and load states,
 change the slot, and press the machine's **Service** button or **Test** switch from the pause menu (L3 + R3), which
@@ -137,10 +146,10 @@ Every screen and notification of FBNeo PS5 is in English.
 
 1. **Send `FBNeoPS5.elf`** with PS5 Payload Manager, or from a PC on the same network:
    ```sh
-   nc -q0 PS5_IP 9021 < FBNeoPS5-v1.7.elf
+   nc -q0 PS5_IP 9021 < FBNeoPS5-v1.8.elf
    ```
    It installs the app in `/data/homebrew/PPSA99012/` (`eboot.bin`, `sce_module/libc.prx`, `param.json`, the
-   icon and the backgrounds), shows **"FBNeo PS5 1.7 installed. Open it from the FBNeo PS5 icon on the home
+   icon and the backgrounds), shows **"FBNeo PS5 1.8 installed. Open it from the FBNeo PS5 icon on the home
    screen."** and stays running as the helper.
 2. **Open the FBNeo PS5 icon.** The game shelf appears and the controller works.
 3. **Copy your ROM sets** to `/data/fbneo/roms/` (over FTP, for example), or to `fbneo/roms/` on a USB drive.
@@ -256,11 +265,13 @@ wordmark: **github.com/MisterTemaki**.
 - **Clones:** the other versions of a game (other regions, revisions, bootlegs) are listed after it; Settings,
   **Show clones**, hides them (a clone still shows when its parent isn't listed, so no game disappears).
 - **Automatic covers, in the background:** the art comes from libretro-thumbnails' **FBNeo - Arcade Games**
-  collection over HTTPS, with the console's own `libSceHttp2`/`libSceSsl`. For each game, in order: its flyer
+  collection over HTTPS. For each game, in order: its flyer
   (`Named_Boxarts`), its parent's flyer (most clones have none of their own), then a picture of the game
   (`Named_Snaps`), its own or its parent's.
-  - The app can't download once it is out of its sandbox, so the **helper** does it (a payload with network access
-    of its own), while you use the app. The app opens at once and lists the missing covers in
+  - The console's own HTTPS (`libSceHttp2`/`libSceSsl`) only works inside the app's sandbox, and the app can't see
+    `/data` until it is out of it. So the **helper** downloads the covers, while you use the app, with HTTPS of its
+    own (since 1.8): Mbed TLS, the server's certificate checked against Mozilla's list of certificate authorities,
+    one connection kept for all the downloads. The app opens at once and lists the missing covers in
     `/data/fbneo/covers/wanted.txt`, and the ones around the selection in `covers/priority.txt` (fetched first);
     the helper downloads them one by one, and each cover replaces its card on the shelf as it lands. The top right
     corner shows "Downloading covers in the background... N left". The helper keeps going while the app is closed.
@@ -477,7 +488,7 @@ make ps5 -j$(nproc)              # build/ps5/FBNeoPS5.elf (installer + helper, w
 make send PS5_HOST=192.168.0.10  # sends it to elfldr (port 9021)
 make dist                        # build/dist/FBNeoPS5-v<version>.elf
 make app                         # only build/app/PPSA99012/, to copy by hand
-make test                        # Linux builds (app, installer, helper, headless core) + 226 host tests (ASan/UBSan)
+make test                        # Linux builds (app, installer, helper, headless core) + 237 host tests (ASan/UBSan)
 ```
 
 The first build compiles FBNeo's 1,039 core files (about 15 minutes on 2 cores; `make core-ps5` builds just those).
@@ -518,9 +529,12 @@ The build has three stages:
   - `fe_shelf.cpp`, `fe_covers.cpp`, `fe_prefetch.cpp`, `fe_http.cpp`: the 3D shelf and covers;
   - `fe_coverworker.cpp`, `fe_coverfetch.cpp`: the helper's background downloads, and the fetch code the app and
     the helper share;
+  - `fe_tlshttp.cpp`, `fe_mbedtls_config.h`, `data/cacert.pem`: the helper's own HTTPS client (sockets, Mbed TLS,
+    Mozilla's CA list);
   - `fe_menu.cpp`, `fe_settings.cpp`, `fe_text.cpp`: menus (the pause menu's DIP switches included), settings, text
     with PS5SX2's fonts;
-  - `third_party/`: minizip (unzip.c, ioapi.c), stb.
+  - `third_party/`: minizip (unzip.c, ioapi.c), stb, Mbed TLS 3.6.7 (`mbedtls/`, its `include/` and `library/` as
+    released).
 - **`ps5/proto/native/`**: ps5-native-app-boilerplate's tools (BlackBearReloaded, GPL-3.0), taken from PS5SX2 and
   PS5_Vulkan (mihawk-99): `ps5-native-tool`, `app_crt.cpp`, `ps5-pie.ld`, `libc_builder.cpp` and its manifests.
 - **`ps5/app/sce_sys/`**: param.json, icon and backgrounds; `ps5/tools/make_art.py` encodes the background.
@@ -529,14 +543,16 @@ The build has three stages:
   DIP switches saved and read back and in place before a driver starts, a frame's and a save state's time, a driver's palette made at start), the
   stand-in ROM sets (`make_fake_set.py`: every ROM a driver lists, with its name and its CRC, as FBNeo's split
   sets are made), the test programs (`tests/data`: a tiny Z80 program on the Pac-Man board, red screen, green
-  while the joystick or the button is pressed), and the 226 tests: picture, rotation, input and states on a
+  while the joystick or the button is pressed), and the 237 tests: picture, rotation, input and states on a
   vertical and a horizontal game, the library (parents, BIOS sets, incomplete sets, the check's cache), a set with
   a ROM missing, DIP switches, button layouts, sound latency and pacing by the sound, 720p, install (packed
   files), covers (flyer, parent's flyer, screenshot, 404), tabs and clones, the CRT shaders (each one, both
   orientations, under ASan/UBSan), settings, no fast forward or rewind, the pause menu's Service, the pad, the helper and sandbox request
   (unknown titles refused, slow clients, links), covers downloaded by the helper while the shelf runs (and the
   prefetch with an older helper), debug logs, 26 boards started under ASan with a state round trip, Cabal's
-  palette, the DIP switches set before a driver starts, Settings' BIOS sets screen (missing, OK, incomplete), L2 / R2 as game buttons, NVRAM, and the fixes of the 1.0 code review (merged sets, clones of a hidden parent,
+  palette, the DIP switches set before a driver starts, Settings' BIOS sets screen (missing, OK, incomplete), L2 / R2 as game buttons, NVRAM, the helper's HTTPS (a local server with a test certificate authority:
+  a certificate from another authority or for another name refused, chunked answers, redirects, the connection
+  kept), and the fixes of the 1.0 code review (merged sets, clones of a hidden parent,
   the check's version, repeated DIP switch names, ROMs larger than the set says).
 
 ## License and credits
@@ -556,6 +572,10 @@ The build has three stages:
   `app_cpp_runtime.cpp`, `ps5-pie.ld` and the `libc.prx` generator, via PS5SX2 and PS5_Vulkan (mihawk-99).
 - The VideoOut tiling and setup follow the SDK's SDL2 port (zlib license).
 - **minizip** (Gilles Vollant) and **zlib** (FBNeo's copy, for the installer's unpacking too): zlib license.
+- **Mbed TLS** 3.6.7 ([github.com/Mbed-TLS/mbedtls](https://github.com/Mbed-TLS/mbedtls), the Mbed TLS
+  contributors): Apache-2.0 (`ps5/frontend/third_party/mbedtls/LICENSE`).
+- **Mozilla's CA certificate list** (`ps5/frontend/data/cacert.pem`, as packaged by
+  [certifi](https://github.com/certifi/python-certifi) 2026.07.22): MPL-2.0.
 - **CRT shaders** from libretro's [slang-shaders](https://github.com/libretro/slang-shaders), rewritten for the CPU:
   crt-lottes and crt-lottes-fast (Timothy Lottes, public domain), crt-1tap and crt-2tap (fishku, CC0), monoCRT
   (hunterk, public domain), newpixie-mini (Mattias Gustavsson, Unlicense), crt-hyllian-fast and crt-nobody

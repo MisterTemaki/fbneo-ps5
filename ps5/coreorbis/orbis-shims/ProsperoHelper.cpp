@@ -1,7 +1,7 @@
 // FBNeo PS5: the helper payload's side of the jailbreak (ProsperoJailbreak.h).
 //
 // Runs in FBNeoPS5.elf (after it installs the app) and in FBNeoPS5-helper.elf (which the app sends to the
-// ELF loader when no helper answers). One request at a time on 127.0.0.1:9078 only.
+// ELF loader when no helper answers). One request at a time on 127.0.0.1:9082 only (9078 in 1.0, 9079 in 1.1 to 1.7).
 //
 // What the jailbreak changes in the FBNeo PS5 process, with the payload SDK's kernel access (the same calls
 // ps5-payload-dev's elfldr makes for the payloads it starts): the root and jail folders become the kernel's

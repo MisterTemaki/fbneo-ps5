@@ -466,7 +466,8 @@ SRV=$T/srv/FBNeo_-_Arcade_Games/Named_Boxarts; mkdir -p "$SRV" "$T/root/covers"
 python3 -c "from PIL import Image; Image.new('RGB',(512,700),(255,0,0)).save('$SRV/Ponpoko.png')"
 addset ponpoko "$T/root/roms"
 PORT=18091
-(cd "$T/srv" && exec python3 -m http.server $PORT --bind 127.0.0.1 >/dev/null 2>&1) &
+# the server answers after 2 s, so the shelf shows the card first, then the cover
+SERVER_DELAY=2 python3 tests/https_server.py "$T/srv" $PORT >/dev/null 2>&1 &
 SRVPID=$!
 FBNEO_PS5_ROOT=$T/root ASAN_OPTIONS=detect_leaks=0 timeout 120 "$HELPER" >"$T/helper.txt" 2>&1 &
 waitfor "$T/root/logs/helper.log" "listening" || sleep 1
@@ -632,6 +633,7 @@ for g in cabal cobracom; do
 	expect "[ $rc = 0 ] && [ \"\${lit:-0}\" -gt 0 ]" "$g: the palette is made at start (${lit:-0} pixels lit, 0 = black screen)"
 done
 # CPS-3 (the heaviest state): a frame and a save state, timed
+mkset sfiii3
 o=$("$HEADLESS" bench "$SETS/sfiii3" sfiii3 60 2>"$WORK/h21-bench.err"); rc=$?
 expect "[ $rc = 0 ] && echo \"$o\" | grep -q 'save state'" "sfiii3: $(echo "$o" | tail -1)"
 # the DIP switches are in the driver before it starts (the Neo Geo loads the BIOS they name as it starts)
@@ -747,6 +749,54 @@ PY
 rc=$(run "$T" "$PAD" "")
 expect "grep -q '\[bios\] neogeo.zip (Neo Geo): incomplete, 1 ROM(s) missing, first sfix.sfix' $T/root/logs/boot.log" "a neogeo.zip without sfix.sfix: incomplete, the ROM named"
 nosan "$T"
+fi
+
+if want 25; then
+echo "== 25. the helper's own HTTPS (Mbed TLS): certificate checked, kept connection, chunks, redirects, 404"
+stop_helpers25() { pkill -f 'build/host/fbneo-ps5-(installer|helper)' 2>/dev/null; sleep 0.3; }
+stop_helpers25
+C=$WORK/t25-certs; rm -rf "$C"; mkdir -p "$C"
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout "$C/ca.key" -out "$C/ca.pem" -days 30 -subj "/CN=FBNeo Test CA" 2>/dev/null
+openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout "$C/srv.key" -out "$C/srv.csr" -subj "/CN=localhost" 2>/dev/null
+printf 'subjectAltName=DNS:localhost\nbasicConstraints=CA:FALSE\n' >"$C/ext.cnf"
+openssl x509 -req -in "$C/srv.csr" -CA "$C/ca.pem" -CAkey "$C/ca.key" -CAcreateserial -out "$C/srv.pem" -days 30 -extfile "$C/ext.cnf" 2>/dev/null
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout "$C/other.key" -out "$C/other.pem" -days 30 -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost" 2>/dev/null
+SRVROOT=$WORK/t25-srv; rm -rf "$SRVROOT"; mkdir -p "$SRVROOT/Repo/Named_Boxarts"
+python3 -c "
+from PIL import Image
+for n,c in [('A b',(255,0,0)),('B',(0,255,0)),('C',(0,0,255))]: Image.new('RGB',(512,357),c).save('$SRVROOT/Repo/Named_Boxarts/'+n+'.png')"
+PORT=18443
+tls_case() { # name cert key mode host -> $T with the helper's run in it
+	T=$(newroot "t25-$1")
+	mkdir -p "$T/root/covers"
+	python3 tests/https_server.py "$SRVROOT" $PORT "$2" "$3" "$4" 2>"$T/server.txt" &
+	local sp=$!
+	sleep 0.6
+	local u="https://$5:$PORT"
+	printf 'FBNeo/A.png\t%s/Repo/Named_Boxarts/A%%20b.png\nFBNeo/B.png\t%s/chunked/Repo/Named_Boxarts/B.png\nFBNeo/C.png\t%s/moved/Repo/Named_Boxarts/C.png\nFBNeo/D.png\t%s/Repo/Named_Boxarts/D.png\n' "$u" "$u" "$u" "$u" >"$T/root/covers/wanted.txt"
+	FBNEO_EXTRA_CA=$C/ca.pem FBNEO_PS5_ROOT=$T/root ASAN_OPTIONS=detect_leaks=0 timeout ${6:-6} "$HELPER" >"$T/helper.txt" 2>&1
+	kill $sp 2>/dev/null; wait $sp 2>/dev/null
+	stop_helpers25
+}
+tls_case good "$C/srv.pem" "$C/srv.key" keep localhost
+H="$T/root/logs/helper.log"; D="$T/root/covers/FBNeo"; S="$SRVROOT/Repo/Named_Boxarts"
+expect "grep -q '\[https\] Mbed TLS 3\.6\.[0-9]*: [0-9]* CA certificate(s), + the extra CA' $H" "Mbed TLS set up with Mozilla's CA list (+ the test CA)"
+expect "cmp -s '$D/A.png' '$S/A b.png'" "a cover over HTTPS (Content-Length)"
+expect "cmp -s '$D/B.png' '$S/B.png'" "a chunked answer"
+expect "cmp -s '$D/C.png' '$S/C.png' && grep -q 'GET /moved/' $T/server.txt" "a redirect followed"
+expect "[ -f '$D/D.missing' ] && [ ! -f '$D/D.png' ]" "a 404: marked missing"
+expect "[ \$(grep -c 'kept connection' $H) = 3 ]" "one connection for the four requests"
+expect "! grep -q '\[http\] ' $H" "the helper doesn't use libSceHttp2"
+expect "! grep -q 'runtime error\|AddressSanitizer' $T/helper.txt" "no sanitizer reports"
+tls_case untrusted "$C/other.pem" "$C/other.key" keep localhost 4
+H="$T/root/logs/helper.log"; D="$T/root/covers/FBNeo"
+expect "grep -q 'Certificate verification failed' $H && [ -z \"\$(ls $D 2>/dev/null)\" ]" "a certificate from an unknown CA: refused, nothing saved, nothing marked missing"
+tls_case wrongname "$C/srv.pem" "$C/srv.key" keep 127.0.0.1 4
+H="$T/root/logs/helper.log"; D="$T/root/covers/FBNeo"
+expect "grep -q 'Certificate verification failed' $H && [ -z \"\$(ls $D 2>/dev/null)\" ]" "a certificate for another name: refused"
+tls_case closing "$C/srv.pem" "$C/srv.key" drop localhost
+D="$T/root/covers/FBNeo"
+expect "[ -f '$D/A.png' ] && [ -f '$D/B.png' ] && [ -f '$D/C.png' ]" "a server that closes kept connections: a new one each time"
 fi
 
 echo

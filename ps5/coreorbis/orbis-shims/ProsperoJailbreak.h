@@ -20,10 +20,10 @@
 
 namespace jailbreak
 {
-// FBNeo PS5's helper (FBNEO_HELPER_PORT on the host). 1.0's helper listened on 9078; 1.1's, which also
-// downloads the covers, listens on 9079, so a 1.0 helper still running (until the console restarts) is left
-// alone and the app starts its own.
-constexpr int kHelperPort = 9079;
+// FBNeo PS5's helper (FBNEO_HELPER_PORT on the host). 1.0's helper listened on 9078, 1.1 to 1.7's (which also
+// download the covers) on 9079; 1.8's, with its own HTTPS, listens on 9082, so an older helper still running
+// (until the console restarts) is left alone and the app starts its own.
+constexpr int kHelperPort = 9082;
 // the ELF loader the helper is sent to when it isn't running (FBNEO_ELFLDR_PORT on the host)
 constexpr int kElfLoaderPort = 9021;
 
