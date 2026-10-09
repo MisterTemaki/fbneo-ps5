@@ -26,9 +26,9 @@ int Clamp(int v, int lo, int hi)
 
 const char* const kButtonKeys[Settings::kButtons] = {"btn_1", "btn_2", "btn_3", "btn_4", "btn_5", "btn_6", "btn_coin",
 	"btn_start"};
-constexpr int kPs5ButtonChoices = 9; // emu::kPs5ButtonCount
+constexpr int kPs5ButtonChoices = 11; // emu::kPs5ButtonCount
 constexpr int kShaderCount = 13; // ps5crt::Shader::Count
-constexpr int kLayoutCount = 4; // emu::kLayoutCount
+constexpr int kLayoutCount = 5; // emu::kLayoutCount
 } // namespace
 
 constexpr int Settings::kDefaultButtons[Settings::kButtons];

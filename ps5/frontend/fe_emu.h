@@ -22,8 +22,11 @@ struct Choice
 };
 extern const Choice kAspects[]; // the game's monitor (4:3, or 3:4 for vertical games), square pixels, 16:9
 extern const int kAspectCount;
-extern const Choice kLayouts[]; // auto, classic, fighting (6 buttons), custom
+extern const Choice kLayouts[]; // auto, classic, fighting (6 buttons), custom, fighting with R1 R2
 extern const int kLayoutCount;
+constexpr int kCustomLayout = 3;
+// The layouts in the order the settings screen steps through them (custom last).
+int NextLayout(int layout, int dir);
 
 // The PS5 buttons an arcade button can go to.
 struct PadButton
@@ -31,8 +34,13 @@ struct PadButton
 	const char* name; // "Square"
 	unsigned bit; // SCE_PAD_BUTTON_*; 0 = not assigned
 };
-extern const PadButton kPs5Buttons[]; // Cross, Circle, Square, Triangle, L1, R1, OPTIONS, touchpad, (none)
+// Cross, Circle, Square, Triangle, L1, R1, OPTIONS, touchpad, (none), L2, R2 -- L2 and R2 came last (1.6) so the
+// numbers kept in fbneo-ps5.ini (btn_1=...) still mean the same buttons
+extern const PadButton kPs5Buttons[];
 extern const int kPs5ButtonCount;
+constexpr int kNoButton = 8;
+// The PS5 buttons in the order the settings screen steps through them (L2, R2 after R1; none last).
+int NextPs5Button(int button, int dir);
 // The arcade buttons of the custom layout (Settings::buttons), in its order.
 struct ArcadeButton
 {

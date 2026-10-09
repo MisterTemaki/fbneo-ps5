@@ -329,7 +329,7 @@ void ChangeSetting(int s, int dir)
 			break;
 		}
 		case S_HISCORES: c.hiscores = !c.hiscores; break;
-		case S_LAYOUT: c.layout = Cycle(c.layout, dir, emu::kLayoutCount); break;
+		case S_LAYOUT: c.layout = emu::NextLayout(c.layout % emu::kLayoutCount, dir); break;
 		case S_COVERS: c.covers_download = !c.covers_download; break;
 		case S_CLONES: c.show_clones = !c.show_clones; break;
 		case S_INCOMPLETE: c.show_incomplete = !c.show_incomplete; break;
@@ -345,14 +345,14 @@ void ChangeSetting(int s, int dir)
 			if (s >= S_BTN_FIRST && s <= S_BTN_LAST)
 			{
 				// changing one button makes the layout a custom one, starting from the layout shown
-				if (c.layout % emu::kLayoutCount != 3)
+				if (c.layout % emu::kLayoutCount != emu::kCustomLayout)
 				{
 					for (int i = 0; i < emu::kArcadeButtonCount; i++)
 						c.buttons[i] = emu::LayoutButton(c.layout % emu::kLayoutCount, i, GameButtons());
-					c.layout = 3;
+					c.layout = emu::kCustomLayout;
 				}
 				int& b = c.buttons[s - S_BTN_FIRST];
-				b = Cycle(b, dir, emu::kPs5ButtonCount);
+				b = emu::NextPs5Button(b, dir);
 			}
 			break;
 	}

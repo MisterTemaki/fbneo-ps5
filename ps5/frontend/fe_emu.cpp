@@ -52,6 +52,7 @@ const Choice kLayouts[] = {
 	{"Classic", ""},
 	{"Fighting (6 buttons)", ""},
 	{"Custom", ""},
+	{"Fighting (R1 R2)", ""},
 };
 const int kLayoutCount = int(sizeof(kLayouts) / sizeof(kLayouts[0]));
 
@@ -65,6 +66,8 @@ const PadButton kPs5Buttons[] = {
 	{"OPTIONS", SCE_PAD_BUTTON_OPTIONS},
 	{"Touchpad", SCE_PAD_BUTTON_TOUCH_PAD},
 	{"None", 0},
+	{"L2", SCE_PAD_BUTTON_L2},
+	{"R2", SCE_PAD_BUTTON_R2},
 };
 const int kPs5ButtonCount = int(sizeof(kPs5Buttons) / sizeof(kPs5Buttons[0]));
 
@@ -80,19 +83,45 @@ int LayoutButton(int layout, int i, int game_buttons)
 	static const int kClassic[kArcadeButtonCount] = {0, 1, 2, 3, 4, 5, 7, 6};
 	// fighting (Capcom's 6 buttons, punches on top): Square Triangle R1 = 1 2 3, Cross Circle L1 = 4 5 6
 	static const int kFighting[kArcadeButtonCount] = {2, 3, 5, 0, 1, 4, 7, 6};
+	// fighting with the triggers (Capcom's own PS layout): Square Triangle R1 = 1 2 3, Cross Circle R2 = 4 5 6
+	static const int kFightingR2[kArcadeButtonCount] = {2, 3, 5, 0, 1, 10, 7, 6};
 	if (i < 0 || i >= kArcadeButtonCount)
-		return kPs5ButtonCount - 1;
+		return kNoButton;
 	switch (layout)
 	{
 		case 1: return kClassic[i];
 		case 2: return kFighting[i];
-		case 3:
+		case 4: return kFightingR2[i];
+		case kCustomLayout:
 		{
 			const int b = fe::Config().buttons[i];
-			return b >= 0 && b < kPs5ButtonCount ? b : kPs5ButtonCount - 1;
+			return b >= 0 && b < kPs5ButtonCount ? b : kNoButton;
 		}
 		default: return game_buttons >= 6 ? kFighting[i] : kClassic[i];
 	}
+}
+namespace
+{
+int Next(const int* order, int n, int cur, int dir)
+{
+	int at = 0;
+	for (int i = 0; i < n; i++)
+		if (order[i] == cur)
+			at = i;
+	return order[((at + dir) % n + n) % n];
+}
+} // namespace
+
+int NextLayout(int layout, int dir)
+{
+	static const int kOrder[] = {0, 1, 2, 4, kCustomLayout};
+	return Next(kOrder, int(sizeof(kOrder) / sizeof(kOrder[0])), layout, dir);
+}
+
+int NextPs5Button(int button, int dir)
+{
+	static const int kOrder[] = {0, 1, 2, 3, 4, 5, 9, 10, 6, 7, kNoButton};
+	return Next(kOrder, int(sizeof(kOrder) / sizeof(kOrder[0])), button, dir);
 }
 } // namespace emu
 
@@ -148,6 +177,7 @@ struct State
 
 	// fast forward
 	bool turbo = false;
+	bool l2_game = false, r2_game = false; // the layout puts a game button on L2 / R2
 
 	// saves
 	double next_nvram_check = 0;
@@ -180,8 +210,18 @@ void ApplyLayout()
 {
 	const int layout = fe::Config().layout % emu::kLayoutCount;
 	const int n = burn::ButtonCount();
+	const bool l2_was = g.l2_game, r2_was = g.r2_game;
+	g.l2_game = g.r2_game = false;
 	for (int i = 0; i < emu::kArcadeButtonCount; i++)
+	{
 		g.map[i] = emu::kPs5Buttons[emu::LayoutButton(layout, i, n)].bit;
+		g.l2_game = g.l2_game || g.map[i] == SCE_PAD_BUTTON_L2;
+		g.r2_game = g.r2_game || g.map[i] == SCE_PAD_BUTTON_R2;
+	}
+	// L2 / R2 as game buttons: their hot keys step aside (L2's: states, service, test; R2's: fast forward)
+	if (g.l2_game != l2_was || g.r2_game != r2_was)
+		OrbisLog("[emu] L2 %s, R2 %s", g.l2_game ? "is a game button (no L2 hot keys)" : "is the hot keys' modifier",
+			g.r2_game ? "is a game button (no fast forward)" : "is fast forward");
 }
 
 int8_t Axis(uint8_t v)
@@ -202,7 +242,7 @@ burn::Input ReadPads()
 		// held (the hot keys' modifier) the D-pad and OPTIONS / touchpad stay with the hot keys
 		if (p == 0 && g.wait_release)
 			continue;
-		const bool l2 = p == 0 && (s.raw_buttons & SCE_PAD_BUTTON_L2);
+		const bool l2 = p == 0 && (s.raw_buttons & SCE_PAD_BUTTON_L2) && !g.l2_game;
 		burn::PlayerInput& pi = in.player[p];
 		if (!l2)
 		{
@@ -614,8 +654,9 @@ FrameResult RunFrame()
 	if ((raw & menu_combo) == menu_combo && (pressed & menu_combo))
 		return FrameResult::OpenMenu;
 
-	const bool l2 = (raw & SCE_PAD_BUTTON_L2) != 0;
-	const bool r2 = (raw & SCE_PAD_BUTTON_R2) != 0;
+	// L2 / R2 mapped to a game button are the game's: no hot key then
+	const bool l2 = (raw & SCE_PAD_BUTTON_L2) != 0 && !g.l2_game;
+	const bool r2 = (raw & SCE_PAD_BUTTON_R2) != 0 && !g.r2_game;
 	if (l2 && !r2)
 	{
 		if (pressed & SCE_PAD_BUTTON_UP)

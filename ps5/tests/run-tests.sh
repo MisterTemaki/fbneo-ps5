@@ -164,7 +164,7 @@ nosan "$T"
 fi
 
 if want 6; then
-echo "== 6. button layouts: custom (button 1 on Triangle), fighting (button 1 on Square)"
+echo "== 6. button layouts: custom (button 1 on Triangle), fighting (button 1 on Square), L2 / R2 as game buttons"
 T=$(newroot t6)
 addset ponpoko "$T/root/roms"
 printf 'layout=3\nbtn_1=3\n' >>"$T/root/fbneo-ps5.ini"
@@ -177,6 +177,27 @@ addset ponpoko "$T/root/roms"
 printf 'layout=2\n' >>"$T/root/fbneo-ps5.ini"
 rc=$(run "$T" "0:0;100:$CROSS;140:0;160:$SQUARE;200:0;$(QUITAT 220)" "130,190" "$T/root/roms/ponpoko.zip")
 expect "$CHECK $T/dump/flip00130.ppm 960 540 red >/dev/null && $CHECK $T/dump/flip00190.ppm 960 540 green >/dev/null" "fighting layout: button 1 is Square"
+# L2 and R2 as game buttons (1.6): button 1 on R2 -> R2 presses it and fast forward steps aside
+T=$(newroot t6d)
+addset ponpoko "$T/root/roms"
+printf 'layout=3\nbtn_1=10\n' >>"$T/root/fbneo-ps5.ini"
+rc=$(run "$T" "0:0;100:$CROSS;140:0;160:$R2;200:0;$(QUITAT 220)" "130,190" "$T/root/roms/ponpoko.zip")
+expect "$CHECK $T/dump/flip00130.ppm 960 540 red >/dev/null && $CHECK $T/dump/flip00190.ppm 960 540 green >/dev/null" "custom: button 1 on R2, R2 presses it"
+expect "grep -q 'R2 is a game button (no fast forward)' $T/root/logs/boot.log && ! grep -q 'fast forward on' $T/root/logs/boot.log" "R2 held: the game's button, no fast forward"
+# button 1 on L2 -> L2 presses it, and L2 + Up is no longer the save-state hot key
+T=$(newroot t6e)
+addset ponpoko "$T/root/roms"
+printf 'layout=3\nbtn_1=9\n' >>"$T/root/fbneo-ps5.ini"
+rc=$(run "$T" "0:0;100:$CROSS;140:0;160:$L2;200:0;210:$L2UP;215:0;$(QUITAT 230)" "130,190" "$T/root/roms/ponpoko.zip")
+expect "$CHECK $T/dump/flip00130.ppm 960 540 red >/dev/null && $CHECK $T/dump/flip00190.ppm 960 540 green >/dev/null" "custom: button 1 on L2, L2 presses it"
+expect "grep -q 'L2 is a game button (no L2 hot keys)' $T/root/logs/boot.log && ! grep -q 'save state' $T/root/logs/boot.log" "L2 + Up: no state saved (L2 is the game's)"
+# the Fighting (R1 R2) layout: button 6 on R2 (Capcom's PS layout), so R2 is no fast forward there
+T=$(newroot t6f)
+addset ponpoko "$T/root/roms"
+printf 'layout=4\n' >>"$T/root/fbneo-ps5.ini"
+rc=$(run "$T" "0:0;100:$SQUARE;140:0;$(QUITAT 160)" "130" "$T/root/roms/ponpoko.zip")
+expect "$CHECK $T/dump/flip00130.ppm 960 540 green >/dev/null && grep -q 'R2 is a game button' $T/root/logs/boot.log" "Fighting (R1 R2): button 1 on Square, R2 a game button"
+nosan "$T"
 # the settings screen: Button 1 row Right -> the layout becomes custom
 T=$(newroot t6c)
 addset ponpoko "$T/root/roms"
