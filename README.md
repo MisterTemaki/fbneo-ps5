@@ -1,5 +1,7 @@
 # FBNeo PS5
 
+> **The title ID is now PPSA99924** (it was PPSA99012 up to 1.8, which another app in the homebrew catalog uses). From 1.9 on the app installs in `/data/homebrew/PPSA99924/`; our old version under `/data/homebrew/PPSA99012/` stays as a separate icon until you delete it (check that the folder is ours first), and your games, saves and settings are kept. Replace the old ELF in your autoload. See [New title ID](#new-title-id-ppsa99924).
+
 [![FBNeo for PS5](ps5/docs/banner.jpg)](ps5/app/sce_sys/background-source.png)
 
 [FinalBurn Neo](https://github.com/finalburnneo/FBNeo) (FBNeo) 1.0.0.3, the arcade emulator, running on a jailbroken
