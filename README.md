@@ -31,7 +31,7 @@ make (the driver list, Musashi's 68000 core, the CPS, Neo Geo, Cave, Psikyo, Toa
 frontends (`src/burner`) and its libretro port host the core: ROM loading from the sets' zips, inputs, DIP
 switches, states, NVRAM, the picture turned the right way up and the sound.
 
-> **Status (1.9):** builds with the ps5-payload-dev SDK into a signed native app, and passes 247 host tests, which
+> **Status (1.9):** builds with the ps5-payload-dev SDK into a signed native app, and passes 266 host tests, which
 > run the same code (FBNeo's core included) on Linux with the PS5 calls simulated: two arcade boards running a tiny
 > test program each (a vertical and a horizontal game) are played through the whole chain -- the shelf, the pad,
 > the core, the video and sound output -- and 26 more boards start, run, save and load a state under
@@ -74,6 +74,7 @@ current release's ELF.
 **1.9:** **New title ID: PPSA99924** (it was PPSA99012, which another app in the homebrew catalog uses; see
 [New title ID](#new-title-id-ppsa99924)). Nothing under the old ID is touched (it may be
 another app's): an earlier version of ours stays as its own icon until you delete it. Games, saves and settings are shared. The helper listens on port 9092.
+**Updates from the app** (Settings, SYSTEM, Updates), as Porpoise does: see [Updates](#updates).
 
 **1.8:** **The helper downloads the covers with its own HTTPS.** Up to 1.7 the helper got nothing on the console:
 the console's own HTTPS (libSceSsl) fails outside the app's sandbox, and every cover failed in a few milliseconds
@@ -154,6 +155,31 @@ only let PPSA99012 out.
 
 **Replace the old ELF in your autoload** with the new ELF, or the old version keeps
 being installed beside the new one.
+
+## Updates
+
+From 1.9 on, the app updates itself from this repository's GitHub releases, as
+[Porpoise](https://github.com/elripalda/Porpoise-Dolphin-Emulator-for-PS5) does:
+
+- **Settings, SYSTEM, Updates** shows the version you have and what to do: *Check now*, *Install 2.0 (60 MB)*,
+  the download and install progress, then *Installed: restart* (Cross opens the new version).
+- Once a day, when the app starts, it checks by itself; when a newer version is out, a notification says so.
+  Nothing is installed without you choosing *Install*.
+- The helper does the work (the app's own HTTPS doesn't work once it is out of its sandbox), with its own HTTPS
+  (Mbed TLS, certificates checked). It asks `api.github.com/repos/MisterTemaki/FBNeo-PS5/releases/latest` for
+  the newest release and takes its asset `FBNeoPS5-v<version>-PPSA99924.zip`. It is about 60 MB (the app's eboot.bin is stored as it is, so the console can check and write each file without unpacking).
+- The zip is checked before anything is written: its size and SHA-256 against what GitHub gives, then every file
+  against the zip's own list (`PPSA99924/manifest.sha256`). Each file is written beside the old one, then all are
+  put in place with `eboot.bin` last; files the new version no longer has are removed, and the home screen's
+  copy of the art is refreshed. If anything fails before that, nothing has changed.
+- Only `/data/homebrew/PPSA99924/` changes. Games, saves and settings aren't touched.
+- **Your autoload:** the app updated this way is newer than the ELF in your autoload. The older ELF sees that and
+  leaves the app alone (its notification says so), and its helper still serves the newer app. Put the new ELF in
+  your autoload when you can: a new version may come with a new helper.
+
+For a release, `make dist` builds the zip (`build/dist/FBNeoPS5-v<version>-PPSA99924.zip`, the app
+folder stored without compression, with its manifest). Attach it to the GitHub release, tagged `v<version>`,
+next to the ELF. The same zip is what the homebrew catalog lists.
 
 ## Language
 
@@ -408,7 +434,8 @@ Triangle on the shelf, or "Settings" in the pause menu:
   Saved in `fbneo-ps5.ini` (`layout`, `btn_1`...`btn_start`; L2 is 9 and R2 is 10 there).
 - **Library:** download covers, show clones, show incomplete sets, **BIOS sets** (Cross: which BIOS sets your
   games need and whether each is there; see [ROM sets](#rom-sets)).
-- **System:** **Debug logs** (On by default) -- see [Debugging](#debugging-logs-and-crashes).
+- **System:** **Debug logs** (On by default) -- see [Debugging](#debugging-logs-and-crashes); **Updates** -- see
+  [Updates](#updates).
 
 ## CRT shaders
 
@@ -510,9 +537,9 @@ export PS5_PAYLOAD_SDK=/opt/ps5-payload-sdk
 cd ps5
 make ps5 -j$(nproc)              # build/ps5/FBNeoPS5.elf (installer + helper, with the app inside)
 make send PS5_HOST=192.168.0.10  # sends it to elfldr (port 9021)
-make dist                        # build/dist/FBNeoPS5-v<version>.elf
+make dist                        # build/dist/FBNeoPS5-v<version>.elf + the release zip
 make app                         # only build/app/PPSA99924/, to copy by hand
-make test                        # Linux builds (app, installer, helper, headless core) + 247 host tests (ASan/UBSan)
+make test                        # Linux builds (app, installer, helper, headless core) + 266 host tests (ASan/UBSan)
 ```
 
 The first build compiles FBNeo's 1,039 core files (about 15 minutes on 2 cores; `make core-ps5` builds just those).

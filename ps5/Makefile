@@ -25,6 +25,8 @@ PS5_HOST ?= ps5
 PS5_PORT ?= 9021
 VERSION ?= 1.9
 TITLE_ID ?= PPSA99924
+# where the app looks for its updates (Settings, SYSTEM, Updates): this repository's GitHub releases
+UPDATE_REPO ?= MisterTemaki/FBNeo-PS5
 APP_OUT := build/app/$(TITLE_ID)
 
 HOST_CORE_OUT := build/host/core
@@ -37,7 +39,7 @@ EMU_SRC := coreorbis/main-boot.cpp \
 	coreorbis/orbis-shims/orbis_paths.cpp coreorbis/orbis-shims/ProsperoNotify.cpp \
 	coreorbis/orbis-shims/ProsperoVideo.cpp coreorbis/orbis-shims/ProsperoAudio.cpp \
 	coreorbis/orbis-shims/ProsperoInput.cpp coreorbis/orbis-shims/ProsperoJailbreak.cpp \
-	coreorbis/orbis-shims/ProsperoCrash.cpp coreorbis/orbis-shims/ProsperoCrt.cpp \
+	coreorbis/orbis-shims/ProsperoCrash.cpp coreorbis/orbis-shims/ProsperoCrt.cpp coreorbis/orbis-shims/ProsperoUpdate.cpp \
 	frontend/fe_emu.cpp frontend/fe_menu.cpp frontend/fe_settings.cpp frontend/fe_text.cpp \
 	frontend/fe_games.cpp frontend/fe_http.cpp frontend/fe_covers.cpp frontend/fe_shelf.cpp \
 	frontend/fe_prefetch.cpp frontend/fe_coverfetch.cpp frontend/fe_coverworker.cpp
@@ -49,6 +51,7 @@ EMU_C_SRC := frontend/third_party/unzip.c frontend/third_party/ioapi.c
 # (the helper also downloads the covers in the background: fe_coverworker.cpp, with the app's HTTPS code)
 HELPER_SRC := coreorbis/orbis-shims/orbis_paths.cpp coreorbis/orbis-shims/ProsperoNotify.cpp \
 	coreorbis/orbis-shims/ProsperoHelper.cpp coreorbis/orbis-shims/ProsperoMigrate.cpp coreorbis/orbis-shims/ProsperoCrash.cpp \
+	coreorbis/orbis-shims/ProsperoUpdate.cpp \
 	frontend/fe_http.cpp frontend/fe_coverfetch.cpp frontend/fe_coverworker.cpp frontend/fe_tlshttp.cpp
 # the helper's own HTTPS (fe_tlshttp.cpp): Mbed TLS 3.6 (Apache-2.0), with fe_mbedtls_config.h on its default settings
 MBEDTLS := frontend/third_party/mbedtls
@@ -59,7 +62,7 @@ INFLATE_C_SRC := $(addprefix $(ROOT)/src/dep/libs/zlib/,adler32.c crc32.c inffas
 
 INCS := -Icoreorbis/include-orbis -Icoreorbis/orbis-shims -Ifrontend -isystem $(ROOT)/src/dep/libs/zlib
 GLUE_INCS = $(CORE_INCS) -Ifrontend -Ifrontend/third_party -Icoreorbis/include-orbis
-DEFS := -DFBNEO_PS5_VERSION='"$(VERSION)"' -DFBNEO_CORE_VERSION='"$(CORE_VERSION)"' -DFBNEO_TITLE_ID='"$(TITLE_ID)"'
+DEFS := -DFBNEO_PS5_VERSION='"$(VERSION)"' -DFBNEO_CORE_VERSION='"$(CORE_VERSION)"' -DFBNEO_TITLE_ID='"$(TITLE_ID)"' -DFBNEO_UPDATE_REPO='"$(UPDATE_REPO)"'
 MINIZIP_FLAGS := -DNOUNCRYPT -I$(ROOT)/src/dep/libs/zlib -w
 PORT_WARN := -Wall -Wextra -Werror -Wno-unused-parameter -Wno-missing-field-initializers
 GLUE_WARN := -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -Wno-write-strings
@@ -151,9 +154,12 @@ $(PS5_OUT)/FBNeoPS5.elf: $(PS5_INSTALLER_OBJ) $(PS5_OUT)/install_data.o
 
 # the release file, named with the version: build/dist/FBNeoPS5-v$(VERSION).elf
 DIST := build/dist
-dist: $(PS5_OUT)/FBNeoPS5.elf
+# + the app folder as a stored zip with its manifest (FBNeoPS5-v$(VERSION)-$(TITLE_ID).zip): attach it to the GitHub
+# release tagged v$(VERSION), so the app can update itself (Settings, SYSTEM, Updates)
+dist: $(PS5_OUT)/FBNeoPS5.elf $(APP_FILES)
 	@mkdir -p $(DIST)
 	cp $< $(DIST)/FBNeoPS5-v$(VERSION).elf
+	python3 tools/make_release_zip.py $(APP_OUT) $(TITLE_ID) $(DIST)/FBNeoPS5-v$(VERSION)-$(TITLE_ID).zip
 	@ls -l $(DIST)
 
 send: $(PS5_OUT)/FBNeoPS5.elf
