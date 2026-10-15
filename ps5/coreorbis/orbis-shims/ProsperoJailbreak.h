@@ -8,7 +8,7 @@
 // those two. When nobody answers, the app sends the helper built into it (FBNeoPS5-helper.elf) to the
 // console's ELF loader (127.0.0.1:9021) and asks again.
 //
-// The helper only lets out the FBNeo PS5 title (PPSA99012): it gives the process root's folder view
+// The helper only lets out the FBNeo PS5 title (PPSA99924 since 1.9; PPSA99012 before): it gives the process root's folder view
 // (/data, /mnt/usbN) and uid 0. It never touches another title.
 //
 // SPDX-License-Identifier: MIT
@@ -23,7 +23,8 @@ namespace jailbreak
 // FBNeo PS5's helper (FBNEO_HELPER_PORT on the host). 1.0's helper listened on 9078, 1.1 to 1.7's (which also
 // download the covers) on 9079; 1.8's, with its own HTTPS, listens on 9082, so an older helper still running
 // (until the console restarts) is left alone and the app starts its own.
-constexpr int kHelperPort = 9082;
+// 1.9 moved the app to a new title ID (PPSA99924): older helpers only let PPSA99012 out, so 1.9's listens on 9092.
+constexpr int kHelperPort = 9092;
 // the ELF loader the helper is sent to when it isn't running (FBNEO_ELFLDR_PORT on the host)
 constexpr int kElfLoaderPort = 9021;
 

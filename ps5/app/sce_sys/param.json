@@ -7,10 +7,10 @@
   "attribute": 0,
   "attribute2": 0,
   "attribute3": 0,
-  "conceptId": "99012",
+  "conceptId": "99924",
   "contentBadgeType": 1,
-  "contentId": "UP9000-PPSA99012_00-FBNEOPS500000001",
-  "contentVersion": "01.080.000",
+  "contentId": "UP9000-PPSA99924_00-FBNEOPS500000001",
+  "contentVersion": "01.090.000",
   "downloadDataSize": 256,
   "gameIntent": {
     "permittedIntents": [
@@ -33,6 +33,6 @@
   },
   "requiredSystemSoftwareVersion": "0x0000000000000000",
   "sdkVersion": "0x0000000000000000",
-  "titleId": "PPSA99012",
+  "titleId": "PPSA99924",
   "versionFileUri": ""
 }

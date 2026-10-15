@@ -31,7 +31,7 @@ make (the driver list, Musashi's 68000 core, the CPS, Neo Geo, Cave, Psikyo, Toa
 frontends (`src/burner`) and its libretro port host the core: ROM loading from the sets' zips, inputs, DIP
 switches, states, NVRAM, the picture turned the right way up and the sound.
 
-> **Status (1.8):** builds with the ps5-payload-dev SDK into a signed native app, and passes 237 host tests, which
+> **Status (1.9):** builds with the ps5-payload-dev SDK into a signed native app, and passes 264 host tests, which
 > run the same code (FBNeo's core included) on Linux with the PS5 calls simulated: two arcade boards running a tiny
 > test program each (a vertical and a horizontal game) are played through the whole chain -- the shelf, the pad,
 > the core, the video and sound output -- and 26 more boards start, run, save and load a state under
@@ -44,7 +44,7 @@ payload you send is its installer:
 
 | Piece | What it is | In PS5SX2 |
 |---|---|---|
-| `eboot.bin` in `/data/homebrew/PPSA99012/` | **FBNeo itself**, a native app opened from its icon | PCSX2 (PPSA99203) |
+| `eboot.bin` in `/data/homebrew/PPSA99924/` | **FBNeo itself**, a native app opened from its icon | PCSX2 (PPSA99203) |
 | `sce_module/libc.prx` | the C runtime module every native app carries | the same file, byte for byte |
 | `FBNeoPS5.elf` (payload) | the **installer**: installs or updates the app, then stays running as the **helper** | PS5SX2Installer.elf + PS5SX2Helper.elf |
 
@@ -54,23 +54,26 @@ on the console: `FBNeoPS5.elf` is about 22 MB.
 When it opens, the app asks the helper to let it out of its sandbox; without that an app sees neither `/data`
 nor USB drives. The request is the one PS5SX2 makes:
 
-- **Who is asked, in order:** the FBNeo helper (127.0.0.1:9082; older helpers used 9078 in 1.0 and 9079 up to
+- **Who is asked, in order:** the FBNeo helper (127.0.0.1:9092 since 1.9; 1.8's used 9082; older helpers used 9078 in 1.0 and 9079 up to
   1.7, and are left alone),
   then etaHEN (9028) and the daemon on port 9069.
 - **If nobody answers:** the app carries a copy of the helper (`FBNeoPS5-helper.elf`), sends it to the ELF loader
   (127.0.0.1:9021) and asks again. So the icon keeps working after a reboot, as long as the ELF loader runs.
-- **What the helper allows:** only title PPSA99012. It gives the process the system's root folder and uid 0, as
+- **What the helper allows:** only title PPSA99924. It gives the process the system's root folder and uid 0, as
   elfldr does for payloads. No other app is touched.
 
-FBNeo PS5 only uses `/data/fbneo/`, `/data/homebrew/PPSA99012/` and its own `/user/appmeta/PPSA99012/`. It sits
-next to Snes9x PS5 (PPSA99009, helper port 9075), Mesen2 PS5 (PPSA99010, port 9076), Genesis Plus GX PS5
-(PPSA99011, port 9077) and PS5SX2 (PPSA99203) without touching them.
+FBNeo PS5 only uses `/data/fbneo/`, `/data/homebrew/PPSA99924/` and its own `/user/appmeta/PPSA99924/`. It sits
+next to Snes9x PS5 (PPSA99922, helper port 9089), Mesen2 PS5 (PPSA99923, port 9091), Genesis Plus GX PS5 (PPSA99921, port 9088) and PS5SX2 (PPSA99203) without touching them.
 
 ## Versions
 
-Every release carries its version in the file name: `FBNeoPS5-v1.8.elf` (`make dist`). When updating, replace the
+Every release carries its version in the file name: `FBNeoPS5-v1.9.elf` (`make dist`). When updating, replace the
 old ELF with the new one in your autoload or Payload Manager. In this README, "`FBNeoPS5.elf`" always means the
 current release's ELF.
+
+**1.9:** **New title ID: PPSA99924** (it was PPSA99012, which another app in the homebrew catalog uses; see
+[New title ID](#new-title-id-ppsa99924)). Updating moves the install to the new ID and removes the old icon by itself;
+games, saves and settings are kept. The helper listens on port 9092.
 
 **1.8:** **The helper downloads the covers with its own HTTPS.** Up to 1.7 the helper got nothing on the console:
 the console's own HTTPS (libSceSsl) fails outside the app's sandbox, and every cover failed in a few milliseconds
@@ -131,6 +134,31 @@ until the console restarts, but 1.1 uses its own.
 
 **1.0:** the first release.
 
+## New title ID (PPSA99924)
+
+Up to 1.8, FBNeo PS5 used the title ID PPSA99012. The homebrew catalog
+([homebrew.page](https://homebrew.page/app/PPSA99012/)) lists that ID for another app, ProsperoTube, and two apps with one
+title ID can't be on the console together: the second one's folder and home-screen icon take the first one's place.
+So from 1.9 on the app is **PPSA99924**, an ID no listed app uses.
+
+**Updating from 1.8 or older needs nothing special:** send `FBNeoPS5-v1.9.elf` as usual. The installer:
+
+1. renames our old folder, `/data/homebrew/PPSA99012`, to `/data/homebrew/PPSA99924` and brings it up to date. It reads
+   the folder's `param.json` first: another app's folder under PPSA99012 is never touched.
+2. removes the old icon through ShadowMountPlus's API (`127.0.0.1:10101`, or the `api_port` in
+   `/data/shadowmount/config.ini`), after checking that the title registered as PPSA99012 has our content ID, and asks
+   it to scan again, so the icon of PPSA99924 shows up. ShadowMountPlus refuses while an app is open (PS5 Payload
+   Manager, for instance); then the notification says "The old icon is removed in the background" and the helper
+   tries again every 30 seconds.
+3. without ShadowMountPlus's API (an older ShadowMountPlus, or `api_enabled=0`), the notification says to remove the
+   old icon yourself: select it on the home screen, press **OPTIONS**, choose **Delete**.
+
+Games, saves, states, covers and settings live in `/data/fbneo/`, which doesn't depend on the title ID: nothing is
+lost. The helper moved to port 9092, because the helpers of 1.8 and older only let PPSA99012 out.
+
+**Replace the old ELF in your autoload** with `FBNeoPS5-v1.9.elf`. An old payload that runs again puts the old folder
+back; the app removes it the next time it opens, and the helper removes the old icon again.
+
 ## Language
 
 Every screen and notification of FBNeo PS5 is in English.
@@ -146,10 +174,10 @@ Every screen and notification of FBNeo PS5 is in English.
 
 1. **Send `FBNeoPS5.elf`** with PS5 Payload Manager, or from a PC on the same network:
    ```sh
-   nc -q0 PS5_IP 9021 < FBNeoPS5-v1.8.elf
+   nc -q0 PS5_IP 9021 < FBNeoPS5-v1.9.elf
    ```
-   It installs the app in `/data/homebrew/PPSA99012/` (`eboot.bin`, `sce_module/libc.prx`, `param.json`, the
-   icon and the backgrounds), shows **"FBNeo PS5 1.8 installed. Open it from the FBNeo PS5 icon on the home
+   It installs the app in `/data/homebrew/PPSA99924/` (`eboot.bin`, `sce_module/libc.prx`, `param.json`, the
+   icon and the backgrounds), shows **"FBNeo PS5 1.9 installed. Open it from the FBNeo PS5 icon on the home
    screen."** and stays running as the helper.
 2. **Open the FBNeo PS5 icon.** The game shelf appears and the controller works.
 3. **Copy your ROM sets** to `/data/fbneo/roms/` (over FTP, for example), or to `fbneo/roms/` on a USB drive.
@@ -222,10 +250,10 @@ every set found (`[games] ... -> "<name>"`) and the ROMs a set is missing (`[gam
 ### The home-screen app
 
 ```
-/data/homebrew/PPSA99012/
+/data/homebrew/PPSA99924/
   eboot.bin              FBNeo (a native app, signed as PS5SX2's is), with the helper inside
   sce_module/libc.prx    the native app's C runtime (the same as PS5SX2's and ps5-native-app-boilerplate's)
-  sce_sys/param.json     title "FBNeo PS5", ID PPSA99012
+  sce_sys/param.json     title "FBNeo PS5", ID PPSA99924
   sce_sys/icon0.png      the icon (512x512; ps5/app/sce_sys/icon0.png in the source)
   sce_sys/pic0.dds       the home-screen background while the icon is selected (3840x2160, BC7)
   sce_sys/pic1.dds       the launch background (the same image)
@@ -240,7 +268,7 @@ To change them, replace `icon0.png` (512x512 PNG) or `background-source.png` (16
 `python3 tools/make_art.py app/sce_sys frontend/assets/fonts/Roboto-Regular.ttf <bc7enc>` for the backgrounds, and
 rebuild. For another title ID: `make ps5 TITLE_ID=XXXX00000`.
 
-**Home-screen art:** ShadowMountPlus copies the art in `sce_sys` to `/user/appmeta/PPSA99012/` only when it first
+**Home-screen art:** ShadowMountPlus copies the art in `sce_sys` to `/user/appmeta/PPSA99924/` only when it first
 registers the title. The installer keeps that folder current on every update, but if the title was registered
 before the art changed, register it again once: select **FBNeo PS5** on the home screen, press **OPTIONS**, choose
 **Delete** (your games, saves and covers in `/data/fbneo/` stay), then send `FBNeoPS5.elf` again.
@@ -487,8 +515,8 @@ cd ps5
 make ps5 -j$(nproc)              # build/ps5/FBNeoPS5.elf (installer + helper, with the app inside)
 make send PS5_HOST=192.168.0.10  # sends it to elfldr (port 9021)
 make dist                        # build/dist/FBNeoPS5-v<version>.elf
-make app                         # only build/app/PPSA99012/, to copy by hand
-make test                        # Linux builds (app, installer, helper, headless core) + 237 host tests (ASan/UBSan)
+make app                         # only build/app/PPSA99924/, to copy by hand
+make test                        # Linux builds (app, installer, helper, headless core) + 264 host tests (ASan/UBSan)
 ```
 
 The first build compiles FBNeo's 1,039 core files (about 15 minutes on 2 cores; `make core-ps5` builds just those).

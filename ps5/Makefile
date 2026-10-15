@@ -23,8 +23,8 @@
 PS5_PAYLOAD_SDK ?= /opt/ps5-payload-sdk
 PS5_HOST ?= ps5
 PS5_PORT ?= 9021
-VERSION ?= 1.8
-TITLE_ID ?= PPSA99012
+VERSION ?= 1.9
+TITLE_ID ?= PPSA99924
 APP_OUT := build/app/$(TITLE_ID)
 
 HOST_CORE_OUT := build/host/core
@@ -37,7 +37,7 @@ EMU_SRC := coreorbis/main-boot.cpp \
 	coreorbis/orbis-shims/orbis_paths.cpp coreorbis/orbis-shims/ProsperoNotify.cpp \
 	coreorbis/orbis-shims/ProsperoVideo.cpp coreorbis/orbis-shims/ProsperoAudio.cpp \
 	coreorbis/orbis-shims/ProsperoInput.cpp coreorbis/orbis-shims/ProsperoJailbreak.cpp \
-	coreorbis/orbis-shims/ProsperoCrash.cpp coreorbis/orbis-shims/ProsperoCrt.cpp \
+	coreorbis/orbis-shims/ProsperoMigrate.cpp coreorbis/orbis-shims/ProsperoCrash.cpp coreorbis/orbis-shims/ProsperoCrt.cpp \
 	frontend/fe_emu.cpp frontend/fe_menu.cpp frontend/fe_settings.cpp frontend/fe_text.cpp \
 	frontend/fe_games.cpp frontend/fe_http.cpp frontend/fe_covers.cpp frontend/fe_shelf.cpp \
 	frontend/fe_prefetch.cpp frontend/fe_coverfetch.cpp frontend/fe_coverworker.cpp
@@ -48,7 +48,7 @@ EMU_C_SRC := frontend/third_party/unzip.c frontend/third_party/ioapi.c
 # the payloads: the helper, and the installer (= helper + install, with zlib's inflate for the compressed eboot)
 # (the helper also downloads the covers in the background: fe_coverworker.cpp, with the app's HTTPS code)
 HELPER_SRC := coreorbis/orbis-shims/orbis_paths.cpp coreorbis/orbis-shims/ProsperoNotify.cpp \
-	coreorbis/orbis-shims/ProsperoHelper.cpp coreorbis/orbis-shims/ProsperoCrash.cpp \
+	coreorbis/orbis-shims/ProsperoHelper.cpp coreorbis/orbis-shims/ProsperoMigrate.cpp coreorbis/orbis-shims/ProsperoCrash.cpp \
 	frontend/fe_http.cpp frontend/fe_coverfetch.cpp frontend/fe_coverworker.cpp frontend/fe_tlshttp.cpp
 # the helper's own HTTPS (fe_tlshttp.cpp): Mbed TLS 3.6 (Apache-2.0), with fe_mbedtls_config.h on its default settings
 MBEDTLS := frontend/third_party/mbedtls
@@ -225,7 +225,7 @@ $(APP_OUT)/eboot.bin: build/app/eboot.elf $(NATIVE_TOOL)
 
 $(APP_OUT)/sce_sys/param.json: app/sce_sys/param.json
 	@mkdir -p $(dir $@)
-	sed 's/PPSA99012/$(TITLE_ID)/g' $< > $@
+	sed 's/PPSA99924/$(TITLE_ID)/g' $< > $@
 
 $(APP_OUT)/sce_sys/%.png: app/sce_sys/%.png
 	@mkdir -p $(dir $@)
