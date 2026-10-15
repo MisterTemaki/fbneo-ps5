@@ -12,8 +12,6 @@ HELPER=$PWD/build/host/fbneo-ps5-helper
 HEADLESS=$PWD/build/host/fbneo_headless
 # ports nobody listens on, so the app's ordinary runs find no helper and no ELF loader
 export FBNEO_HELPER_PORT=$((20000 + RANDOM % 10000)) FBNEO_ELFLDR_PORT=$((30000 + RANDOM % 10000)) FBNEO_JB_NO_OTHERS=1
-# and no ShadowMountPlus API, unless a test starts its stand-in (tests/fake_smp.py)
-export FBNEO_SMP_PORT=$((40000 + RANDOM % 10000)) FBNEO_SMP_CONFIG=/nonexistent
 CHECK="python3 $PWD/tests/check_ppm.py"
 RECT="python3 $PWD/tests/check_rect.py"
 FAKE="python3 $PWD/tests/make_fake_set.py $HEADLESS"
@@ -802,85 +800,44 @@ expect "[ -f '$D/A.png' ] && [ -f '$D/B.png' ] && [ -f '$D/C.png' ]" "a server t
 fi
 
 if want 26; then
-echo "== 26. the new title ID (PPSA99924): an install under PPSA99012 is moved, its old icon removed through ShadowMountPlus"
+echo "== 26. the new title ID (PPSA99924): nothing under the old one (PPSA99012) is touched; our old version is named"
 NEWID=PPSA99924; OLDID=PPSA99012
-OURS="UP9000-${OLDID}_00-FBNEOPS500000001"; FSR4="UP9000-${OLDID}_00-FSR4SHOWCASE0001"
-stop27() { pkill -f 'build/host/fbneo-ps5-(installer|helper)' 2>/dev/null; pkill -f 'fake_smp.py' 2>/dev/null; sleep 0.3; }
-waitfor27() { for i in $(seq 1 80); do grep -q "$2" "$1" 2>/dev/null && return 0; sleep 0.1; done; return 1; }
-oldapp() { # dir content-id -> an app folder under the old ID, as 1.6 left it (or another app's)
+OURS="UP9000-${OLDID}_00-FBNEOPS500000001"; OTHER="UP9000-${OLDID}_00-ANOTHERAPP000001"
+stop26() { pkill -f 'build/host/fbneo-ps5-(installer|helper)' 2>/dev/null; sleep 0.3; }
+waitfor26() { for i in $(seq 1 80); do grep -q "$2" "$1" 2>/dev/null && return 0; sleep 0.1; done; return 1; }
+oldapp() { # dir content-id -> an app folder under the old ID: ours (as 1.8 left it) or another app's
 	mkdir -p "$1/homebrew/$OLDID/sce_sys" "$1/homebrew/$OLDID/sce_module"
 	sed "s/$NEWID/$OLDID/g; s/$OURS/$2/" app/sce_sys/param.json >"$1/homebrew/$OLDID/sce_sys/param.json"
 	echo old-eboot >"$1/homebrew/$OLDID/eboot.bin"; echo old-icon >"$1/homebrew/$OLDID/sce_sys/icon0.png"
 }
-smp() { # dir registered [busy] -> starts the stand-in on $SMPPORT
-	SMPPORT=$((50000 + RANDOM % 10000))
-	python3 tests/fake_smp.py $SMPPORT "$1/smp.log" "$2" ${3:-0} &
-	sleep 0.6
+snap() { (cd "$1/homebrew/$OLDID" && find . -type f -exec md5sum {} + | sort); }
+inst26() {
+	FBNEO_PS5_ROOT=$1/root FBNEO_PS5_HOMEBREW=$1/homebrew FBNEO_PS5_APPMETA=$1/appmeta ASAN_OPTIONS=detect_leaks=0 timeout 60 "$INSTALLER" >>"$1/inst.txt" 2>&1
 }
-inst26() { # dir [background]
-	FBNEO_SMP_PORT=${SMPPORT:-1} FBNEO_MIGRATE_RETRY_MS=300 FBNEO_PS5_ROOT=$1/root FBNEO_PS5_HOMEBREW=$1/homebrew \
-		FBNEO_PS5_APPMETA=$1/appmeta ASAN_OPTIONS=detect_leaks=0 timeout 60 "$INSTALLER" >>"$1/inst.txt" 2>&1
-}
-stop27
-# a: our old install, ShadowMountPlus answers
-T=$(newroot t26a); oldapp "$T" "$OURS"; smp "$T" "$OLDID=$OURS"
+stop26
+# a: our old version under the old ID: left exactly as it is, the new one installed beside it, the notification names it
+T=$(newroot t26a); oldapp "$T" "$OURS"; mkdir -p "$T/appmeta/$OLDID"; echo old >"$T/appmeta/$OLDID/icon0.png"
+snap "$T" >"$T/before.txt"
 inst26 "$T" &
-expect "waitfor27 $T/root/logs/installer.log 'listening on 127.0.0.1'" "installed, then stays as the helper"
-expect "[ ! -e $T/homebrew/$OLDID ]" "the old folder $OLDID is gone"
-expect "cmp -s $T/homebrew/$NEWID/eboot.bin tests/fake-eboot.bin && cmp -s $T/homebrew/$NEWID/sce_sys/icon0.png app/sce_sys/icon0.png" "it became $NEWID, brought up to date"
-expect "grep -q '\"titleId\": \"$NEWID\"' $T/homebrew/$NEWID/sce_sys/param.json && grep -q 'UP9000-${NEWID}_00-FBNEOPS500000001' $T/homebrew/$NEWID/sce_sys/param.json" "param.json: the new title ID and content ID"
-expect "grep -q 'renamed to' $T/root/logs/installer.log" "renamed (not copied)"
-expect "grep -q '^UNINSTALLED $OLDID' $T/smp.log && grep -q '^/api/v1/scan' $T/smp.log" "the old registration removed through ShadowMountPlus, then a rescan"
-expect "grep -q 'Its title ID is now $NEWID (was $OLDID); games, saves and settings are kept' $T/inst.txt" "the notification says so"
-expect "[ ! -e $T/root/migrate/$OLDID.unregister ]" "nothing left to do"
-stop27
+expect "waitfor26 $T/root/logs/installer.log 'listening on 127.0.0.1'" "installed, then stays as the helper"
+expect "cmp -s $T/homebrew/$NEWID/eboot.bin tests/fake-eboot.bin && grep -q '\"titleId\": \"$NEWID\"' $T/homebrew/$NEWID/sce_sys/param.json" "the app installed as $NEWID"
+expect "snap $T | cmp -s - $T/before.txt && grep -q old $T/appmeta/$OLDID/icon0.png" "the old folder $OLDID and its home-screen art: untouched"
+expect "grep -q 'Its title ID is now $NEWID. The old version ($OLDID) is left alone: to remove it, delete its folder /data/homebrew/$OLDID' $T/inst.txt" "the notification names the old version and how to delete it"
+stop26
+# b: another app's folder under the old ID: untouched, and not named
+T=$(newroot t26b); oldapp "$T" "$OTHER"; snap "$T" >"$T/before.txt"
 inst26 "$T" &
-expect "waitfor27 $T/root/logs/installer.log 'is up to date'" "sent again: up to date"
-expect "[ \$(grep -c '^/api/v1/games/uninstall' $T/smp.log) = 1 ] && ! grep -q 'title ID is now' $T/root/logs/installer.log" "sent again: nothing more to move or remove"
-stop27
-# b: another app under the old ID (PS5 FSR4 Showcase): not touched
-T=$(newroot t26b); oldapp "$T" "$FSR4"; smp "$T" "$OLDID=$FSR4"
+expect "waitfor26 $T/root/logs/installer.log 'listening on 127.0.0.1'" "installed"
+expect "snap $T | cmp -s - $T/before.txt && grep -q 'another app.s folder, left as it is' $T/root/logs/installer.log" "another app's $OLDID folder: untouched"
+expect "! grep -q 'title ID is now' $T/inst.txt && cmp -s $T/homebrew/$NEWID/eboot.bin tests/fake-eboot.bin" "nothing said about it; ours installed as $NEWID"
+stop26
+# c: nothing under the old ID: a plain install
+T=$(newroot t26c)
 inst26 "$T" &
-expect "waitfor27 $T/root/logs/installer.log 'listening on 127.0.0.1'" "installed"
-expect "grep -q old-eboot $T/homebrew/$OLDID/eboot.bin && grep -q FSR4SHOWCASE $T/homebrew/$OLDID/sce_sys/param.json" "another app's $OLDID folder is left as it is"
-expect "! grep -q 'uninstall' $T/smp.log 2>/dev/null" "and its registration too"
-expect "cmp -s $T/homebrew/$NEWID/eboot.bin tests/fake-eboot.bin" "ours installed as $NEWID next to it"
-stop27
-# c: both there (an old payload put the old one back): the old one goes
-T=$(newroot t26c); oldapp "$T" "$OURS"; mkdir -p "$T/homebrew/$NEWID"; cp tests/fake-eboot.bin "$T/homebrew/$NEWID/eboot.bin"; smp "$T" "$OLDID=$OURS"
-inst26 "$T" &
-expect "waitfor27 $T/root/logs/installer.log 'listening on 127.0.0.1'" "installed"
-expect "[ ! -e $T/homebrew/$OLDID ] && grep -q 'removed (' $T/root/logs/installer.log" "the old folder removed, the new one kept"
-expect "grep -q '^UNINSTALLED $OLDID' $T/smp.log" "the old registration removed"
-stop27
-# d: ShadowMountPlus busy (an app in front): the helper tries again
-T=$(newroot t26d); oldapp "$T" "$OURS"; smp "$T" "$OLDID=$OURS" 2
-inst26 "$T" &
-expect "waitfor27 $T/inst.txt 'The old icon is removed in the background'" "busy: the notification says it is done in the background"
-expect "waitfor27 $T/smp.log '^UNINSTALLED $OLDID'" "the helper's retry removed it"
-expect "for i in \$(seq 1 30); do [ ! -e $T/root/migrate/$OLDID.unregister ] && break; sleep 0.1; done; [ ! -e $T/root/migrate/$OLDID.unregister ]" "then nothing is pending"
-stop27
-# e: no ShadowMountPlus API: the user is told how to remove the old icon
-T=$(newroot t26e); oldapp "$T" "$OURS"; SMPPORT=$((50000 + RANDOM % 10000))
-inst26 "$T" &
-expect "waitfor27 $T/inst.txt 'Remove the old icon: select it on the home screen, OPTIONS, Delete'" "no API: the notification says how to remove the old icon"
-expect "[ -f $T/root/migrate/$OLDID.unregister ] && [ ! -e $T/homebrew/$OLDID ]" "moved anyway; the registration stays pending"
-stop27
-# f: the app itself removes an old folder an old payload put back, and leaves the registration to the helper
-T=$(newroot t26f); oldapp "$T" "$OURS"; mkdir -p "$T/homebrew/$NEWID"; cp tests/fake-eboot.bin "$T/homebrew/$NEWID/eboot.bin"
-rc=$(MAXFLIPS=60 run "$T" "0:0" "")
-expect "[ ! -e $T/homebrew/$OLDID ] && grep -q '\[migrate\]' $T/root/logs/boot.log" "the app removed the old folder at start"
-expect "[ -f $T/root/migrate/$OLDID.unregister ]" "and left the registration to the helper"
-smp "$T" "$OLDID=$OURS"
-FBNEO_SMP_PORT=$SMPPORT FBNEO_PS5_ROOT=$T/root ASAN_OPTIONS=detect_leaks=0 timeout 3 "$HELPER" >"$T/helper.txt" 2>&1
-expect "grep -q '^UNINSTALLED $OLDID' $T/smp.log && [ ! -e $T/root/migrate/$OLDID.unregister ]" "the helper the app starts removes it"
-stop27
-# g: pending, but the registered title turned out to be another app's: left alone
-T=$(newroot t26g); mkdir -p "$T/root/migrate"; echo x >"$T/root/migrate/$OLDID.unregister"; smp "$T" "$OLDID=$FSR4"
-FBNEO_SMP_PORT=$SMPPORT FBNEO_PS5_ROOT=$T/root ASAN_OPTIONS=detect_leaks=0 timeout 3 "$HELPER" >"$T/helper.txt" 2>&1
-expect "! grep -q uninstall $T/smp.log && [ ! -e $T/root/migrate/$OLDID.unregister ]" "another app's registration: not removed, nothing pending"
-expect "! grep -q 'runtime error\|AddressSanitizer' $T/helper.txt $WORK/t26a/inst.txt $WORK/t26d/inst.txt" "no sanitizer reports"
-stop27
+expect "waitfor26 $T/root/logs/installer.log 'listening on 127.0.0.1'" "installed"
+expect "[ ! -e $T/homebrew/$OLDID ] && ! grep -q 'title ID is now' $T/inst.txt" "no old version: nothing made or said under $OLDID"
+expect "! grep -q 'runtime error\|AddressSanitizer' $WORK/t26a/inst.txt $WORK/t26b/inst.txt $T/inst.txt" "no sanitizer reports"
+stop26
 fi
 
 echo

@@ -31,7 +31,7 @@ make (the driver list, Musashi's 68000 core, the CPS, Neo Geo, Cave, Psikyo, Toa
 frontends (`src/burner`) and its libretro port host the core: ROM loading from the sets' zips, inputs, DIP
 switches, states, NVRAM, the picture turned the right way up and the sound.
 
-> **Status (1.9):** builds with the ps5-payload-dev SDK into a signed native app, and passes 264 host tests, which
+> **Status (1.9):** builds with the ps5-payload-dev SDK into a signed native app, and passes 247 host tests, which
 > run the same code (FBNeo's core included) on Linux with the PS5 calls simulated: two arcade boards running a tiny
 > test program each (a vertical and a horizontal game) are played through the whole chain -- the shelf, the pad,
 > the core, the video and sound output -- and 26 more boards start, run, save and load a state under
@@ -72,8 +72,8 @@ old ELF with the new one in your autoload or Payload Manager. In this README, "`
 current release's ELF.
 
 **1.9:** **New title ID: PPSA99924** (it was PPSA99012, which another app in the homebrew catalog uses; see
-[New title ID](#new-title-id-ppsa99924)). Updating moves the install to the new ID and removes the old icon by itself;
-games, saves and settings are kept. The helper listens on port 9092.
+[New title ID](#new-title-id-ppsa99924)). Nothing under the old ID is touched (it may be
+another app's): an earlier version of ours stays as its own icon until you delete it. Games, saves and settings are shared. The helper listens on port 9092.
 
 **1.8:** **The helper downloads the covers with its own HTTPS.** Up to 1.7 the helper got nothing on the console:
 the console's own HTTPS (libSceSsl) fails outside the app's sandbox, and every cover failed in a few milliseconds
@@ -137,27 +137,23 @@ until the console restarts, but 1.1 uses its own.
 ## New title ID (PPSA99924)
 
 Up to 1.8, FBNeo PS5 used the title ID PPSA99012. The homebrew catalog
-([homebrew.page](https://homebrew.page/app/PPSA99012/)) lists that ID for another app, ProsperoTube, and two apps with one
-title ID can't be on the console together: the second one's folder and home-screen icon take the first one's place.
-So from 1.9 on the app is **PPSA99924**, an ID no listed app uses.
+([homebrew.page](https://homebrew.page/app/PPSA99012/)) lists that ID for another app, and two apps with one title ID
+can't be on the console together: the second one's folder and home-screen icon take the first one's place. So
+from 1.9 on the app is **PPSA99924**, an ID no listed app uses, and it installs in `/data/homebrew/PPSA99924/`.
 
-**Updating from 1.8 or older needs nothing special:** send `FBNeoPS5-v1.9.elf` as usual. The installer:
+**Nothing under the old ID is touched:** `/data/homebrew/PPSA99012/` may just as well be the other app's, so the
+installer never renames, removes or unregisters it. When our own earlier version is still there (its
+`param.json` carries FBNeo PS5's content ID), the notification says so: it is a separate icon, the old version. To
+remove it, delete the folder `/data/homebrew/PPSA99012/` (over FTP, for example), then select the old icon on the home
+screen, press **OPTIONS** and choose **Delete** (deleting only the icon isn't enough: ShadowMountPlus finds the folder
+again and puts the icon back).
 
-1. renames our old folder, `/data/homebrew/PPSA99012`, to `/data/homebrew/PPSA99924` and brings it up to date. It reads
-   the folder's `param.json` first: another app's folder under PPSA99012 is never touched.
-2. removes the old icon through ShadowMountPlus's API (`127.0.0.1:10101`, or the `api_port` in
-   `/data/shadowmount/config.ini`), after checking that the title registered as PPSA99012 has our content ID, and asks
-   it to scan again, so the icon of PPSA99924 shows up. ShadowMountPlus refuses while an app is open (PS5 Payload
-   Manager, for instance); then the notification says "The old icon is removed in the background" and the helper
-   tries again every 30 seconds.
-3. without ShadowMountPlus's API (an older ShadowMountPlus, or `api_enabled=0`), the notification says to remove the
-   old icon yourself: select it on the home screen, press **OPTIONS**, choose **Delete**.
+Games, saves, states, covers and settings live in `/data/fbneo/`, which doesn't depend on the title ID: the new
+version finds everything where it was. The helper listens on a new port, because the helpers of 1.8 and older
+only let PPSA99012 out.
 
-Games, saves, states, covers and settings live in `/data/fbneo/`, which doesn't depend on the title ID: nothing is
-lost. The helper moved to port 9092, because the helpers of 1.8 and older only let PPSA99012 out.
-
-**Replace the old ELF in your autoload** with `FBNeoPS5-v1.9.elf`. An old payload that runs again puts the old folder
-back; the app removes it the next time it opens, and the helper removes the old icon again.
+**Replace the old ELF in your autoload** with the new ELF, or the old version keeps
+being installed beside the new one.
 
 ## Language
 
@@ -516,7 +512,7 @@ make ps5 -j$(nproc)              # build/ps5/FBNeoPS5.elf (installer + helper, w
 make send PS5_HOST=192.168.0.10  # sends it to elfldr (port 9021)
 make dist                        # build/dist/FBNeoPS5-v<version>.elf
 make app                         # only build/app/PPSA99924/, to copy by hand
-make test                        # Linux builds (app, installer, helper, headless core) + 264 host tests (ASan/UBSan)
+make test                        # Linux builds (app, installer, helper, headless core) + 247 host tests (ASan/UBSan)
 ```
 
 The first build compiles FBNeo's 1,039 core files (about 15 minutes on 2 cores; `make core-ps5` builds just those).

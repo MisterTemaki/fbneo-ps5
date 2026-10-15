@@ -9,10 +9,11 @@
 // FBNeoPS5-helper.elf (FBNEO_HELPER_ONLY) is step 2 alone: the app carries it and sends it to the ELF
 // loader itself when no helper answers (after a reboot, for instance).
 //
-// Before that it brings an install made under the old title ID (PPSA99012, up to 1.8) over to the new one
-// (ProsperoMigrate.h): our old folder is renamed, its home-screen registration removed through ShadowMountPlus.
+// Earlier versions used the title ID PPSA99012, which another app uses: the app is PPSA99924 now. Nothing under the old
+// ID is touched (it may be another app's); when our earlier version is still there, the notification says so
+// (ProsperoMigrate.h).
 //
-// Nothing here writes outside /data/fbneo and /data/homebrew/<TITLE_ID> and our own old /data/homebrew/PPSA99012.
+// Nothing here writes outside /data/fbneo and /data/homebrew/<TITLE_ID>.
 //
 // SPDX-License-Identifier: MIT
 
@@ -53,16 +54,11 @@ int main()
 	OrbisLogOpen("helper");
 	OrbisLog("[helper] FBNeo PS5 helper %s (built %s %s), pid %d%s", FBNEO_PS5_VERSION, __DATE__, __TIME__,
 		int(getpid()), have_data ? "" : " (no /data: no log file)");
-	// the app started this helper: it may have left its old registration for us (ProsperoMigrate.h)
-	migrate::Run(true);
 #else
 	OrbisLogOpen("installer");
 	OrbisLog("[installer] FBNeo PS5 %s (built %s %s), pid %d", FBNEO_PS5_VERSION, __DATE__, __TIME__, int(getpid()));
 	if (!have_data)
 		OrbisLog("[installer] can't create %s", OrbisRoot().c_str());
-
-	// an install under the old title ID first: renamed to the new one, so the install below only updates it
-	const migrate::Result moved = migrate::Run(true);
 
 	const char* open_hint = "Open it from the FBNeo PS5 icon on the home screen.";
 	char msg[1024];
@@ -90,25 +86,18 @@ int main()
 		const size_t len = strlen(msg);
 		snprintf(msg + len, sizeof(msg) - len, " Home screen art updated (restart the PS5 if it doesn't show).");
 	}
-	if (moved.moved || moved.removed)
+	const std::string old_ids = migrate::FindOldInstalls();
+	if (!old_ids.empty())
 	{
 		const size_t len = strlen(msg);
-		snprintf(msg + len, sizeof(msg) - len, " Its title ID is now %s (was %s); games, saves and settings are kept.",
-			FBNEO_TITLE_ID, moved.old_ids.c_str());
-	}
-	if (moved.pending > 0)
-	{
-		const size_t len = strlen(msg);
-		if (moved.no_api)
-			snprintf(msg + len, sizeof(msg) - len,
-				" Remove the old icon: select it on the home screen, OPTIONS, Delete.");
-		else
-			snprintf(msg + len, sizeof(msg) - len, " The old icon is removed in the background.");
+		snprintf(msg + len, sizeof(msg) - len,
+			" Its title ID is now %s. The old version (%s) is left alone: to remove it, delete its folder "
+			"/data/homebrew/%s (FTP), then its icon (OPTIONS, Delete). Games, saves and settings are shared.",
+			FBNEO_TITLE_ID, old_ids.c_str(), old_ids.c_str());
 	}
 	OrbisLog("[installer] %s", msg);
 	g_ready_message = msg;
 #endif
-	migrate::StartRetryThread();
 
 	// the helper: runs until the console is turned off, or returns at once when one already runs
 	if (!jailbreak::ServeHelper(OnReady))
