@@ -33,7 +33,7 @@ make (the driver list, Musashi's 68000 core, the CPS, Neo Geo, Cave, Psikyo, Toa
 frontends (`src/burner`) and its libretro port host the core: ROM loading from the sets' zips, inputs, DIP
 switches, states, NVRAM, the picture turned the right way up and the sound.
 
-> **Status (1.9):** builds with the ps5-payload-dev SDK into a signed native app, and passes 266 host tests, which
+> **Status (1.9):** builds with the ps5-payload-dev SDK into a signed native app, and passes 270 host tests, which
 > run the same code (FBNeo's core included) on Linux with the PS5 calls simulated: two arcade boards running a tiny
 > test program each (a vertical and a horizontal game) are played through the whole chain -- the shelf, the pad,
 > the core, the video and sound output -- and 26 more boards start, run, save and load a state under
@@ -76,7 +76,11 @@ current release's ELF.
 **1.9:** **New title ID: PPSA99924** (it was PPSA99012, which another app in the homebrew catalog uses; see
 [New title ID](#new-title-id-ppsa99924)). Nothing under the old ID is touched (it may be
 another app's): an earlier version of ours stays as its own icon until you delete it. Games, saves and settings are shared. The helper listens on port 9092.
-**Updates from the app** (Settings, SYSTEM, Updates), as Porpoise does: see [Updates](#updates).
+**Updates from the app** (Settings, SYSTEM, Updates), as Porpoise does: see [Updates](#updates). A big library
+no longer holds "Looking for games..." for long: each zip is looked at once per start (the ROM check of a set
+keeps the size and date the folder walk read, instead of asking the drive again for every set, its parent and
+its BIOS: 6613 file lookups for 2500 zips before, 2500 now), and the screen counts the zips found, then shows a
+bar while the sets are checked.
 
 **1.8:** **The helper downloads the covers with its own HTTPS.** Up to 1.7 the helper got nothing on the console:
 the console's own HTTPS (libSceSsl) fails outside the app's sandbox, and every cover failed in a few milliseconds
@@ -541,7 +545,7 @@ make ps5 -j$(nproc)              # build/ps5/FBNeoPS5.elf (installer + helper, w
 make send PS5_HOST=192.168.0.10  # sends it to elfldr (port 9021)
 make dist                        # build/dist/FBNeoPS5-v<version>.elf + the release zip
 make app                         # only build/app/PPSA99924/, to copy by hand
-make test                        # Linux builds (app, installer, helper, headless core) + 266 host tests (ASan/UBSan)
+make test                        # Linux builds (app, installer, helper, headless core) + 270 host tests (ASan/UBSan)
 ```
 
 The first build compiles FBNeo's 1,039 core files (about 15 minutes on 2 cores; `make core-ps5` builds just those).

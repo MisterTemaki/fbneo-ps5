@@ -69,9 +69,13 @@ struct Zip
 {
 	std::string path;
 	bool usb;
+	long long size = 0, mtime = 0; // from the folder walk's stat: the ROM check cache's signatures use them
 };
+// set (lower case) -> "size:mtime" of its zip, from the last walk (Signature reads it instead of a stat per set and
+// per driver: thousands of them on a USB drive with a big library)
+std::unordered_map<std::string, std::string> s_zip_stamp;
 
-void Walk(const std::string& dir, int depth, bool usb, std::map<std::string, Zip>& out)
+void Walk(const std::string& dir, int depth, bool usb, std::map<std::string, Zip>& out, const ScanProgress& progress)
 {
 	DIR* d = opendir(dir.c_str());
 	if (!d)
@@ -98,12 +102,16 @@ void Walk(const std::string& dir, int depth, bool usb, std::map<std::string, Zip
 			continue;
 		const std::string set = Lower(name.substr(0, name.size() - 4));
 		if (!out.count(set))
-			out[set] = Zip{path, usb};
+		{
+			out[set] = Zip{path, usb, (long long)st.st_size, (long long)st.st_mtime};
+			if (progress)
+				progress(0, out.size(), 0);
+		}
 	}
 	closedir(d);
 	std::sort(subdirs.begin(), subdirs.end());
 	for (const std::string& s : subdirs)
-		Walk(s, depth + 1, usb, out);
+		Walk(s, depth + 1, usb, out, progress);
 }
 
 // "Street Fighter II' - Champion Edition (World 920513)" -> the title and the part in brackets
@@ -199,10 +207,10 @@ std::string Signature(const burn::Driver& d, const std::vector<burn::Driver>& dr
 	std::string sig;
 	for (const std::string& s : sets)
 	{
-		auto z = s_zips.find(Lower(s));
-		struct stat st = {};
-		if (z != s_zips.end() && stat(z->second.c_str(), &st) == 0)
-			sig += s + ":" + std::to_string(st.st_size) + ":" + std::to_string(st.st_mtime) + ";";
+		// the same "size:mtime" the stat gave, from the walk that has just stat'ed every zip
+		auto z = s_zip_stamp.find(Lower(s));
+		if (z != s_zip_stamp.end())
+			sig += s + ":" + z->second + ";";
 		else
 			sig += s + ":-;";
 	}
@@ -242,18 +250,21 @@ std::string FindSetZip(const std::string& set)
 	return it == s_zips.end() ? std::string() : it->second;
 }
 
-std::vector<GameInfo> ScanGames()
+std::vector<GameInfo> ScanGames(const ScanProgress& progress)
 {
 	PrepareFolders();
 	std::map<std::string, Zip> found;
 	for (const std::string& root : OrbisRomRoots())
-		Walk(root, 0, root.rfind("/mnt/", 0) == 0, found);
+		Walk(root, 0, root.rfind("/mnt/", 0) == 0, found, progress);
 	{
 		std::lock_guard<std::mutex> lk(s_lock);
 		s_zips.clear();
 		for (const auto& z : found)
 			s_zips[z.first] = z.second.path;
 	}
+	s_zip_stamp.clear();
+	for (const auto& z : found)
+		s_zip_stamp[z.first] = std::to_string(z.second.size) + ":" + std::to_string(z.second.mtime);
 
 	// the drivers, by name
 	std::vector<burn::Driver> drivers(size_t(std::max(0, burn::DriverCount())));
@@ -324,8 +335,11 @@ std::vector<GameInfo> ScanGames()
 		games.push_back(std::move(g));
 	};
 	auto is_game = [&](const burn::Driver& d) { return d.arcade && !d.bios && !boards.count(d.name); };
+	size_t looked = 0;
 	for (const auto& z : found)
 	{
+		if (progress)
+			progress(1, looked++, found.size());
 		auto it = by_name.find(z.first);
 		if (it == by_name.end())
 		{

@@ -11,6 +11,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -80,7 +81,11 @@ struct GameInfo
 
 // Every arcade set under the ROM folders (sub-folders included, 4 levels), sorted by title. The driver list must
 // be up (burn::Init) and no game running (the check uses the core's tables).
-std::vector<GameInfo> ScanGames();
+// progress (when given) is told how far the scan is: stage 0 while the folders are listed (done = zips found so far,
+// total = 0), stage 1 while each set is checked (done of total). It is called often: it decides itself how often
+// to draw.
+using ScanProgress = std::function<void(int stage, size_t done, size_t total)>;
+std::vector<GameInfo> ScanGames(const ScanProgress& progress = nullptr);
 // The BIOS sets (the sets FBNeo's drivers name as their board: neogeo, pgm, decocass...), as the last scan found
 // them: Settings, BIOS sets, shows this.
 struct BiosStatus

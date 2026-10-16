@@ -908,6 +908,39 @@ nosan "$T2"
 stop27
 fi
 
+if want 28; then
+echo "== 28. a big library: the scan stays quick (each zip stat'ed once; the ROM check remembered); the screen says how far it is"
+T=$(newroot t28)
+python3 - ../src/burn/drv "$T/root/roms" <<'PY'
+import glob, os, random, re, sys, zipfile
+names = set()
+for d in ("pre90s", "pst90s", "neogeo", "capcom", "konami", "cave", "taito", "sega", "toaplan", "irem", "dataeast"):
+    for f in glob.glob(os.path.join(sys.argv[1], d, "*.cpp")):
+        names.update(re.findall(r'struct BurnDriver BurnDrv\w+ = \{\s*"([a-z0-9_]+)"', open(f, errors="replace").read()))
+random.seed(5)
+for n in random.sample(sorted(names), 1500):
+    with zipfile.ZipFile(os.path.join(sys.argv[2], n + ".zip"), "w") as z:
+        z.writestr("dummy.bin", b"\0" * 1024)
+PY
+scan_time() { python3 - "$1" <<'PY'
+import re, sys
+t = {}
+for line in open(sys.argv[1], errors='replace'):
+    m = re.match(r'\[\s*([0-9.]+)\] \[(boot|games)\] (FBNeo PS5 |1500 zip)', line)
+    if m: t.setdefault(m.group(2), float(m.group(1)))
+print('%.2f' % (t['games'] - t['boot']) if 'boot' in t and 'games' in t else '99')
+PY
+}
+rc=$(run "$T" "0:0;$(SHELFQUIT_AT 100)" "")
+first=$(scan_time $T/root/logs/boot.log)
+expect "[ $rc = 0 ] && grep -q '\[games\] 1500 zip(s): [0-9]* arcade set(s) (0 complete, [0-9]* checked now)' $T/root/logs/boot.log" "1500 zips found, their sets checked"
+rc=$(run "$T" "0:0;$(SHELFQUIT_AT 100)" "")
+second=$(scan_time $T/root/logs/boot.log)
+expect "grep -q '\[games\] 1500 zip(s): [0-9]* arcade set(s) (0 complete, 0 checked now)' $T/root/logs/boot.log" "the next start: nothing checked again (the cache)"
+expect "python3 -c 'import sys; sys.exit(0 if float(\"$first\") < 8 and float(\"$second\") < 3 else 1)'" "first scan ${first} s (under 8), the next ${second} s (under 3)"
+nosan "$T"
+fi
+
 echo
 echo "passed $PASS, failed $FAIL  (work dir $WORK)"
 [ $FAIL = 0 ]
