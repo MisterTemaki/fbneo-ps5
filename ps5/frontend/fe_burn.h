@@ -132,4 +132,6 @@ void SetHiscores(bool on);
 
 // The core's log lines go here (OrbisLog on the PS5).
 void SetLog(void (*log)(const char* line));
+// The texts Load's *error shows on the screen go through this (fe::T in the app: the interface's language).
+void SetTranslate(const char* (*tr)(const char* english));
 } // namespace burn

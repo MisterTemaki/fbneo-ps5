@@ -5,6 +5,7 @@
 
 #include "fe_covers.h"
 #include "fe_games.h"
+#include "fe_i18n.h"
 #include "fe_menu.h"
 #include "fe_prefetch.h"
 #include "fe_settings.h"
@@ -501,8 +502,8 @@ bool Confirm(const char* question)
 	const int bw = 900, bh = 240, bx = (W - bw) / 2, by = (H - bh) / 2;
 	ps5video::FillRect(bx - 3, by - 3, bw + 6, bh + 6, Rgb(150, 125, 255));
 	ps5video::FillRect(bx, by, bw, bh, Rgb(26, 24, 48));
-	DrawText(bx + 50, by + 50, question, 5, Rgb(240, 240, 250));
-	DrawText(bx + 50, by + 160, (std::string(icon::Cross) + " Yes       " + icon::Circle + " No").c_str(), 3, Rgb(170, 160, 210));
+	DrawText(bx + 50, by + 50, FitText(T(question), 5, bw - 100).c_str(), 5, Rgb(240, 240, 250));
+	DrawText(bx + 50, by + 160, (std::string(icon::Cross) + " " + T("Yes") + "       " + icon::Circle + " " + T("No")).c_str(), 3, Rgb(170, 160, 210));
 	ps5video::Present(0, 0, 0, 0, true);
 	for (;;)
 	{
@@ -657,7 +658,7 @@ void Loading(const char* text)
 {
 	ps5video::FillRect(0, 0, W, H, Rgb(12, 10, 26));
 	DrawText(80, 50, "FBNeo PS5", 6, Rgb(150, 125, 255));
-	CenterText(H / 2 - 20, text, 4, Rgb(220, 220, 235));
+	CenterText(H / 2 - 20, T(text), 4, Rgb(220, 220, 235));
 	ps5video::Present(0, 0, 0, 0, true);
 }
 
@@ -701,9 +702,9 @@ std::string Shelf()
 		drawn = now;
 		char text[96];
 		if (stage == 0)
-			snprintf(text, sizeof(text), "Looking for games... %zu found", done);
+			snprintf(text, sizeof(text), T("Looking for games... %zu found"), done);
 		else
-			snprintf(text, sizeof(text), "Checking games... %d%% (%zu of %zu)", total ? int(done * 100 / total) : 0, done, total);
+			snprintf(text, sizeof(text), T("Checking games... %d%% (%zu of %zu)"), total ? int(done * 100 / total) : 0, done, total);
 		LoadingProgress(text, stage == 0 ? -1.0f : total ? float(done) / float(total) : 0.f);
 	});
 	st.shown_clones = cfg.show_clones;
@@ -1036,8 +1037,8 @@ std::string Shelf()
 				const int x = x0 + i * step - TextWidth(t, sc) / 2;
 				DrawText(x, cur_letter ? 34 : 46, t, sc, col);
 			}
-			const std::string label = std::string(icon::DpadUpDown) + " Letter      " + icon::L2 + " " + icon::R2 + "  " +
-				FamilyName(tabs[size_t(tab)]);
+			const std::string label = std::string(icon::DpadUpDown) + " " + T("Letter") + "      " + icon::L2 + " " + icon::R2 + "  " +
+				T(FamilyName(tabs[size_t(tab)]));
 			CenterText(104, label, 3, flash ? Rgb(245, 240, 255) : Rgb(190, 180, 230));
 			if (flash)
 				dirty = true;
@@ -1054,55 +1055,61 @@ std::string Shelf()
 			if (!g.region.empty())
 				sub += g.region + "   ";
 			sub += g.file_base;
+			char missing[96];
+			snprintf(missing, sizeof(missing), T("%d ROM(s) missing"), int(g.missing));
 			if (!g.complete)
-				sub += "   " + std::to_string(g.missing) + " ROM(s) missing";
+				sub += std::string("   ") + missing;
 			else if (!g.working)
-				sub += "   not working yet in FBNeo";
+				sub += std::string("   ") + T("not working yet in FBNeo");
 			if (g.on_usb)
 				sub += "   USB";
 			if (sel_tex && !sel_tex->real)
-				sub += "   no cover";
+				sub += std::string("   ") + T("no cover");
 			CenterText(880, sub, 3, Rgb(175, 170, 205));
 		}
 		else
 		{
-			CenterText(300, "No games found.", 5, Rgb(240, 240, 250));
-			CenterText(400, "Copy your arcade ROM sets (.zip, as named in FBNeo) to", 3, Rgb(200, 200, 220));
-			CenterText(450, "/data/fbneo/roms   or   fbneo/roms  on a USB drive", 4, Rgb(200, 190, 255));
-			CenterText(520, "with the BIOS sets they need beside them (neogeo.zip, pgm.zip...),", 3, Rgb(185, 180, 210));
-			CenterText(570, "from a romset that matches FBNeo " FBNEO_CORE_VERSION ".  Then open FBNeo PS5 again.", 3,
-				Rgb(185, 180, 210));
+			CenterText(300, T("No games found."), 5, Rgb(240, 240, 250));
+			CenterText(400, T("Copy your arcade ROM sets (.zip, as named in FBNeo) to"), 3, Rgb(200, 200, 220));
+			CenterText(450, T("/data/fbneo/roms   or   fbneo/roms  on a USB drive"), 4, Rgb(200, 190, 255));
+			CenterText(520, T("with the BIOS sets they need beside them (neogeo.zip, pgm.zip...),"), 3, Rgb(185, 180, 210));
+			char romset[256];
+			snprintf(romset, sizeof(romset), T("from a romset that matches FBNeo %s.  Then open FBNeo PS5 again."),
+				FBNEO_CORE_VERSION);
+			CenterText(570, romset, 3, Rgb(185, 180, 210));
 			if (!st.scanned.empty())
-				CenterText(640, "(Some sets were found but are hidden: see Show incomplete sets in Settings.)", 3,
+				CenterText(640, T("(Some sets were found but are hidden: see Show incomplete sets in Settings.)"), 3,
 					Rgb(200, 200, 220));
 		}
 		// download status
 		if (st.covers.ToDownload() > 0 && !st.covers.Offline() && cfg.covers_download)
 		{
 			char s[96];
-			snprintf(s, sizeof(s), "Downloading covers... %d left", st.covers.ToDownload());
+			snprintf(s, sizeof(s), T("Downloading covers... %d left"), st.covers.ToDownload());
 			DrawText(W - 80 - TextWidth(s, 3), 112, s, 3, Rgb(170, 160, 210));
 		}
 		else if (st.covers.BackgroundLeft() > 0 && !st.covers.BackgroundOffline() && cfg.covers_download)
 		{
 			char s[96];
-			snprintf(s, sizeof(s), "Downloading covers in the background... %d left", st.covers.BackgroundLeft());
+			snprintf(s, sizeof(s), T("Downloading covers in the background... %d left"), st.covers.BackgroundLeft());
 			DrawText(W - 80 - TextWidth(s, 3), 112, s, 3, Rgb(170, 160, 210));
 		}
 		else if ((st.covers.Offline() || (st.covers.BackgroundLeft() > 0 && st.covers.BackgroundOffline())) &&
 				 cfg.covers_download)
 		{
-			const char* s = "Offline: covers next time";
+			const char* s = T("Offline: covers next time");
 			DrawText(W - 80 - TextWidth(s, 3), 112, s, 3, Rgb(170, 160, 210));
 		}
 		// hints
 		ps5video::DarkenRect(0, H - 78, W, 78);
 		const std::string sp = "      ";
 		const std::string hint = n > 0
-			? std::string(icon::Cross) + " Play" + sp + icon::DpadLeftRight + " Browse" + sp + icon::DpadUpDown + " Letter" + sp + icon::L2 + " " + icon::R2 + " Maker" +
-				sp + icon::L1 + " " + icon::R1 + " Skip 10" + sp + icon::Triangle + " Settings" + sp + icon::Square +
-				" Get cover" + sp + icon::Options + " Quit"
-			: std::string(icon::L2) + " " + icon::R2 + " Maker" + sp + icon::Triangle + " Settings" + sp + icon::Options + " Quit";
+			? std::string(icon::Cross) + " " + T("Play") + sp + icon::DpadLeftRight + " " + T("Browse") + sp + icon::DpadUpDown + " " +
+				T("Letter") + sp + icon::L2 + " " + icon::R2 + " " + T("Maker") + sp + icon::L1 + " " + icon::R1 + " " +
+				T("Skip 10") + sp + icon::Triangle + " " + T("Settings") + sp + icon::Square + " " + T("Get cover") + sp +
+				icon::Options + " " + T("Quit")
+			: std::string(icon::L2) + " " + icon::R2 + " " + T("Maker") + sp + icon::Triangle + " " + T("Settings") + sp +
+				icon::Options + " " + T("Quit");
 		DrawText((W - TextWidth(hint.c_str(), 3)) / 2, H - 60, hint.c_str(), 3, Rgb(205, 200, 228));
 
 		ps5video::Present(0, 0, 0, 0, true);

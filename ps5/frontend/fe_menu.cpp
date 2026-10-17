@@ -9,6 +9,7 @@
 
 #include "fe_emu.h"
 #include "fe_games.h"
+#include "fe_i18n.h"
 #include "fe_settings.h"
 #include "fe_text.h"
 
@@ -21,6 +22,7 @@
 #include "ProsperoVideo.h"
 
 #include <algorithm>
+#include <cstdarg>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -41,6 +43,18 @@ const uint32_t kAccent = Rgb(150, 125, 255);
 const uint32_t kSel = Rgb(78, 62, 170);
 const uint32_t kText = Rgb(235, 235, 245);
 const uint32_t kDim = Rgb(150, 150, 175);
+
+// printf into a std::string (the translated formats)
+std::string Fmt(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
+std::string Fmt(const char* fmt, ...)
+{
+	char buf[512];
+	va_list ap;
+	va_start(ap, fmt);
+	vsnprintf(buf, sizeof(buf), fmt, ap);
+	va_end(ap);
+	return buf;
+}
 
 double Now()
 {
@@ -117,7 +131,7 @@ void Header(const char* subtitle)
 	const char* ver = "FBNeo " FBNEO_CORE_VERSION " - PS5 " FBNEO_PS5_VERSION;
 	DrawText(W - 80 - TextWidth(ver, 2), 40, ver, 2, kDim);
 	if (subtitle && *subtitle)
-		DrawText(84, 104, FitText(subtitle, 3, W - 168).c_str(), 3, kDim);
+		DrawText(84, 104, FitText(T(subtitle), 3, W - 168).c_str(), 3, kDim);
 }
 
 void Footer(const std::string& help)
@@ -154,24 +168,28 @@ int DrawOptionBox(const std::string& title, const std::vector<Row>& rows, int se
 		ps5video::FillRect(bx - 4, by - 4, bw + 8, bh + 8, kAccent);
 	ps5video::FillRect(bx, by, bw, bh, kPanel);
 	ps5video::FillRect(bx, by + 86, bw, 3, kAccent);
-	DrawText(bx + 40, by + 24, FitText(title, 5, bw - 80).c_str(), 5, kAccent);
+	DrawText(bx + 40, by + 24, FitText(T(title.c_str()), 5, bw - 80).c_str(), 5, kAccent);
 	for (int i = 0; i < visible; i++)
 	{
 		const Row& row = rows[size_t(top + i)];
 		const int y = by + 110 + i * row_h;
 		if (row.header)
 		{
-			DrawText(bx + 40, y + 6, row.label.c_str(), 2, kAccent);
+			DrawText(bx + 40, y + 6, T(row.label.c_str()), 2, kAccent);
 			ps5video::FillRect(bx + 40, y + 34, bw - 80, 1, kSel);
 			continue;
 		}
 		if (top + i == sel)
 			ps5video::FillRect(bx + 16, y - 6, bw - 32, row_h, kSel);
 		const uint32_t col = row.enabled ? kText : kDim;
-		DrawText(bx + 40, y, row.label.c_str(), scale, col);
-		if (!row.value.empty())
+		const std::string tv = T(row.value.c_str());
+		const std::string v = row.value.empty() ? "" : (top + i == sel && !row.action ? "< " + tv + " >" : tv);
+		// a translated label is fitted to the room the value leaves (an English one is drawn as it is)
+		const char* tl = T(row.label.c_str());
+		const int room = bw - 80 - (v.empty() ? 0 : TextWidth(v.c_str(), scale) + 30);
+		DrawText(bx + 40, y, tl == row.label.c_str() ? tl : FitText(tl, scale, room).c_str(), scale, col);
+		if (!v.empty())
 		{
-			const std::string v = (top + i == sel && !row.action ? "< " + row.value + " >" : row.value);
 			const uint32_t vcol = top + i == sel ? kText : row.value_color ? row.value_color : kAccent;
 			DrawText(bx + bw - 40 - TextWidth(v.c_str(), scale), y, v.c_str(), scale, vcol);
 		}
@@ -229,6 +247,7 @@ enum SettingRow
 	S_INCOMPLETE,
 	S_BIOS,
 	H_SYSTEM,
+	S_LANGUAGE,
 	S_DEBUGLOGS,
 	S_UPDATES,
 	S_COUNT
@@ -270,13 +289,13 @@ std::string UpdateValue()
 		case update::Phase::Checking: return "Checking...";
 		case update::Phase::UpToDate: return "Up to date";
 		case update::Phase::Available:
-			snprintf(buf, sizeof(buf), "Install %s (%.1f MB)", st.latest.c_str(), st.size / 1048576.0);
+			snprintf(buf, sizeof(buf), T("Install %s (%.1f MB)"), st.latest.c_str(), st.size / 1048576.0);
 			return buf;
 		case update::Phase::Downloading:
-			snprintf(buf, sizeof(buf), "Downloading %d%%", st.total ? int(st.done * 100 / st.total) : 0);
+			snprintf(buf, sizeof(buf), T("Downloading %d%%"), st.total ? int(st.done * 100 / st.total) : 0);
 			return buf;
 		case update::Phase::Installing:
-			snprintf(buf, sizeof(buf), "Installing %d/%d", int(st.done), int(st.total));
+			snprintf(buf, sizeof(buf), T("Installing %d/%d"), int(st.done), int(st.total));
 			return buf;
 		case update::Phase::Done: return "Installed: restart";
 		case update::Phase::Failed: return "Failed: try again";
@@ -348,20 +367,21 @@ Row SettingRowFor(int s)
 					needed++;
 					bad += b.ok() ? 0 : 1;
 				}
-			std::string v = needed == 0 ? "None needed" : bad == 0 ? "All OK" : std::to_string(bad) + (bad == 1 ? " missing" : " missing");
+			std::string v = needed == 0 ? "None needed" : bad == 0 ? "All OK" : Fmt(T("%d missing"), bad);
 			Row r{"BIOS sets (Cross: details)", v};
 			r.action = true;
 			return r;
 		}
 		case H_SYSTEM: return {"SYSTEM", "", true, true};
+		case S_LANGUAGE: return {"Language", LanguageName(c.language)};
 		case S_DEBUGLOGS: return {"Debug logs", OnOff(c.debug_logs)};
-		case S_UPDATES: return {"Updates (this is " FBNEO_PS5_VERSION ")", UpdateValue()};
+		case S_UPDATES: return {Fmt(T("Updates (this is %s)"), FBNEO_PS5_VERSION), UpdateValue()};
 		default:
 			if (s >= S_BTN_FIRST && s <= S_BTN_LAST)
 			{
 				const int i = s - S_BTN_FIRST;
 				const int b = emu::LayoutButton(c.layout % emu::kLayoutCount, i, GameButtons());
-				std::string label = emu::kArcadeButtons[i].name;
+				std::string label = T(emu::kArcadeButtons[i].name);
 				const std::string game = i < 6 ? emu::GameButtonName(i) : "";
 				if (!game.empty())
 					label += "  (" + game + ")";
@@ -394,6 +414,7 @@ void ChangeSetting(int s, int dir)
 		case S_COVERS: c.covers_download = !c.covers_download; break;
 		case S_CLONES: c.show_clones = !c.show_clones; break;
 		case S_INCOMPLETE: c.show_incomplete = !c.show_incomplete; break;
+		case S_LANGUAGE: c.language = Cycle(c.language, dir, int(Language::Count)); break;
 		case S_DEBUGLOGS:
 			c.debug_logs = !c.debug_logs;
 			OrbisLogSetEnabled(c.debug_logs); // at once: the line saying so is the last (or first) one written
@@ -458,9 +479,9 @@ void SettingsScreen(bool over_game)
 		if (sel == S_UPDATES && g_upd.st.phase == update::Phase::Failed && !g_upd.st.error.empty())
 			DrawText(80, H - 130, FitText(g_upd.st.error, 2, W - 160).c_str(), 2, kAccent);
 		else if (sel == S_UPDATES && !g_upd.helper)
-			DrawText(80, H - 130, "Updates are downloaded by the helper: send the payload, then open Settings again.", 2, kDim);
+			DrawText(80, H - 130, T("Updates are downloaded by the helper: send the payload, then open Settings again."), 2, kDim);
 		if (!over_game)
-			Footer(std::string(icon::Cross) + " Change     " + icon::DpadLeftRight + " Adjust     " + icon::Circle + " Back");
+			Footer(std::string(icon::Cross) + " " + T("Change") + "     " + icon::DpadLeftRight + " " + T("Adjust") + "     " + icon::Circle + " " + T("Back"));
 		Present();
 		const Nav n = nav.Read();
 		if (n.up)
@@ -578,7 +599,7 @@ void BiosScreen(bool over_game)
 		}
 		std::string v = b.path.empty() ? (b.games > 0 ? "Missing" : "Not found")
 			: b.missing.empty() ? "OK"
-			: std::to_string(b.missing.size()) + (b.missing.size() == 1 ? " ROM missing" : " ROMs missing");
+			: Fmt(T(b.missing.size() == 1 ? "%zu ROM missing" : "%zu ROMs missing"), b.missing.size());
 		Row r{b.set + ".zip  -  " + b.title, v, b.games > 0 || !b.path.empty()};
 		r.action = true;
 		r.value_color = b.ok() ? Rgb(120, 220, 140) : b.games > 0 ? Rgb(255, 120, 120) : kDim;
@@ -602,32 +623,34 @@ void BiosScreen(bool over_game)
 		{
 			const BiosStatus& b = report[size_t(e)];
 			const std::string need = b.games > 0
-				? "Needed by " + std::to_string(b.games) + (b.games == 1 ? " of your games" : " of your games") + " (" +
-					  std::to_string(b.drivers) + " in FBNeo)."
-				: "Needed by " + std::to_string(b.drivers) + " of FBNeo's games, none of them in your library.";
+				? Fmt(T("Needed by %d of your games (%d in FBNeo)."), b.games, b.drivers)
+				: Fmt(T("Needed by %d of FBNeo's games, none of them in your library."), b.drivers);
 			if (b.path.empty())
-				detail = need + " Not found: put " + b.set + ".zip (FBNeo " FBNEO_CORE_VERSION "'s set) in /data/fbneo/roms or fbneo/roms on a USB drive.";
+				detail = need + " " +
+					Fmt(T("Not found: put %s.zip (FBNeo %s's set) in /data/fbneo/roms or fbneo/roms on a USB drive."),
+						b.set.c_str(), FBNEO_CORE_VERSION);
 			else if (!b.missing.empty())
 			{
 				std::string list;
 				for (size_t m = 0; m < b.missing.size() && m < 8; m++)
 					list += (m ? ", " : "") + b.missing[m];
 				if (b.missing.size() > 8)
-					list += " and " + std::to_string(b.missing.size() - 8) + " more";
-				detail = need + " " + b.path + " lacks: " + list + ".";
+					list = Fmt(T("%s and %zu more"), list.c_str(), b.missing.size() - 8);
+				detail = need + " " + Fmt(T("%s lacks: %s."), b.path.c_str(), list.c_str());
 			}
 			else
 			{
-				detail = need + " Found: " + b.path + ".";
+				detail = need + " " + Fmt(T("Found: %s."), b.path.c_str());
 				if (b.optional > 0)
-					detail += " Optional versions found: " + std::to_string(b.optional_found) + " of " +
-							  std::to_string(b.optional) + (b.set == "neogeo" ? " (the BIOS DIP switch picks one)." : ".");
+					detail += " " + Fmt(T(b.set == "neogeo" ? "Optional versions found: %d of %d (the BIOS DIP switch picks one)."
+															: "Optional versions found: %d of %d."),
+										 b.optional_found, b.optional);
 			}
 		}
 		else if (report.empty())
-			detail = "No game in FBNeo's list needs a BIOS set.";
+			detail = T("No game in FBNeo's list needs a BIOS set.");
 		else
-			detail = "The list is from the last time the game list was read (the shelf reads it each time it opens).";
+			detail = T("The list is from the last time the game list was read (the shelf reads it each time it opens).");
 		int y = bottom + 14;
 		for (const std::string& line : Wrap(detail, 2, W - 200))
 		{
@@ -637,7 +660,7 @@ void BiosScreen(bool over_game)
 			y += 34;
 		}
 		if (!over_game)
-			Footer(std::string(icon::DpadUpDown) + " Browse     " + icon::Circle + " Back");
+			Footer(std::string(icon::DpadUpDown) + " " + T("Browse") + "     " + icon::Circle + " " + T("Back"));
 		Present();
 		const Nav n = nav.Read();
 		if (n.up)
@@ -681,14 +704,14 @@ PauseAction PauseMenu()
 
 	for (;;)
 	{
-		char buf[64];
+		char buf[128];
 		std::vector<Row> rows(I_COUNT);
 		rows[I_RESUME] = {"Resume", ""};
-		snprintf(buf, sizeof(buf), "Save state (slot %d)", cfg.state_slot);
+		snprintf(buf, sizeof(buf), T("Save state (slot %d)"), cfg.state_slot);
 		rows[I_SAVE] = {buf, ""};
-		snprintf(buf, sizeof(buf), "Load state (slot %d)", cfg.state_slot);
+		snprintf(buf, sizeof(buf), T("Load state (slot %d)"), cfg.state_slot);
 		rows[I_LOAD] = {buf, "", emu::StateExists(cfg.state_slot)};
-		snprintf(buf, sizeof(buf), "%d%s", cfg.state_slot, emu::StateExists(cfg.state_slot) ? " (used)" : " (empty)");
+		snprintf(buf, sizeof(buf), T(emu::StateExists(cfg.state_slot) ? "%d (used)" : "%d (empty)"), cfg.state_slot);
 		rows[I_SLOT] = {"State slot", buf};
 		rows[I_DIPS] = {"DIP switches", "", !emu::Dips().empty()};
 		rows[I_SERVICE] = {"Service button", ""};
@@ -706,9 +729,10 @@ PauseAction PauseMenu()
 			DrawText(W / 2 + 560 - TextWidth(sys.c_str(), 2) - 40, (H - (120 + I_COUNT * 46 + 30)) / 2 + 40, sys.c_str(), 2, kDim);
 		if (!toast.empty() && Now() < toast_until)
 		{
-			const int tw = TextWidth(toast.c_str(), 3);
+			const char* tt = T(toast.c_str());
+			const int tw = TextWidth(tt, 3);
 			ps5video::FillRect((W - tw) / 2 - 30, H - 110, tw + 60, 70, kSel);
-			DrawText((W - tw) / 2, H - 90, toast.c_str(), 3, kText);
+			DrawText((W - tw) / 2, H - 90, tt, 3, kText);
 		}
 		Present();
 
@@ -776,7 +800,7 @@ void MessageBox(const std::string& title, const std::string& text)
 {
 	NavReader nav;
 	const int bw = 1400;
-	const std::vector<std::string> lines = Wrap(text, 3, bw - 80);
+	const std::vector<std::string> lines = Wrap(T(text.c_str()), 3, bw - 80);
 	const int bh = 220 + int(lines.size()) * 44;
 	for (;;)
 	{
@@ -784,14 +808,14 @@ void MessageBox(const std::string& title, const std::string& text)
 		const int bx = (W - bw) / 2, by = (H - bh) / 2;
 		ps5video::FillRect(bx - 4, by - 4, bw + 8, bh + 8, kAccent);
 		ps5video::FillRect(bx, by, bw, bh, kPanel);
-		DrawText(bx + 40, by + 30, FitText(title, 5, bw - 80).c_str(), 5, kAccent);
+		DrawText(bx + 40, by + 30, FitText(T(title.c_str()), 5, bw - 80).c_str(), 5, kAccent);
 		int y = by + 120;
 		for (const std::string& l : lines)
 		{
 			DrawText(bx + 40, y, l.c_str(), 3, kText);
 			y += 44;
 		}
-		DrawText(bx + 40, by + bh - 70, (std::string(icon::Cross) + " OK").c_str(), 3, kDim);
+		DrawText(bx + 40, by + bh - 70, (std::string(icon::Cross) + " " + T("OK")).c_str(), 3, kDim);
 		Present();
 		const Nav n = nav.Read();
 		if (n.ok || n.back || n.options)

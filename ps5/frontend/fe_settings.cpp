@@ -47,6 +47,9 @@ Settings& Config()
 
 void Settings::Load()
 {
+	// off by default (1.9.1); the host tests turn the default on (orbis_paths.cpp reads the same variable)
+	if (const char* d = getenv("FBNEO_LOGS_DEFAULT"))
+		debug_logs = atoi(d) != 0;
 	FILE* f = fopen(IniPath().c_str(), "r");
 	if (!f)
 		return;
@@ -95,6 +98,8 @@ void Settings::Load()
 			show_clones = n != 0;
 		else if (key == "show_incomplete")
 			show_incomplete = n != 0;
+		else if (key == "language")
+			language = Clamp(n, 0, 4);
 		else if (key == "debug_logs")
 			debug_logs = n != 0;
 		else if (key == "shelf_family")
@@ -134,6 +139,7 @@ void Settings::Save() const
 	fprintf(f, "covers_download=%d\n", covers_download ? 1 : 0);
 	fprintf(f, "show_clones=%d\n", show_clones ? 1 : 0);
 	fprintf(f, "show_incomplete=%d\n", show_incomplete ? 1 : 0);
+	fprintf(f, "language=%d\n", language);
 	fprintf(f, "debug_logs=%d\n", debug_logs ? 1 : 0);
 	fprintf(f, "shelf_family=%d\n", shelf_family);
 	fprintf(f, "shelf_letter=%s\n", shelf_letter.c_str());

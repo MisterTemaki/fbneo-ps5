@@ -33,7 +33,7 @@ make (the driver list, Musashi's 68000 core, the CPS, Neo Geo, Cave, Psikyo, Toa
 frontends (`src/burner`) and its libretro port host the core: ROM loading from the sets' zips, inputs, DIP
 switches, states, NVRAM, the picture turned the right way up and the sound.
 
-> **Status (1.9):** builds with the ps5-payload-dev SDK into a signed native app, and passes 270 host tests, which
+> **Status (1.9.1):** builds with the ps5-payload-dev SDK into a signed native app, and passes 289 host tests, which
 > run the same code (FBNeo's core included) on Linux with the PS5 calls simulated: two arcade boards running a tiny
 > test program each (a vertical and a horizontal game) are played through the whole chain -- the shelf, the pad,
 > the core, the video and sound output -- and 26 more boards start, run, save and load a state under
@@ -69,9 +69,13 @@ next to Snes9x PS5 (PPSA99922, helper port 9089), Mesen2 PS5 (PPSA99923, port 90
 
 ## Versions
 
-Every release carries its version in the file name: `FBNeoPS5-v1.9.elf` (`make dist`). When updating, replace the
+Every release carries its version in the file name: `FBNeoPS5-v1.9.1.elf` (`make dist`). When updating, replace the
 old ELF with the new one in your autoload or Payload Manager. In this README, "`FBNeoPS5.elf`" always means the
 current release's ELF.
+
+**1.9.1:** **Interface languages:** English (the default), Spanish, Portuguese (Brazil), French and German
+(Settings, SYSTEM, Language; see [Language](#language)). **Debug logs are off by default** (turn them on in
+Settings, SYSTEM, Debug logs, to report a problem).
 
 **1.9:** **New title ID: PPSA99924** (it was PPSA99012, which another app in the homebrew catalog uses; see
 [New title ID](#new-title-id-ppsa99924)). Nothing under the old ID is touched (it may be
@@ -189,7 +193,11 @@ next to the ELF. The same zip is what the homebrew catalog lists.
 
 ## Language
 
-Every screen and notification of FBNeo PS5 is in English.
+Settings (Triangle on the shelf), **SYSTEM**, **Language**: **English** (the default), **Español**, **Português
+(Brasil)**, **Français**, **Deutsch**. The change applies at once, to every menu and message, and is kept in
+`fbneo-ps5.ini` (`language=0` to `4`). The logs stay in English. Game names, board and maker names, DIP switch
+texts (they come from FBNeo's drivers), the PS5's button names and the shaders' names are not translated; the
+installer's and the helper's notifications stay in English.
 
 ## Requirements
 
@@ -202,10 +210,10 @@ Every screen and notification of FBNeo PS5 is in English.
 
 1. **Send `FBNeoPS5.elf`** with PS5 Payload Manager, or from a PC on the same network:
    ```sh
-   nc -q0 PS5_IP 9021 < FBNeoPS5-v1.9.elf
+   nc -q0 PS5_IP 9021 < FBNeoPS5-v1.9.1.elf
    ```
    It installs the app in `/data/homebrew/PPSA99924/` (`eboot.bin`, `sce_module/libc.prx`, `param.json`, the
-   icon and the backgrounds), shows **"FBNeo PS5 1.9 installed. Open it from the FBNeo PS5 icon on the home
+   icon and the backgrounds), shows **"FBNeo PS5 1.9.1 installed. Open it from the FBNeo PS5 icon on the home
    screen."** and stays running as the helper.
 2. **Open the FBNeo PS5 icon.** The game shelf appears and the controller works.
 3. **Copy your ROM sets** to `/data/fbneo/roms/` (over FTP, for example), or to `fbneo/roms/` on a USB drive.
@@ -440,7 +448,7 @@ Triangle on the shelf, or "Settings" in the pause menu:
   Saved in `fbneo-ps5.ini` (`layout`, `btn_1`...`btn_start`; L2 is 9 and R2 is 10 there).
 - **Library:** download covers, show clones, show incomplete sets, **BIOS sets** (Cross: which BIOS sets your
   games need and whether each is there; see [ROM sets](#rom-sets)).
-- **System:** **Debug logs** (On by default) -- see [Debugging](#debugging-logs-and-crashes); **Updates** -- see
+- **System:** **Language** (see [Language](#language)); **Debug logs** (Off by default) -- see [Debugging](#debugging-logs-and-crashes); **Updates** -- see
   [Updates](#updates).
 
 ## CRT shaders
@@ -506,7 +514,8 @@ original code aiming at the same look. Every minute in a game, `boot.log` says h
 **Turning the logs on or off:** Settings -> **SYSTEM** -> **Debug logs**. Off stops every log at once: the app
 writes nothing more to `boot.log` (its last line says the logs were turned off), and the next starts -- the app,
 the installer and the helper -- write no log files at all; the files of earlier runs are left as they are. The
-setting is `debug_logs=0` / `debug_logs=1` in `fbneo-ps5.ini`. Leave them on if you want to report a problem.
+setting is `debug_logs=0` / `debug_logs=1` in `fbneo-ps5.ini`; it is off by default (since 1.9.1), so turn it on
+if you want to report a problem.
 
 If something fails, send the files in `/data/fbneo/logs/`: `boot.log` (the app), `installer.log` and `helper.log`,
 plus the previous session's `.prev.log` files. They record every step:
@@ -545,7 +554,7 @@ make ps5 -j$(nproc)              # build/ps5/FBNeoPS5.elf (installer + helper, w
 make send PS5_HOST=192.168.0.10  # sends it to elfldr (port 9021)
 make dist                        # build/dist/FBNeoPS5-v<version>.elf + the release zip
 make app                         # only build/app/PPSA99924/, to copy by hand
-make test                        # Linux builds (app, installer, helper, headless core) + 270 host tests (ASan/UBSan)
+make test                        # Linux builds (app, installer, helper, headless core) + 289 host tests (ASan/UBSan)
 ```
 
 The first build compiles FBNeo's 1,039 core files (about 15 minutes on 2 cores; `make core-ps5` builds just those).

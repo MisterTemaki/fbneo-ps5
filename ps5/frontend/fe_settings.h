@@ -32,7 +32,8 @@ struct Settings
 	bool covers_download = true; // fetch flyers from libretro-thumbnails
 	bool show_clones = true; // the clones (other versions) of a game
 	bool show_incomplete = false; // the sets with ROMs missing
-	bool debug_logs = true;      // boot.log and the others in /data/fbneo/logs (OrbisLogSetEnabled)
+	int language = 0;            // fe::Language: 0 English (the default), 1 Spanish, 2 Portuguese (Brazil), 3 French, 4 German
+	bool debug_logs = false;     // boot.log and the others in /data/fbneo/logs (OrbisLogSetEnabled)
 	int shelf_family = 0; // fe::Family the shelf shows
 	std::string shelf_letter; // and its letter tab: "#", "A".."Z"
 	std::string last_rom; // the shelf puts the selection on this game

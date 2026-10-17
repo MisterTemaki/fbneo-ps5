@@ -111,8 +111,23 @@ struct G
 
 	// the NVRAM areas as last written (or read)
 	std::vector<uint8_t> nvram_last;
+	// the screen's texts in the interface's language (SetTranslate)
+	const char* (*tr)(const char*) = nullptr;
 };
 G g;
+
+// printf into a std::string, from a format translated by SetTranslate's function (the error texts on the screen)
+std::string TrFmt(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
+std::string TrFmt(const char* fmt, ...)
+{
+	const char* f = g.tr ? g.tr(fmt) : fmt;
+	char buf[1024];
+	va_list ap;
+	va_start(ap, fmt);
+	vsnprintf(buf, sizeof(buf), f, ap);
+	va_end(ap);
+	return buf;
+}
 
 void Log(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
 void Log(const char* fmt, ...)
@@ -953,6 +968,11 @@ void SetLog(void (*log)(const char* line))
 	g.log = log;
 }
 
+void SetTranslate(const char* (*tr)(const char* english))
+{
+	g.tr = tr;
+}
+
 void SetHiscores(bool on)
 {
 	EnableHiscores = on ? 1 : 0;
@@ -1136,8 +1156,13 @@ bool Load(int driver, const ZipFinder& find, std::string* error, const std::stri
 		Log("[burn] %s: %zu ROM(s) missing (%s), looked in %s (%zu found)", g.cur.name.c_str(), check.missing.size(),
 			roms.c_str(), sets.c_str(), g.zips.size());
 		if (error)
-			*error = "Missing ROMs for " + g.cur.name + ": " + roms + ". FBNeo PS5 looked in " + sets +
-				" - the sets must match FBNeo's (" + CoreVersion() + ").";
+		{
+			std::string shown = roms;
+			if (check.missing.size() > 6)
+				shown = TrFmt("%s and %zu more", roms.substr(0, roms.rfind(" and ")).c_str(), check.missing.size() - 6);
+			*error = TrFmt("Missing ROMs for %s: %s. FBNeo PS5 looked in %s - the sets must match FBNeo's (%s).",
+				g.cur.name.c_str(), shown.c_str(), sets.c_str(), CoreVersion().c_str());
+		}
 		CloseZips();
 		return false;
 	}
@@ -1165,7 +1190,7 @@ bool Load(int driver, const ZipFinder& find, std::string* error, const std::stri
 		BurnDrvExit();
 		CloseZips();
 		if (error)
-			*error = "FBNeo could not start " + g.cur.name + " (the ROMs may be from another version of the set).";
+			*error = TrFmt("FBNeo could not start %s (the ROMs may be from another version of the set).", g.cur.name.c_str());
 		return false;
 	}
 	bDrvOkay = 1;

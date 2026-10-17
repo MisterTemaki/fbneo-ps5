@@ -12,6 +12,8 @@ HELPER=$PWD/build/host/fbneo-ps5-helper
 HEADLESS=$PWD/build/host/fbneo_headless
 # ports nobody listens on, so the app's ordinary runs find no helper and no ELF loader
 export FBNEO_HELPER_PORT=$((20000 + RANDOM % 10000)) FBNEO_ELFLDR_PORT=$((30000 + RANDOM % 10000)) FBNEO_JB_NO_OTHERS=1
+# the debug logs are off by default (1.9.1): the tests read boot.log, so here a settings file without the key means on
+export FBNEO_LOGS_DEFAULT=1
 CHECK="python3 $PWD/tests/check_ppm.py"
 RECT="python3 $PWD/tests/check_rect.py"
 FAKE="python3 $PWD/tests/make_fake_set.py $HEADLESS"
@@ -592,6 +594,23 @@ expect "$CHECK $T/dump/flip00090.ppm 960 540 red >/dev/null" "the game runs"
 expect "[ \"\$(cat $T/root/logs/boot.log)\" = 'OLD RUN' ] && [ ! -e $T/root/logs/boot.prev.log ]" "the earlier boot.log is kept as it was, nothing new written"
 expect "! grep -q '\[burn\]' $T/out.txt" "nothing on stdout either (not even the core's lines)"
 nosan "$T"
+# the default (1.9.1): no debug_logs key and no test override -> nothing written (app and helper), the settings file says 0
+T=$(newroot t20z)
+addset ponpoko "$T/root/roms"
+rc=$(FBNEO_LOGS_DEFAULT= run "$T" "0:0;$(QUITAT 100)" "90" "$T/root/roms/ponpoko.zip")
+expect "[ $rc = 0 ] && $CHECK $T/dump/flip00090.ppm 960 540 red >/dev/null" "no setting: the game runs"
+expect "[ ! -e $T/root/logs/boot.log ] && ! grep -q '\[burn\]\|\[boot\]' $T/out.txt" "debug logs off by default: no boot.log, nothing on stdout"
+expect "grep -q '^debug_logs=0' $T/root/fbneo-ps5.ini" "the default settings file has debug_logs=0"
+nosan "$T"
+stop_helpers
+T=$(newroot t20y)
+addset ponpoko "$T/root/roms"
+mkdir -p "$T/hroot2"
+FBNEO_LOGS_DEFAULT= FBNEO_PS5_ROOT=$T/hroot2 ASAN_OPTIONS=detect_leaks=0 timeout 60 "$HELPER" >"$T/helper0.txt" 2>&1 &
+sleep 1.5
+rc=$(run "$T" "$(QUITAT 30)" "" "$T/root/roms/ponpoko.zip")
+expect "grep -q 'FBNeo helper (port [0-9]*): ret 0' $T/root/logs/boot.log && [ ! -e $T/hroot2/logs/helper.log ] && ! grep -q 'helper\]' $T/helper0.txt" "no setting: the helper lets the app out and writes no log either"
+stop_helpers
 # Settings (Triangle) -> Debug logs (Up three times from Shader: Back, Updates, then Debug logs) -> Off
 T=$(newroot t20b)
 addset ponpoko "$T/root/roms"
@@ -727,8 +746,8 @@ T=$(newroot t24)
 addset pacman "$T/root/roms"
 mkset mslug
 cp "$SETS/mslug/mslug.zip" "$T/root/roms/" # Metal Slug without neogeo.zip
-# Triangle -> Settings; Up x4 from Shader: Back, Updates, Debug logs, BIOS sets; Cross -> the BIOS screen; Circle x2; quit
-PAD="0:0;30:$TRIANGLE;32:0;40:$UP;42:0;48:$UP;50:0;56:$UP;58:0;64:$UP;66:0;70:$CROSS;72:0;100:$CIRCLE;102:0;110:$CIRCLE;112:0;$(SHELFQUIT_AT 130)"
+# Triangle -> Settings; Up x5 from Shader: Back, Updates, Debug logs, Language, BIOS sets; Cross -> the BIOS screen; Circle x2; quit
+PAD="0:0;30:$TRIANGLE;32:0;40:$UP;42:0;48:$UP;50:0;56:$UP;58:0;64:$UP;66:0;68:$UP;70:0;74:$CROSS;76:0;100:$CIRCLE;102:0;110:$CIRCLE;112:0;$(SHELFQUIT_AT 130)"
 rc=$(run "$T" "$PAD" "90")
 expect "[ $rc = 0 ]" "exit code 0 (got $rc)"
 expect "grep -q '\[bios\] neogeo.zip (Neo Geo): not found; needed by 1 of your games' $T/root/logs/boot.log" "neogeo.zip missing, needed by Metal Slug"
@@ -939,6 +958,90 @@ second=$(scan_time $T/root/logs/boot.log)
 expect "grep -q '\[games\] 1500 zip(s): [0-9]* arcade set(s) (0 complete, 0 checked now)' $T/root/logs/boot.log" "the next start: nothing checked again (the cache)"
 expect "python3 -c 'import sys; sys.exit(0 if float(\"$first\") < 8 and float(\"$second\") < 3 else 1)'" "first scan ${first} s (under 8), the next ${second} s (under 3)"
 nosan "$T"
+fi
+
+if want 29; then
+echo "== 29. languages: English by default; Spanish, Portuguese (Brazil), French and German translated"
+expect "python3 $PWD/tests/check_i18n.py $PWD/frontend/fe_i18n.cpp >/dev/null" "every translation has its five languages and the English format specifiers"
+if [ ! -d "$SETS/v-ponpoko-drop" ]; then
+	mkdir -p "$SETS/v-ponpoko-drop"
+	ASAN_OPTIONS=detect_leaks=0 $FAKE ponpoko "$SETS/v-ponpoko-drop" --drop 2 >/dev/null 2>&1
+fi
+mkset mslug
+for L in 1 2 3 4; do
+	T=$(newroot t29_$L)
+	echo "language=$L" >>"$T/root/fbneo-ps5.ini"
+	addset ponpoko "$T/root/roms"
+	cp "$SETS/mslug/mslug.zip" "$T/root/roms/" # Metal Slug without neogeo.zip: a BIOS set needed and missing
+	# the settings screen: every row (Down x27 back to Shader), then Up x5 to BIOS sets, its screen, back out
+	pad="0:0;20:$TRIANGLE;22:0"; f=30
+	for i in $(seq 1 27); do pad="$pad;$f:$DOWN;$((f + 2)):0"; f=$((f + 6)); done
+	for i in $(seq 1 5); do pad="$pad;$f:$UP;$((f + 2)):0"; f=$((f + 6)); done
+	pad="$pad;$f:$CROSS;$((f + 2)):0"; f=$((f + 10))
+	for i in $(seq 1 6); do pad="$pad;$f:$DOWN;$((f + 2)):0"; f=$((f + 6)); done
+	pad="$pad;$f:$CIRCLE;$((f + 2)):0;$((f + 10)):$CIRCLE;$((f + 12)):0"; f=$((f + 30))
+	# the game (Cross on the shelf), its pause menu: DIP switches, save a state, every row, load it, settings over it
+	pad="$pad;$f:$CROSS;$((f + 2)):0"; f=$((f + 100))
+	pad="$pad;$f:$L3R3;$((f + 2)):0"; f=$((f + 10))
+	for i in $(seq 1 4); do pad="$pad;$f:$DOWN;$((f + 2)):0"; f=$((f + 6)); done
+	pad="$pad;$f:$CROSS;$((f + 2)):0"; f=$((f + 10))
+	for i in $(seq 1 3); do pad="$pad;$f:$DOWN;$((f + 2)):0"; f=$((f + 6)); done
+	pad="$pad;$f:$CIRCLE;$((f + 2)):0"; f=$((f + 10))
+	for i in $(seq 1 3); do pad="$pad;$f:$UP;$((f + 2)):0"; f=$((f + 6)); done
+	pad="$pad;$f:$CROSS;$((f + 2)):0"; f=$((f + 20))
+	for i in $(seq 1 13); do pad="$pad;$f:$DOWN;$((f + 2)):0"; f=$((f + 6)); done
+	pad="$pad;$f:$CROSS;$((f + 2)):0"; f=$((f + 60))
+	pad="$pad;$f:$L3R3;$((f + 2)):0"; f=$((f + 10))
+	for i in $(seq 1 7); do pad="$pad;$f:$DOWN;$((f + 2)):0"; f=$((f + 6)); done
+	pad="$pad;$f:$CROSS;$((f + 2)):0"; f=$((f + 10))
+	for i in $(seq 1 4); do pad="$pad;$f:$DOWN;$((f + 2)):0"; f=$((f + 6)); done
+	pad="$pad;$f:$CIRCLE;$((f + 2)):0;$((f + 10)):$CIRCLE;$((f + 12)):0;$(QUITAT $((f + 30)))"
+	rm -f $T/missing.txt
+	rc=$(FBNEO_HOST_I18N_MISSING=$T/missing.txt run "$T" "$pad" "")
+	ok1=$([ $rc = 0 ] && grep -q 'load state 1: ok' $T/root/logs/boot.log && grep -q 'save state 1: ok' $T/root/logs/boot.log && grep -q '\[bios\] screen' $T/root/logs/boot.log && echo y)
+	# a game that won't start (a ROM missing): its message box; then no games on the shelf, and its quit question
+	T2=$(newroot t29b_$L)
+	echo "language=$L" >>"$T2/root/fbneo-ps5.ini"
+	mkdir -p "$T2/root/roms/bad"
+	cp "$SETS/v-ponpoko-drop/ponpoko.zip" "$T2/root/roms/bad/"
+	rc2=$(FBNEO_HOST_I18N_MISSING=$T/missing.txt MAXFLIPS=300 run "$T2" "0:0;60:$CROSS;62:0" "" "$T2/root/roms/bad/ponpoko.zip")
+	rm -rf "$T2/root/roms/bad"
+	cp "$SETS/mslug/mslug.zip" "$T2/root/roms/"
+	rc3=$(FBNEO_HOST_I18N_MISSING=$T/missing.txt run "$T2" "0:0;$(SHELFQUIT_AT 60)" "")
+	# what was shown untranslated: only names (the games', the boards', the DIP switches', the buttons', the shaders')
+	python3 - $T/missing.txt $PWD/frontend/fe_i18n.cpp ../src/burn/drv/pre90s/d_pacman.cpp > $T/untranslated.txt <<'PY'
+import re, sys
+src = open(sys.argv[2], encoding='utf-8').read()
+translated = set(re.findall(r'"((?:[^"\\]|\\.)*)"', src))
+spec = re.compile(r'%(?:%|[-+ #0]*\d*(?:\.\d+)?(?:hh|h|ll|l|z)?[diouxXeEfgGcsp])')
+# a text printed from a translated format: the format as a pattern
+formats = [re.compile('^' + ''.join('.*' if spec.fullmatch(part) else re.escape(part)
+                                    for part in re.split('(' + spec.pattern + ')', f)) + '$', re.S)
+           for f in translated if '%' in f]
+driver = set(re.findall(r'"([^"]*)"', open(sys.argv[3], errors='replace').read()))
+names = {'L1', 'R1', 'L2', 'R2', 'OPTIONS', 'English', 'Español', 'Português (Brasil)', 'Français', 'Deutsch',
+         'CRT Easymode style', 'Capcom', 'Neo Geo', 'Sega', 'Konami', 'Taito', 'Toaplan, Cave, Psikyo', 'Data East',
+         'Irem', 'Midway', 'IGS'}
+for line in open(sys.argv[1], encoding='utf-8'):
+    t = line.rstrip('\n')
+    if t in translated or t in names or not re.search('[A-Za-z]{2}', t):
+        continue
+    if any(f.match(t) for f in formats):
+        continue
+    d = t[:-2] if t.endswith(' *') else t
+    if d in driver or re.search(r'ponpoko|Ponpoko|\.zip  -  ', t) or re.match(r'^\S+ \d  \(', t):
+        continue
+    print(t)
+PY
+	expect "[ \"$ok1\" = y ] && [ $rc2 = 0 ] && [ $rc3 = 0 ] && [ ! -s $T/untranslated.txt ]" "language $L: every menu text shown is translated ($(head -c 300 $T/untranslated.txt | tr '\n' '|'))"
+	nosan "$T"
+	nosan "$T2"
+done
+# English stays the default: no setting, English on the screen (the texts pass through as they are)
+T=$(newroot t29en)
+addset ponpoko "$T/root/roms"
+rc=$(FBNEO_HOST_I18N_MISSING=$T/missing.txt run "$T" "0:0;20:$TRIANGLE;22:0;40:$CIRCLE;42:0;$(SHELFQUIT_AT 60)" "")
+expect "[ $rc = 0 ] && [ ! -s $T/missing.txt ] && grep -q '^language=0$' $T/root/fbneo-ps5.ini" "English by default (language=0): nothing is looked up"
 fi
 
 echo

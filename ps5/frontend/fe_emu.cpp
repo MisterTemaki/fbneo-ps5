@@ -16,6 +16,7 @@
 
 #include "ProsperoNotify.h"
 #include "fe_games.h"
+#include "fe_i18n.h"
 #include "fe_settings.h"
 #include "fe_text.h"
 
@@ -127,6 +128,29 @@ int NextPs5Button(int button, int dir)
 
 namespace
 {
+using fe::T;
+
+// printf into a std::string (the translated formats)
+std::string Fmt(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
+std::string Fmt(const char* fmt, ...)
+{
+	char buf[1024];
+	va_list ap;
+	va_start(ap, fmt);
+	vsnprintf(buf, sizeof(buf), fmt, ap);
+	va_end(ap);
+	return buf;
+}
+
+// Why a state wasn't loaded (burn::LoadState, in English for the log), in the interface's language.
+std::string WhyShown(const std::string& why)
+{
+	const std::string other = "a save of another game (";
+	if (why.compare(0, other.size(), other) == 0 && !why.empty() && why.back() == ')')
+		return Fmt(T("a save of another game (%s)"), why.substr(other.size(), why.size() - other.size() - 1).c_str());
+	return T(why.c_str());
+}
+
 constexpr int kTargetQueued = ps5audio::kRate * 60 / 1000; // 60 ms of sound
 double Now()
 {
@@ -370,6 +394,7 @@ bool InitCore()
 		return true;
 	FBNEO_STAGE(Emu, "init");
 	burn::SetLog(CoreLogLine);
+	burn::SetTranslate(fe::T);
 	burn::Paths paths;
 	paths.saves = OrbisDir("saves");
 	paths.samples = OrbisDir("samples");
@@ -420,7 +445,7 @@ bool LoadGame(const std::string& path, std::string* error)
 	{
 		OrbisLog("[emu] could not start %s: no FBNeo driver is called %s", path.c_str(), set.c_str());
 		if (error)
-			*error = file + " is not a ROM set FBNeo knows (the zip must keep its set name, as in FBNeo's lists).";
+			*error = Fmt(T("%s is not a ROM set FBNeo knows (the zip must keep its set name, as in FBNeo's lists)."), file.c_str());
 		return false;
 	}
 	const std::string dir = zip.substr(0, zip.find_last_of('/'));
@@ -520,7 +545,7 @@ void Resume()
 
 void Osd(const std::string& text)
 {
-	g.osd = text;
+	g.osd = T(text.c_str());
 	g.osd_until = Now() + 2.5;
 }
 
@@ -530,7 +555,7 @@ bool SaveState(int slot)
 		return false;
 	const bool ok = burn::SaveState(StatePath(slot));
 	OrbisLog("[emu] save state %d: %s", slot, ok ? "ok" : "failed");
-	Osd(ok ? "State saved to slot " + std::to_string(slot) : "Could not save the state");
+	Osd(ok ? Fmt(T("State saved to slot %d"), slot) : "Could not save the state");
 	return ok;
 }
 
@@ -540,13 +565,13 @@ bool LoadState(int slot)
 		return false;
 	if (!FileExists(StatePath(slot)))
 	{
-		Osd("Slot " + std::to_string(slot) + " is empty");
+		Osd(Fmt(T("Slot %d is empty"), slot));
 		return false;
 	}
 	std::string why;
 	const bool ok = burn::LoadState(StatePath(slot), &why);
 	OrbisLog("[emu] load state %d: %s%s%s", slot, ok ? "ok" : "failed", ok ? "" : ": ", why.c_str());
-	Osd(ok ? "State loaded from slot " + std::to_string(slot) : "Could not load the state: " + why);
+	Osd(ok ? Fmt(T("State loaded from slot %d"), slot) : Fmt(T("Could not load the state: %s"), WhyShown(why).c_str()));
 	return ok;
 }
 
@@ -585,7 +610,7 @@ void PowerCycle()
 	if (!LoadGame(path, &error))
 	{
 		OrbisLog("[emu] power cycle: %s", error.c_str());
-		ProsperoNotify("FBNeo PS5: the game could not be started again. %s", error.c_str());
+		ProsperoNotify(T("FBNeo PS5: the game could not be started again. %s"), error.c_str());
 	}
 }
 
