@@ -482,7 +482,8 @@ of a `.7z` set can be either. Its ROMs are found by the CRCs and names its direc
 - **Solid blocks:** 7-Zip packs a set's files in one "solid" block by default, and the whole block is unpacked to reach
   one file. An archive (the set's, its parent's, its BIOS's) unpacks a block once and copies the driver's ROMs out of
   it; it lets go of the block as soon as the ROMs the driver needs from it have been read, and every block is let go
-  once the driver has started (a reset that loads a ROM again, the Neo Geo's BIOS, unpacks it again). A block over
+  once the driver has started (a reset that loads a ROM again, the Neo Geo's BIOS, unpacks it again and keeps it
+  until the game closes). A block over
   **512 MiB** is refused before anything is unpacked: that takes every FBNeo arcade set but the biggest PGM2 ones
   (`kof98umh`, `kof98umhd`), which can be packed as a `.zip`, or as a `.7z` with smaller solid blocks (7-Zip's "Solid
   block size"). The blocks a set's archives hold at one time stay within those 512 MiB together (a block that would go
