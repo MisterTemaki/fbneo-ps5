@@ -273,6 +273,13 @@ expect "[ ! -f $T/root/config/ponpoko.btn ] && grep -q 'ponpoko: back to the gen
 expect "$CHECK $T/dump/flip00330.ppm 960 540 green >/dev/null" "Ponpoko: Cross presses button 1 again (the general layout)"
 rc=$(MAXFLIPS=200 run "$T" "0:0;$(QUITAT 60)" "" "$T/root/roms/ponpoko.zip")
 expect "grep -q 'button layout: the general one' $T/root/logs/boot.log" "and at the next start"
+# a damaged file (no valid layout= line) is ignored: the general layout; one edited by hand with spaces is read
+printf 'garbage\nlayout = x\nbtn_1=1\n' >"$T/root/config/ponpoko.btn"
+rc=$(MAXFLIPS=200 run "$T" "0:0;$(QUITAT 60)" "" "$T/root/roms/ponpoko.zip")
+expect "grep -q 'ponpoko.btn has no valid layout= line: ignored' $T/root/logs/boot.log && grep -q 'button layout: the general one' $T/root/logs/boot.log" "a damaged ponpoko.btn is ignored: the general layout"
+printf 'layout = 3\nbtn_1 = 1\n' >"$T/root/config/ponpoko.btn"
+rc=$(MAXFLIPS=200 run "$T" "0:0;$(QUITAT 60)" "" "$T/root/roms/ponpoko.zip")
+expect "grep -q \"buttons (this game's layout) Custom: 1=Circle\" $T/root/logs/boot.log" "a ponpoko.btn edited by hand (spaces around =) is read"
 nosan "$T"
 fi
 

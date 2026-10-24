@@ -266,7 +266,12 @@ BtnFile ReadBtn(const std::string& path, emu::ButtonLayout* out)
 	if (!f)
 		return BtnFile::None;
 	emu::ButtonLayout l;
-	bool general = false;
+	bool general = false, has_layout = false;
+	// spaces around the key and the value are allowed (a file edited by hand)
+	auto trim = [](std::string t) {
+		const size_t a = t.find_first_not_of(" \t"), b = t.find_last_not_of(" \t");
+		return a == std::string::npos ? std::string() : t.substr(a, b - a + 1);
+	};
 	char line[256];
 	while (fgets(line, sizeof(line), f))
 	{
@@ -275,11 +280,13 @@ BtnFile ReadBtn(const std::string& path, emu::ButtonLayout* out)
 		if (!eq || line[0] == '#')
 			continue;
 		*eq = 0;
-		const std::string key = line, val = eq + 1;
+		const std::string key = trim(line), val = trim(eq + 1);
 		const int n = atoi(val.c_str());
 		if (key == "layout")
 		{
+			// "general", or a layout's number: anything else is not a layout
 			general = val == "general";
+			has_layout = general || (!val.empty() && val.find_first_not_of("0123456789") == std::string::npos);
 			l.layout = std::max(0, std::min(emu::kLayoutCount - 1, n));
 		}
 		for (int i = 0; i < emu::kArcadeButtonCount; i++)
@@ -287,6 +294,12 @@ BtnFile ReadBtn(const std::string& path, emu::ButtonLayout* out)
 				l.buttons[i] = std::max(0, std::min(emu::kPs5ButtonCount - 1, n));
 	}
 	fclose(f);
+	// an empty or damaged file (no valid layout= line) is ignored: the game follows its parent or the general layout
+	if (!has_layout)
+	{
+		OrbisLog("[emu] %s has no valid layout= line: ignored", path.c_str());
+		return BtnFile::None;
+	}
 	if (general)
 		return BtnFile::General;
 	if (out)
@@ -311,7 +324,8 @@ bool WriteBtn(const std::string& path, const emu::ButtonLayout* l)
 		for (int i = 0; i < emu::kArcadeButtonCount; i++)
 			fprintf(f, "%s=%d\n", emu::kArcadeButtons[i].key, l->buttons[i]);
 	}
-	bool ok = ferror(f) == 0;
+	bool ok = fflush(f) == 0 && ferror(f) == 0;
+	ok = fsync(fileno(f)) == 0 && ok;
 	ok = fclose(f) == 0 && ok;
 	if (!ok || rename(tmp.c_str(), path.c_str()) != 0)
 	{
@@ -834,8 +848,9 @@ void DefaultControls()
 	else
 	{
 		const bool had = FileExists(path);
-		remove(path.c_str());
-		OrbisLog("[emu] %s: back to the general button layout (%s)", g.set.c_str(), had ? (path + " removed").c_str() : "it had no file");
+		const bool removed = had && remove(path.c_str()) == 0;
+		OrbisLog("[emu] %s: back to the general button layout (%s)", g.set.c_str(),
+			!had ? "it had no file" : removed ? (path + " removed").c_str() : (path + " could not be removed").c_str());
 	}
 	g.owner = LayoutOwner::General;
 	ApplyLayout();

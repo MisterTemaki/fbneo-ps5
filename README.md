@@ -285,7 +285,7 @@ every set found (`[games] ... -> "<name>"`) and the ROMs a set is missing (`[gam
 | `/data/fbneo/roms` | your ROM sets and BIOS sets (`.zip`), sub-folders included; on a USB drive, `fbneo/roms` |
 | `/data/fbneo/saves` | NVRAM (`<set>.nvram`, written within 5 seconds of a change and when the game closes) and EEPROMs (`<set>.nv`) |
 | `/data/fbneo/states` | save states, `<set>.state1` to `.state10` |
-| `/data/fbneo/config` | the DIP switches you changed, per game (`<set>.dip`), and `romcheck.txt` |
+| `/data/fbneo/config` | the DIP switches you changed, per game (`<set>.dip`), the button layouts set in a game (`<set>.btn`), and `romcheck.txt` |
 | `/data/fbneo/samples` | sample sets |
 | `/data/fbneo/hiscore` | `hiscore.dat` and the high scores (`<set>.hi`) |
 | `/data/fbneo/blend` | FBNeo's blend tables (`<set>.bld`, optional) |

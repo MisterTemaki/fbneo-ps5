@@ -23,7 +23,6 @@ struct Choice
 extern const Choice kAspects[]; // the game's monitor (4:3, or 3:4 for vertical games), square pixels, 16:9
 extern const int kAspectCount;
 extern const Choice kLayouts[]; // auto, classic, fighting (6 buttons), custom, fighting with R1 R2
-constexpr int kFightingR2Layout = 4;
 extern const int kLayoutCount;
 constexpr int kCustomLayout = 3;
 // The layouts in the order the settings screen steps through them (custom last).

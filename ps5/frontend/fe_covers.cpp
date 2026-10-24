@@ -305,8 +305,8 @@ std::shared_ptr<CoverTex> Placeholder(const GameInfo& g)
 		lines.resize(4);
 		lines[3] = FitText(lines[3] + "...", 5, w - 80);
 	}
-	// y is each line's baseline: the first line's letters stay below the panel (top right, down to y 114), so a title
-	// of two or more lines is moved down rather than drawn over it
+	// y is each line's top: the first line stays below the panel (top right, down to y 114), so a title of two or
+	// more lines is moved down rather than drawn over it
 	int y = std::max(162, 190 - int(lines.size()) * 28);
 	for (const std::string& l : lines)
 	{
