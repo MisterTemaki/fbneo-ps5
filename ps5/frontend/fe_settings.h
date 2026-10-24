@@ -36,6 +36,7 @@ struct Settings
 	bool debug_logs = false;     // boot.log and the others in /data/fbneo/logs (OrbisLogSetEnabled)
 	int shelf_family = 0; // fe::Family the shelf shows
 	std::string shelf_letter; // and its letter tab: "#", "A".."Z"
+	int last_tab = 0; // the shelf's storage tab (fe_tabs.h): 0 Internal, 1 USB, 2 Network
 	std::string last_rom; // the shelf puts the selection on this game
 
 	void Load();

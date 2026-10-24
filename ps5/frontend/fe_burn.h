@@ -1,7 +1,7 @@
 // FBNeo PS5: FBNeo's core ("burn") behind a small API, the way FBNeo's own frontends and its libretro port host it.
 //
 // The core runs one driver at a time (nBurnDrvActive). This layer answers what the core asks of its frontend: the
-// ROMs (BurnExtLoadRom, from the game's ROM-set .zip and its parent's and BIOS's), the colour format (BurnHighCol),
+// ROMs (BurnExtLoadRom, from the game's ROM-set .zip or .7z and its parent's and BIOS's), the colour format (BurnHighCol),
 // its log (bprintf), the folders (hiscores, samples, NVRAM), and the few functions FBNeo's frontends provide. It
 // gives each frame as 32-bit pixels turned the right way up (vertical games are rotated), and the frame's sound as
 // 48 kHz stereo. It does not touch the PS5: the host tests run it as it is.
@@ -47,18 +47,24 @@ int FindDriver(const std::string& name); // -1 when unknown
 std::string CoreVersion(); // "1.0.0.3"
 
 // ---- a game ------------------------------------------------------------------------------------------------------
-// Finds the .zip of a ROM set by its name ("sf2", "neogeo"): its full path, or "" when there is none.
+// Finds the archive of a ROM set by its name ("sf2", "neogeo"): the full path of its .zip or .7z, or "" when there is
+// none. Called on the thread that asks (CheckRoms may run on a background thread).
 using ZipFinder = std::function<std::string(const std::string& set)>;
 
 struct RomCheck
 {
 	bool ok = false;
-	std::vector<std::string> missing; // "sf2ce.zip: s92e_23b.8f" (essential ROMs only)
-	std::vector<std::string> bad_crc; // found by name with another CRC (used anyway, as FBNeo does)
+	std::vector<std::string> missing; // the essential ROMs not found: "s92e_23b.8f"
+	std::vector<std::string> bad_crc; // found by name with another CRC (used anyway, as FBNeo does): "sf2ce.zip: ..."
 	int optional = 0, optional_found = 0; // the ROMs the driver can do without (a BIOS set's other versions)
-	std::vector<std::string> sets;    // the zips it looked in: "sf2ce", "sf2"
+	std::vector<std::string> sets;    // the sets it looked for: "sf2ce", "sf2"
+	std::vector<std::string> files;   // the archives it read: "sf2ce.zip", "sf2.7z"
+	std::vector<std::string> unreadable; // archives found that could not be opened: "sf2.7z"
+	bool read_error = false; // one of them could not be read (a share that dropped...): the result may change
+	std::string why;          // a .7z's problem, in English, for the player ("" for none)
 };
-// Checks that every ROM the driver needs is in its zips (by CRC, then by name).
+// Checks that every ROM the driver needs is in its archives (by CRC, then by name). Reads only the archives'
+// directories. Safe on another thread while no game runs (the driver tables are read under a lock).
 RomCheck CheckRoms(int driver, const ZipFinder& find);
 
 // Starts the driver. On failure *error says why (missing ROMs listed).

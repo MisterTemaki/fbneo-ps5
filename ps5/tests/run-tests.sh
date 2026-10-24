@@ -25,6 +25,7 @@ FAIL=0
 
 # pad bits
 CROSS=4000; CIRCLE=2000; TRIANGLE=1000; SQUARE=8000; UP=10; DOWN=40; RIGHT=20; LEFT=80; L2=100; R2=200; L3R3=6
+L1=400; R1=800; L3=2; R3=4
 OPTIONS=8; TOUCH=100000
 L2UP=$(printf %x $((0x$L2 | 0x$UP))); L2DOWN=$(printf %x $((0x$L2 | 0x$DOWN))); L2R2=$(printf %x $((0x$L2 | 0x$R2)))
 # pause menu: L3+R3, then Up from "Resume" wraps to "Quit FBNeo PS5"
@@ -115,7 +116,7 @@ python3 -c "import zipfile; zipfile.ZipFile('$T/root/roms/unknownset.zip','w').w
 # the shelf: Pac-Man, Ponpoko, Puck Man; Cross -> Pac-Man; back to the list; quit
 rc=$(run "$T" "0:0;40:$CROSS;42:0;150:$L3R3;152:0;160:$UP;162:0;164:$UP;166:0;170:$CROSS;172:0;$(SHELFQUIT_AT 200)" "20,120")
 expect "[ $rc = 0 ]" "exit code 0 (got $rc)"
-expect "grep -q '\[games\] 5 zip(s): 4 arcade set(s) (3 complete, 4 checked now), 0 BIOS set(s), 1 not FBNeo.s' $T/root/logs/boot.log" "5 zips: 4 sets, 3 complete, 1 unknown"
+expect "grep -q '\[games\] 5 archive(s): 4 arcade set(s) (3 complete, 4 checked now), 0 BIOS set(s), 1 not FBNeo.s' $T/root/logs/boot.log" "5 zips: 4 sets, 3 complete, 1 unknown"
 expect "grep -q 'mslug: [0-9]* ROM(s) missing' $T/root/logs/boot.log" "Metal Slug without the Neo Geo BIOS: incomplete"
 expect "grep -q 'loading .*/roms/pacman.zip' $T/root/logs/boot.log" "Cross started the first game (Pac-Man)"
 expect "$CHECK $T/dump/flip00120.ppm 960 540 red >/dev/null" "the game picked on the shelf runs (its parent puckman.zip found)"
@@ -126,7 +127,7 @@ expect "grep -q '(3 complete, 0 checked now)' $T/root/logs/boot.log" "second sta
 mkset neogeo
 cp "$SETS/neogeo/neogeo.zip" "$T/root/roms/more/"
 rc=$(run "$T" "0:0;$(SHELFQUIT_AT 30)" "")
-expect "grep -q '6 zip(s): 4 arcade set(s) (4 complete, 1 checked now), 1 BIOS set(s)' $T/root/logs/boot.log" "neogeo.zip added (another folder): Metal Slug checked again, complete; the BIOS isn't a game"
+expect "grep -q '6 archive(s): 4 arcade set(s) (4 complete, 1 checked now), 1 BIOS set(s)' $T/root/logs/boot.log" "neogeo.zip added (another folder): Metal Slug checked again, complete; the BIOS isn't a game"
 nosan "$T"
 fi
 
@@ -415,17 +416,17 @@ nosan "$T"
 fi
 
 if want 11; then
-echo "== 11. the shelf's tabs: a letter at a time (Up / Down), makers with L2 / R2; settings hide the clones"
+echo "== 11. the shelf's tabs: a letter at a time (Up / Down), makers with L3 / R3 (L2 / R2 up to 2.0); settings hide the clones"
 T=$(newroot t11)
 addset pacman "$T/root/roms"
 addset ponpoko "$T/root/roms"
 mkset 1942
 addset 1942 "$T/root/roms"
 # letters: # (1942), P (Pac-Man, Ponpoko, Puck Man); makers: All games, Capcom (1942), Classics (the rest)
-rc=$(run "$T" "0:0;30:$DOWN;32:0;40:$UP;42:0;50:$R2;52:0;60:$R2;62:0;80:$CROSS;82:0;$(QUITAT 180)" "25,35,75,170")
+rc=$(run "$T" "0:0;30:$DOWN;32:0;40:$UP;42:0;50:$R3;52:0;60:$R3;62:0;80:$CROSS;82:0;$(QUITAT 180)" "25,35,75,170")
 expect "[ $rc = 0 ]" "exit code 0 (got $rc)"
-expect "grep -q '\[shelf\] tab All games, P: 3 game(s)' $T/root/logs/boot.log && grep -q '\[shelf\] tab All games, #: 1 game(s)' $T/root/logs/boot.log" "Down: the P games (3), Up: back to # (1942)"
-expect "grep -q '\[shelf\] tab Capcom, #: 1 game(s)' $T/root/logs/boot.log && grep -q '\[shelf\] tab Classics, P: 3 game(s)' $T/root/logs/boot.log" "R2: Capcom (its # tab), R2: Classics (no # game there: on to P)"
+expect "grep -q '\[shelf\] tab Internal, All games, P: 3 game(s)' $T/root/logs/boot.log && grep -q '\[shelf\] tab Internal, All games, #: 1 game(s)' $T/root/logs/boot.log" "Down: the P games (3), Up: back to # (1942)"
+expect "grep -q '\[shelf\] tab Internal, Capcom, #: 1 game(s)' $T/root/logs/boot.log && grep -q '\[shelf\] tab Internal, Classics, P: 3 game(s)' $T/root/logs/boot.log" "R3: Capcom (its # tab), R3: Classics (no # game there: on to P)"
 expect "grep -q 'loading .*pacman.zip' $T/root/logs/boot.log" "the first game of the tab was started"
 expect "grep -q 'shelf_family=11' $T/root/fbneo-ps5.ini && grep -q 'shelf_letter=P' $T/root/fbneo-ps5.ini" "the maker and the letter are remembered"
 echo "show_clones=0" >>"$T/root/fbneo-ps5.ini"
@@ -795,7 +796,7 @@ with zipfile.ZipFile(sys.argv[3], "w") as out:
 PY
 rc=$(run "$T" "0:0;40:$CROSS;42:0;$(QUITAT 150)" "120")
 expect "[ $rc = 0 ]" "exit code 0 (got $rc)"
-expect "grep -q '\[games\] 1 zip(s): 2 arcade set(s) (2 complete, 1 checked now), 0 BIOS set(s), 0 not FBNeo.s; 1 clone(s) in a parent.s zip' $T/root/logs/boot.log" "Pac-Man found inside puckman.zip (a merged set); clones that only match by name aren't listed"
+expect "grep -q '\[games\] 1 archive(s): 2 arcade set(s) (2 complete, 1 checked now), 0 BIOS set(s), 0 not FBNeo.s; 1 clone(s) in a parent.s archive' $T/root/logs/boot.log" "Pac-Man found inside puckman.zip (a merged set); clones that only match by name aren't listed"
 expect "grep -q 'loading .*/roms/puckman.zip#pacman' $T/root/logs/boot.log" "Cross started the clone from its parent's zip"
 expect "$CHECK $T/dump/flip00120.ppm 960 540 red >/dev/null" "the merged clone runs (its own program, red)"
 expect "head -1 $T/root/config/romcheck.txt | grep -q '^# FBNeo 1.0.0.3, [0-9]* drivers$'" "romcheck.txt names the FBNeo that checked the sets"
@@ -842,8 +843,9 @@ T=$(newroot t24)
 addset pacman "$T/root/roms"
 mkset mslug
 cp "$SETS/mslug/mslug.zip" "$T/root/roms/" # Metal Slug without neogeo.zip
-# Triangle -> Settings; Up x5 from Shader: Back, Updates, Debug logs, Language, BIOS sets; Cross -> the BIOS screen; Circle x2; quit
-PAD="0:0;30:$TRIANGLE;32:0;40:$UP;42:0;48:$UP;50:0;56:$UP;58:0;64:$UP;66:0;68:$UP;70:0;74:$CROSS;76:0;100:$CIRCLE;102:0;110:$CIRCLE;112:0;$(SHELFQUIT_AT 130)"
+# Triangle -> Settings; Up x6 from Shader: Back, Updates, Debug logs, Language, Network shares (2.0), BIOS sets; Cross -> the
+# BIOS screen; Circle x2; quit
+PAD="0:0;30:$TRIANGLE;32:0;40:$UP;42:0;48:$UP;50:0;56:$UP;58:0;64:$UP;66:0;68:$UP;70:0;72:$UP;73:0;76:$CROSS;78:0;100:$CIRCLE;102:0;110:$CIRCLE;112:0;$(SHELFQUIT_AT 130)"
 rc=$(run "$T" "$PAD" "90")
 expect "[ $rc = 0 ]" "exit code 0 (got $rc)"
 expect "grep -q '\[bios\] neogeo.zip (Neo Geo): not found; needed by 1 of your games' $T/root/logs/boot.log" "neogeo.zip missing, needed by Metal Slug"
@@ -1041,17 +1043,17 @@ scan_time() { python3 - "$1" <<'PY'
 import re, sys
 t = {}
 for line in open(sys.argv[1], errors='replace'):
-    m = re.match(r'\[\s*([0-9.]+)\] \[(boot|games)\] (FBNeo PS5 |1500 zip)', line)
+    m = re.match(r'\[\s*([0-9.]+)\] \[(boot|games)\] (FBNeo PS5 |1500 archive)', line)
     if m: t.setdefault(m.group(2), float(m.group(1)))
 print('%.2f' % (t['games'] - t['boot']) if 'boot' in t and 'games' in t else '99')
 PY
 }
 rc=$(run "$T" "0:0;$(SHELFQUIT_AT 100)" "")
 first=$(scan_time $T/root/logs/boot.log)
-expect "[ $rc = 0 ] && grep -q '\[games\] 1500 zip(s): [0-9]* arcade set(s) (0 complete, [0-9]* checked now)' $T/root/logs/boot.log" "1500 zips found, their sets checked"
+expect "[ $rc = 0 ] && grep -q '\[games\] 1500 archive(s): [0-9]* arcade set(s) (0 complete, [0-9]* checked now)' $T/root/logs/boot.log" "1500 zips found, their sets checked"
 rc=$(run "$T" "0:0;$(SHELFQUIT_AT 100)" "")
 second=$(scan_time $T/root/logs/boot.log)
-expect "grep -q '\[games\] 1500 zip(s): [0-9]* arcade set(s) (0 complete, 0 checked now)' $T/root/logs/boot.log" "the next start: nothing checked again (the cache)"
+expect "grep -q '\[games\] 1500 archive(s): [0-9]* arcade set(s) (0 complete, 0 checked now)' $T/root/logs/boot.log" "the next start: nothing checked again (the cache)"
 expect "python3 -c 'import sys; sys.exit(0 if float(\"$first\") < 8 and float(\"$second\") < 3 else 1)'" "first scan ${first} s (under 8), the next ${second} s (under 3)"
 nosan "$T"
 fi
@@ -1069,10 +1071,10 @@ for L in 1 2 3 4; do
 	echo "language=$L" >>"$T/root/fbneo-ps5.ini"
 	addset ponpoko "$T/root/roms"
 	cp "$SETS/mslug/mslug.zip" "$T/root/roms/" # Metal Slug without neogeo.zip: a BIOS set needed and missing
-	# the settings screen: every row (Down x27 back to Shader), then Up x5 to BIOS sets, its screen, back out
+	# the settings screen: every row (Down x28 back to Shader), then Up x6 to BIOS sets, its screen, back out
 	pad="0:0;20:$TRIANGLE;22:0"; f=30
-	for i in $(seq 1 27); do pad="$pad;$f:$DOWN;$((f + 2)):0"; f=$((f + 6)); done
-	for i in $(seq 1 5); do pad="$pad;$f:$UP;$((f + 2)):0"; f=$((f + 6)); done
+	for i in $(seq 1 28); do pad="$pad;$f:$DOWN;$((f + 2)):0"; f=$((f + 6)); done
+	for i in $(seq 1 6); do pad="$pad;$f:$UP;$((f + 2)):0"; f=$((f + 6)); done
 	pad="$pad;$f:$CROSS;$((f + 2)):0"; f=$((f + 10))
 	for i in $(seq 1 6); do pad="$pad;$f:$DOWN;$((f + 2)):0"; f=$((f + 6)); done
 	pad="$pad;$f:$CIRCLE;$((f + 2)):0;$((f + 10)):$CIRCLE;$((f + 12)):0"; f=$((f + 30))
@@ -1133,11 +1135,405 @@ PY
 	nosan "$T"
 	nosan "$T2"
 done
+# the network screens (2.0): Settings, Network shares with a share that does not connect, Add a share, the keyboard on
+# Server (Circle closes it), the share type switched to NFS, Circle asks to discard (Up, Cross: discard), Connect again;
+# back to the shelf: R1 to its Network tab (the share's state), Square scans again, L1 back; a set on a share that is
+# not checked yet, its card's line; quit. Network shares is Up five times from Shader (Back, Updates, Debug logs,
+# Language, Network shares).
+for L in 1 2 3 4; do
+	T=$(newroot t29net_$L)
+	echo "language=$L" >>"$T/root/fbneo-ps5.ini"
+	echo "smb://10.0.0.5/games" >"$T/root/shares.txt"
+	addset ponpoko "$T/root/roms"
+	key() { pad="$pad;$f:$1;$((f + 2)):0"; f=$((f + ${2:-6})); } # one press, then the next one $2 flips later
+	pad="0:0;20:$TRIANGLE;22:0"; f=30
+	for i in $(seq 1 5); do key $UP; done
+	key $CROSS 20; key $DOWN; key $CROSS 20; key $CROSS 20; key $CIRCLE 20
+	key $UP; key $RIGHT 20; key $CIRCLE 20; key $UP; key $CROSS 20
+	key $DOWN; key $CROSS 20; key $CIRCLE 20; key $CIRCLE 30
+	key $R1 30; key $SQUARE 60; key $L1 30
+	key $OPTIONS 10; key $CROSS 10
+	rm -f $T/missing.txt
+	rc=$(FBNEO_HOST_REALTIME=1 FBNEO_HOST_NETFS_DIR=$T/nothing FBNEO_HOST_I18N_MISSING=$T/missing.txt run "$T" "$pad" "")
+	# a set on a share, its check slow (2 s a read): its card says it is not checked yet; its BIOS sets screen row too
+	mkset bstarsh
+	T2=$(newroot t29netb_$L)
+	echo "language=$L" >>"$T2/root/fbneo-ps5.ini"
+	mkdir -p "$T2/share"
+	addset bstarsh "$T2/share"
+	echo "smb://10.0.0.5/games" >"$T2/root/shares.txt"
+	pad="0:0"; f=200 # (the share connected and its sets listed by then; their check, 2 s a read, still running)
+	key $TRIANGLE 20; for i in $(seq 1 6); do key $UP; done; key $CROSS 20; key $CIRCLE 10; key $CIRCLE 20
+	key $OPTIONS 10; key $CROSS 10
+	rc2=$(FBNEO_HOST_REALTIME=1 FBNEO_HOST_NETFS_DELAY_MS=2000 FBNEO_HOST_NETFS_DIR=$T2/share FBNEO_HOST_I18N_MISSING=$T/missing.txt run "$T2" "$pad" "")
+	python3 - $T/missing.txt $PWD/frontend/fe_i18n.cpp > $T/untranslated.txt <<'PY'
+import os, re, sys
+src = open(sys.argv[2], encoding='utf-8').read()
+translated = set(re.findall(r'"((?:[^"\\]|\\.)*)"', src))
+spec = re.compile(r'%(?:%|[-+ #0]*\d*(?:\.\d+)?(?:hh|h|ll|l|z)?[diouxXeEfgGcsp])')
+formats = [re.compile('^' + ''.join('.*' if spec.fullmatch(part) else re.escape(part)
+                                    for part in re.split('(' + spec.pattern + ')', f)) + '$', re.S)
+           for f in translated if '%' in f]
+names = {'L1', 'R1', 'L2', 'R2', 'L3', 'R3', 'OPTIONS', 'English', 'Español', 'Português (Brasil)', 'Français', 'Deutsch',
+         'SMB (Windows, Samba, NAS)', 'NFS', 'USB', 'Capcom', 'Neo Geo', 'Classics', 'Other'}
+for line in (open(sys.argv[1], encoding='utf-8') if os.path.exists(sys.argv[1]) else []):
+    t = line.rstrip('\n')
+    if t in translated or t in names or not re.search('[A-Za-z]{2}', t) or re.fullmatch(r'[\d%. ]+', t):
+        continue
+    if any(f.match(t) for f in formats):
+        continue
+    if re.search(r'ponpoko|Ponpoko|bstars|Baseball|\.zip  -  ', t):
+        continue
+    print(t)
+PY
+	expect "[ $rc = 0 ] && [ $rc2 = 0 ] && grep -q 'network tab: scan again' $T/root/logs/boot.log && grep -q '(not checked yet)' $T2/root/logs/boot.log && grep -q '\[bios\] screen' $T2/root/logs/boot.log && [ -s $T/missing.txt ] && [ ! -s $T/untranslated.txt ]" "language $L: the network screens, the Network tab and a set not checked yet are translated ($(head -c 200 $T/untranslated.txt | tr '\n' '|'))"
+	nosan "$T"
+	nosan "$T2"
+done
 # English stays the default: no setting, English on the screen (the texts pass through as they are)
 T=$(newroot t29en)
 addset ponpoko "$T/root/roms"
 rc=$(FBNEO_HOST_I18N_MISSING=$T/missing.txt run "$T" "0:0;20:$TRIANGLE;22:0;40:$CIRCLE;42:0;$(SHELFQUIT_AT 60)" "")
 expect "[ $rc = 0 ] && [ ! -s $T/missing.txt ] && grep -q '^language=0$' $T/root/fbneo-ps5.ini" "English by default (language=0): nothing is looked up"
+fi
+
+# ---- network shares (2.0): netfs, sets on a share, the Network shares screen, the shelf's storage tabs -------------------
+# From NES FCEUmm PS5 1.1's groups 29-33 (Beetle PCE PS5 1.1.1's, thatboialex's design in Snes9x PS5). The host build's
+# share backend (host/netfs_dirbackend.cpp) answers every smb:// and nfs:// address with the folder FBNEO_HOST_NETFS_DIR
+# names.
+# the active storage tab in a dump: Internal or Network (the pill in the accent colour, left or right of the middle)
+tab_on() { python3 - "$1" "$2" <<'PY'
+import sys
+from PIL import Image
+a = Image.open(sys.argv[1]).convert('RGB')
+xs = [x for x in range(0, 1920) if a.getpixel((x, 20)) == (78, 62, 170)]
+dark = [x for x in range(0, 1920) if a.getpixel((x, 20)) == (32, 30, 58)]
+if not xs:
+    sys.exit(1)
+mid = (min(xs) + max(xs)) / 2
+other = (min(dark) + max(dark)) / 2 if dark else None
+on = 'Internal' if other is None or mid < other else 'Network'
+sys.exit(0 if on == sys.argv[2] else 1)
+PY
+}
+mkset bstarsh
+mkset mslug
+
+if want 30; then
+echo "== 30. netfs: share addresses and redaction, routing, the libc --wrap layer, minizip and zlib on a share, the watchdog (in-memory share)"
+NETFS_OUT=$(ASAN_OPTIONS=detect_leaks=1 timeout 120 "$PWD/build/host/test-netfs" 2>&1)
+NETFS_RC=$?
+echo "$NETFS_OUT" | tail -3 | sed 's/^/  /'
+expect "[ $NETFS_RC = 0 ]" "netfs: every check passes"
+expect "! echo \"\$NETFS_OUT\" | grep -q 'runtime error\|Sanitizer'" "no sanitizer reports"
+fi
+
+if want 31; then
+echo "== 31. sets on a share: listed at once, checked in the background, started from the shelf with their parent and BIOS"
+# a. Pac-Man and its parent at the share's root; a Neo Geo clone, its parent and the BIOS in a folder of it
+T=$(newroot t31)
+mkdir -p "$T/share/neogeo"
+addset pacman "$T/share"
+addset bstarsh "$T/share/neogeo"
+echo "smb://10.0.0.5/games" >"$T/root/shares.txt"
+before=$(find "$T/share" -type f | wc -l)
+# the shelf opens on the Network tab (no game on the console): B (Baseball Stars Professional, the parent then its
+# clone), Right, Cross; back to the list, Down to P (Pac-Man), Cross; Up held: green
+rc=$(FBNEO_HOST_REALTIME=1 MAXFLIPS=900 FBNEO_HOST_NETFS_DIR="$T/share" run "$T" "0:0;196:$RIGHT;198:0;200:$CROSS;202:0;330:$L3R3;332:0;340:$UP;342:0;344:$UP;346:0;350:$CROSS;352:0;450:$DOWN;452:0;480:$CROSS;482:0;600:$UP;640:0;$(QUITAT 700)" "190,580,620")
+expect "[ $rc = 0 ]" "exit code 0 (got $rc)"
+expect "grep -q '\[net\] 1 share(s) in shares.txt' $T/root/logs/boot.log && grep -q '\[net\] Connected to smb://10.0.0.5/games' $T/root/logs/boot.log" "shares.txt read, the share connected"
+expect "grep -q '\[games\] 5 archive(s): 4 arcade set(s) (0 complete, 0 checked now), .* 0 .7z, 5 on network shares ([0-9]* set(s) left to the background check)' $T/root/logs/boot.log" "the scan lists the 4 sets on the share without opening an archive (their checks, the BIOS's and the merged clones': left to the background)"
+expect "grep -q '\[bios\] neogeo.zip (Neo Geo): on a share, checked in the background' $T/root/logs/boot.log" "the BIOS on the share: not checked by the scan"
+expect "grep -q '\[games\] checking [0-9]* set(s) on network shares in the background' $T/root/logs/boot.log && grep -q '\[games\] network check pass: [0-9]* set(s) checked\$' $T/root/logs/boot.log" "the background pass checks them"
+expect "grep -q '\[games\] 5 archive(s): 4 arcade set(s) (4 complete, 0 checked now), .* 5 on network shares (0 set(s) left' $T/root/logs/boot.log" "the next scan: all 4 complete, from the cache"
+expect "grep -q '\[bios\] neogeo.zip (Neo Geo): OK; needed by 2 of your games' $T/root/logs/boot.log" "then the BIOS on the share: checked, OK"
+expect "grep -q 'loading /smb/10.0.0.5/games/neogeo/bstarsh.zip' $T/root/logs/boot.log && grep -q 'running bstarsh \"Baseball Stars Professional (NGH-002)\"' $T/root/logs/boot.log" "a Neo Geo clone on the share starts, its parent and the BIOS from the same share"
+expect "grep -q 'loading /smb/10.0.0.5/games/pacman.zip' $T/root/logs/boot.log && $CHECK $T/dump/flip00580.ppm 960 540 red >/dev/null && $CHECK $T/dump/flip00620.ppm 960 540 green >/dev/null" "Pac-Man from the share runs (red; Up: green)"
+expect "[ \$(find $T/share -type f | wc -l) = $before ] && [ -f $T/root/saves/bstarsh.nvram -o -d $T/root/saves ]" "nothing is written to the share (saves stay on the console)"
+expect "grep -q 'last_rom=/smb/10.0.0.5/games/pacman.zip' $T/root/fbneo-ps5.ini && grep -q 'last_tab=2' $T/root/fbneo-ps5.ini" "the shelf remembers the game and its tab"
+expect "grep -q '\[shelf\] tab Network: 4 game(s)' $T/root/logs/boot.log && tab_on $T/dump/flip00190.ppm Network" "the shelf shows the Network tab"
+nosan "$T"
+# the next start reads no archive of the share before the shelf: everything is in romcheck.txt
+rc=$(FBNEO_HOST_REALTIME=1 MAXFLIPS=300 FBNEO_HOST_NETFS_DIR="$T/share" run "$T" "0:0;$(SHELFQUIT_AT 200)" "")
+expect "[ $rc = 0 ] && ! grep -q 'checking .* set(s) on network shares' $T/root/logs/boot.log && grep -q '(4 complete, 0 checked now)' $T/root/logs/boot.log" "the next start: no background check needed"
+nosan "$T"
+# b. a set whose BIOS is on no drive and no share: hidden once checked; with Show incomplete sets, starting it gives the
+# usual message (the ROMs missing, the archives looked in)
+T=$(newroot t31b)
+mkdir -p "$T/share"
+cp "$SETS/mslug/mslug.zip" "$T/share/"
+echo "smb://10.0.0.5/games" >"$T/root/shares.txt"
+echo "show_incomplete=1" >>"$T/root/fbneo-ps5.ini"
+rc=$(FBNEO_HOST_REALTIME=1 MAXFLIPS=600 FBNEO_HOST_NETFS_DIR="$T/share" run "$T" "0:0;200:$CROSS;202:0;260:$CROSS;262:0;$(SHELFQUIT_AT 300)" "240")
+expect "[ $rc = 0 ] && grep -q '\[games\] mslug: [0-9]* ROM(s) missing, first' $T/root/logs/boot.log" "the background check finds Metal Slug incomplete (no neogeo.zip)"
+expect "grep -q '\[burn\] mslug: [0-9]* ROM(s) missing (.*), looked in mslug.zip, neogeo.zip' $T/root/logs/boot.log && grep -q 'could not start mslug.zip' $T/out.txt" "starting it: the usual message, the missing ROMs and the archives looked in"
+nosan "$T"
+# c. a big set (Metal Slug and its BIOS stored, 32 MiB) on a share with 20 ms on every read: read as the driver starts
+T=$(newroot t31c)
+mkdir -p "$T/share"
+for z in mslug neogeo; do (cd "$SETS/mslug" && python3 -c "import zipfile,sys; s=zipfile.ZipFile(sys.argv[1]); d=zipfile.ZipFile(sys.argv[2],'w',zipfile.ZIP_STORED); [d.writestr(i.filename, s.read(i.filename)) for i in s.infolist()]; d.close()" $z.zip "$T/share/$z.zip"); done
+echo "smb://10.0.0.5/games" >"$T/root/shares.txt"
+rc=$(FBNEO_HOST_REALTIME=1 FBNEO_HOST_NETFS_DELAY_MS=20 MAXFLIPS=1500 FBNEO_HOST_NETFS_DIR="$T/share" run "$T" "0:0;400:$CROSS;402:0;$(QUITAT 900)" "")
+expect "[ $rc = 0 ] && [ \$(stat -c %s $T/share/mslug.zip) -gt 25000000 ] && grep -q 'running mslug \"Metal Slug - Super Vehicle-001\"' $T/root/logs/boot.log" "a 27 MB stored set on a slow share starts"
+expect "! grep -q 'in realtime' $T/root/logs/boot.log" "and the running game never waits for the share"
+nosan "$T"
+# d. a read error while the share stays connected (a link that drops, the watchdog) is not the archive's fault: nothing is
+# kept, the set stays listed, the next start checks it again
+T=$(newroot t31d)
+mkdir -p "$T/share"
+addset pacman "$T/share"
+echo "smb://10.0.0.5/games" >"$T/root/shares.txt"
+rc=$(FBNEO_HOST_REALTIME=1 FBNEO_HOST_NETFS_EIO=pacman.zip MAXFLIPS=300 FBNEO_HOST_NETFS_DIR="$T/share" run "$T" "0:0;$(SHELFQUIT_AT 250)" "")
+expect "[ $rc = 0 ] && grep -q '\[games\] pacman: an archive could not be read (pacman.zip): checked again next time' $T/root/logs/boot.log" "a read error: the pass says so"
+expect "! grep -q '^pacman	' $T/root/config/romcheck.txt && grep -q '^puckman	' $T/root/config/romcheck.txt" "and keeps nothing for that set (the parent's own check is kept)"
+expect "[ \$(grep -c 'pacman.zip -> \"Pac-Man (Midway)\"' $T/root/logs/boot.log) -ge 2 ]" "the set is still listed after the pass"
+rc=$(FBNEO_HOST_REALTIME=1 MAXFLIPS=300 FBNEO_HOST_NETFS_DIR="$T/share" run "$T" "0:0;$(SHELFQUIT_AT 250)" "")
+expect "[ $rc = 0 ] && grep -q '^pacman	' $T/root/config/romcheck.txt && grep -q '(2 complete, 0 checked now)' $T/root/logs/boot.log" "the next start checks it again"
+nosan "$T"
+# e. Settings (Triangle) while the pass reads (3 s a read): the pass stops first (Settings > Network shares may connect
+# the shares again, which needs no other netfs call running); the set it was on is checked once Settings is left
+T=$(newroot t31e)
+mkdir -p "$T/share"
+addset pacman "$T/share"
+echo "smb://10.0.0.5/games" >"$T/root/shares.txt"
+rc=$(FBNEO_HOST_REALTIME=1 FBNEO_HOST_NETFS_DELAY_MS=3000 MAXFLIPS=1200 FBNEO_HOST_NETFS_DIR="$T/share" run "$T" "0:0;60:$TRIANGLE;62:0;90:$CIRCLE;92:0;$(SHELFQUIT_AT 1100)" "")
+expect "grep -q 'network check pass: [01] set(s) checked (stopped)' $T/root/logs/boot.log" "Settings stops the pass"
+expect "grep -q '^pacman	' $T/root/config/romcheck.txt && grep -q '^puckman	' $T/root/config/romcheck.txt" "and both sets are checked once Settings is left"
+nosan "$T"
+# f. a share that does not connect: the shelf still works and says why; shares.txt is written with its comments when
+# missing, a bad line is named by its number, never its text, and no password reaches a log
+T=$(newroot t31f)
+echo "smb://10.0.0.5/games" >"$T/root/shares.txt"
+rc=$(FBNEO_HOST_REALTIME=1 FBNEO_HOST_NETFS_DIR="$T/nothing" run "$T" "0:0;100:$OPTIONS;102:0;110:$CROSS;112:0" "")
+expect "[ $rc = 0 ] && grep -q '\[games\] 0 archive(s)' $T/root/logs/boot.log && grep -q '\[net\] The folder games is not on 10.0.0.5' $T/root/logs/boot.log" "a share that does not connect leaves the shelf working, and says why"
+nosan "$T"
+T=$(newroot t31g)
+rc=$(run "$T" "0:0;$(SHELFQUIT_AT 40)" "")
+expect "[ $rc = 0 ] && grep -q '^# FBNeo PS5 network shares' $T/root/shares.txt && ! grep -q '^smb://\|^nfs://' $T/root/shares.txt" "a commented shares.txt is written when there is none"
+printf 'smb://bob@10.0.0.5/games?password=Hunter2x\nftp://10.0.0.5/x?password=Hunter2y\n' >"$T/root/shares.txt"
+rc=$(FBNEO_HOST_NETFS_DIR="$T/nothing" run "$T" "0:0;$(SHELFQUIT_AT 40)" "")
+expect "[ $rc = 0 ] && grep -q 'shares.txt line 2: ' $T/root/logs/boot.log && ! grep -rq 'Hunter2' $T/root/logs $T/out.txt" "a bad line is named by its number; no password in a log or on stdout"
+nosan "$T"
+fi
+
+if want 32; then
+echo "== 32. the Network shares screen: add, change, test and remove a share with the on-screen keyboard (Settings, Network shares)"
+# tests/osk_pad.py turns the steps into a pad script (the keyboard's layout is its model). Settings is Triangle on the
+# shelf; Up five times from Shader reaches Network shares (Back, Updates, Debug logs, Language, Network shares). Every run
+# ends: Circle twice, OPTIONS, Cross.
+net_pad() { python3 tests/osk_pad.py 2>/dev/null; }
+net_quit='press CIRCLE 2
+press OPTIONS
+wait 8
+press CROSS'
+# a. a new share: server, share, folder with a space, user, a password that needs Shift and both kinds of symbols
+T=$(newroot t32)
+mkdir -p "$T/share"
+PAD=$(net_pad <<STEPS
+frame 40
+press TRIANGLE
+press UP 5
+press CROSS
+press CROSS
+field 10.0.0.5
+press DOWN
+field games
+press DOWN
+field Arcade Sets
+press DOWN
+field jason
+press DOWN
+field Zq9@pw&1
+press DOWN 6
+press CROSS
+wait 20
+$net_quit
+STEPS
+)
+rc=$(FBNEO_HOST_NETFS_DIR="$T/share" run "$T" "$PAD" "")
+expect "[ $rc = 0 ]" "exit code 0 (got $rc)"
+expect "[ \"\$(tail -n 1 $T/root/shares.txt)\" = 'smb://jason@10.0.0.5/games/Arcade%20Sets?password=Zq9%40pw%261' ]" "the share is written as one escaped line"
+expect "grep -q '^# FBNeo PS5 network shares' $T/root/shares.txt" "after the comments the app wrote"
+expect "grep -q '\[net\] shares.txt: saved smb://jason@10.0.0.5/games/Arcade%20Sets' $T/root/logs/boot.log" "the log says what was saved"
+expect "grep -q '\[net\] Connected to smb://jason@10.0.0.5/games/Arcade%20Sets' $T/root/logs/boot.log" "and the share connects at once, without a restart"
+expect "! grep -rqE 'Zq9|pw%26' $T/root/logs $T/out.txt" "the password is in no log and not on stdout"
+nosan "$T"
+# b. change one share (its note stays), test the connection, remove the other
+T=$(newroot t32b)
+mkdir -p "$T/share/Sub" && echo x >"$T/share/a.zip"
+printf '# my shares\nsmb://old/x   # my note\nnfs://nas/export/arcade\n' >"$T/root/shares.txt"
+PAD=$(net_pad <<STEPS
+frame 40
+press TRIANGLE
+press UP 5
+press CROSS
+press CROSS
+press DOWN 3
+field bob
+press DOWN 6
+press CROSS
+wait 120
+press DOWN
+press CROSS
+wait 20
+press DOWN
+press CROSS
+press DOWN 7
+press CROSS
+wait 8
+press UP
+press CROSS
+wait 20
+$net_quit
+STEPS
+)
+rc=$(FBNEO_HOST_REALTIME=1 FBNEO_HOST_NETFS_DIR="$T/share" run "$T" "$PAD" "")
+expect "[ $rc = 0 ]" "exit code 0 (got $rc)"
+expect "[ \"\$(cat $T/root/shares.txt)\" = \"\$(printf '# my shares\nsmb://bob@old/x   # my note')\" ]" "one line changed (note kept), the other was removed, the comment stays"
+expect "grep -q '\[net\] test of smb://bob@old/x: Connected. The folder has 1 file and 1 folder.' $T/root/logs/boot.log" "Test connection reports what is in the folder"
+expect "grep -q '\[net\] shares.txt: removed nfs://nas/export/arcade' $T/root/logs/boot.log" "the removal is logged"
+nosan "$T"
+# c. Save with nothing filled in changes nothing
+T=$(newroot t32c)
+PAD=$(net_pad <<STEPS
+frame 40
+press TRIANGLE
+press UP 5
+press CROSS
+press CROSS
+press DOWN 10
+press CROSS
+wait 8
+press CIRCLE
+$net_quit
+STEPS
+)
+rc=$(run "$T" "$PAD" "")
+expect "[ $rc = 0 ] && ! grep -q '^smb://\|^nfs://' $T/root/shares.txt" "an empty form is not saved (and Circle on a form with no changes leaves it at once)"
+nosan "$T"
+# d. over a game (Settings from the pause menu) the row is there but can't be chosen (the game may be reading from a
+# share): the pause menu, Down seven times to Settings; there Up six times from Shader passes Network shares and lands on
+# Show incomplete sets (Back, Updates, Debug logs, Language, BIOS sets, Show incomplete sets), which Cross switches on
+T=$(newroot t32d)
+addset ponpoko "$T/root/roms"
+pad="0:0"; f=100
+key() { pad="$pad;$f:$1;$((f + 2)):0"; f=$((f + ${2:-8})); }
+key $L3R3 12; for i in $(seq 1 7); do key $DOWN; done; key $CROSS 12
+for i in $(seq 1 6); do key $UP; done; key $CROSS; key $CIRCLE 12; key $CIRCLE 20
+pad="$pad;$(QUITAT $f)"
+rc=$(MAXFLIPS=900 run "$T" "$pad" "" "$T/root/roms/ponpoko.zip")
+expect "[ $rc = 0 ] && grep -q '^show_incomplete=1' $T/root/fbneo-ps5.ini" "over a game: Network shares is skipped (Up six times reaches Show incomplete sets)"
+nosan "$T"
+fi
+
+if want 33; then
+echo "== 33. shelf tabs: Internal and Network apart, L1 / R1 between them, the last tab kept, Square on Network scans again; L2 / R2 skip 10"
+T=$(newroot t33)
+mkdir -p "$T/share"
+addset ponpoko "$T/root/roms"
+addset pacman "$T/share"
+echo "smb://10.0.0.5/games" >"$T/root/shares.txt"
+rc=$(FBNEO_HOST_REALTIME=1 FBNEO_HOST_NETFS_DIR="$T/share" run "$T" "0:0;220:$R1;222:0;300:$SQUARE;302:0;380:$L1;382:0;420:$OPTIONS;422:0;430:$CROSS;432:0" "200,260,400")
+expect "[ $rc = 0 ]" "exit code 0 (got $rc)"
+expect "tab_on $T/dump/flip00200.ppm Internal" "the shelf opens on the Internal tab"
+expect "tab_on $T/dump/flip00260.ppm Network" "R1 goes to the Network tab"
+expect "tab_on $T/dump/flip00400.ppm Internal" "L1 comes back"
+expect "grep -q '\[shelf\] tab Network: 2 game(s)' $T/root/logs/boot.log" "the Network tab holds the sets on the share (Pac-Man and its parent)"
+expect "grep -q '\[shelf\] tab Internal: 1 game(s)' $T/root/logs/boot.log" "and the Internal tab only the console's"
+expect "grep -q '\[shelf\] network tab: scan again\$' $T/root/logs/boot.log" "Square on the Network tab scans again"
+expect "[ \$(grep -c '\[games\] 3 archive(s)' $T/root/logs/boot.log) -ge 2 ]" "and the scan found the sets again"
+expect "grep -q 'last_tab=0' $T/root/fbneo-ps5.ini" "the tab left on is kept (Internal)"
+nosan "$T"
+T=$(newroot t33b)
+mkdir -p "$T/share"
+addset ponpoko "$T/root/roms"
+addset pacman "$T/share"
+echo "smb://10.0.0.5/games" >"$T/root/shares.txt"
+echo "last_tab=2" >>"$T/root/fbneo-ps5.ini"
+rc=$(FBNEO_HOST_REALTIME=1 FBNEO_HOST_NETFS_DIR="$T/share" run "$T" "0:0;300:$OPTIONS;302:0;310:$CROSS;312:0" "250")
+expect "[ $rc = 0 ] && tab_on $T/dump/flip00250.ppm Network" "with last_tab=2 and a share set up the shelf opens on Network"
+expect "grep -q 'last_tab=2' $T/root/fbneo-ps5.ini" "and keeps the tab on quit"
+nosan "$T"
+T=$(newroot t33c)
+addset ponpoko "$T/root/roms"
+echo "last_tab=2" >>"$T/root/fbneo-ps5.ini"
+rc=$(run "$T" "0:0;60:$R1;62:0;70:$SQUARE;72:0;90:$L1;92:0;120:$OPTIONS;122:0;130:$CROSS;132:0" "40,80,110")
+expect "[ $rc = 0 ] && tab_on $T/dump/flip00040.ppm Internal" "last_tab=2 without a share set up opens on the games instead"
+expect "tab_on $T/dump/flip00080.ppm Network && grep -q '\[shelf\] tab Network: 0 game(s)' $T/root/logs/boot.log" "R1 shows the empty Network tab"
+expect "grep -q '\[shelf\] network tab: scan again\$' $T/root/logs/boot.log" "Square on it scans again, with no share to ask"
+expect "tab_on $T/dump/flip00110.ppm Internal && grep -q 'last_tab=0' $T/root/fbneo-ps5.ini" "L1 goes back and the tab is kept"
+nosan "$T"
+T=$(newroot t33d)
+echo "smb://10.0.0.5/games" >"$T/root/shares.txt"
+rc=$(FBNEO_HOST_REALTIME=1 FBNEO_HOST_NETFS_DIR="$T/nothing" run "$T" "0:0;150:$SQUARE;152:0;330:$OPTIONS;332:0;340:$CROSS;342:0" "100")
+expect "[ $rc = 0 ] && tab_on $T/dump/flip00100.ppm Network" "a share that is down leaves a shelf with no games on the Network tab"
+expect "grep -q '\[shelf\] network tab: scan again, reconnecting' $T/root/logs/boot.log" "Square connects it again"
+expect "[ \$(grep -c 'The folder games is not on 10.0.0.5' $T/root/logs/boot.log) -ge 2 ]" "and says why each time"
+nosan "$T"
+# the letters (Up / Down) and the makers (L3 / R3) work inside the storage tab; L2 / R2 skip 10 games (L1 / R1 did
+# before 2.0): R2 from Pac-Man (the first of P: Pac-Man, Ponpoko, Puck Man) goes to Puck Man, the last
+T=$(newroot t33e)
+mkdir -p "$T/share"
+addset pacman "$T/root/roms"
+addset ponpoko "$T/root/roms"
+mkset 1942
+addset 1942 "$T/share"
+echo "smb://10.0.0.5/games" >"$T/root/shares.txt"
+# (back to the shelf from a game: the pause menu, Up twice, Cross)
+rc=$(FBNEO_HOST_REALTIME=1 MAXFLIPS=900 FBNEO_HOST_NETFS_DIR="$T/share" run "$T" "0:0;150:$R2;152:0;170:$CROSS;172:0;230:$L3R3;232:0;240:$UP;242:0;246:$UP;248:0;256:$CROSS;258:0;320:$R1;322:0;340:$R3;342:0;380:$CROSS;382:0;$(QUITAT 480)" "")
+expect "[ $rc = 0 ] && grep -q 'loading .*/roms/puckman.zip' $T/root/logs/boot.log" "R2 skips ahead (Pac-Man -> Puck Man, the last of three)"
+expect "grep -q '\[shelf\] tab Network, Capcom, #: 1 game(s)' $T/root/logs/boot.log && grep -q 'loading /smb/10.0.0.5/games/1942.zip' $T/root/logs/boot.log" "on the Network tab, R3 shows its maker (Capcom), whose game runs"
+nosan "$T"
+fi
+
+# ---- 7-Zip (2.0): ROM sets in a .7z (frontend/fe_7z.cpp on FBNeo's lib7z); the archives are tests/7z/ ----------------
+if want 34; then
+echo "== 34. 7z: the reader on every kind of archive; a .7z set listed, checked, started and running; a .7z on a share; what is refused, and why"
+SZ_OUT=$(ASAN_OPTIONS=detect_leaks=1 timeout 120 "$PWD/build/host/test-7z" "$PWD/tests/7z" 2>&1)
+SZ_RC=$?
+echo "$SZ_OUT" | tail -3 | sed 's/^/  /'
+expect "[ $SZ_RC = 0 ]" "the 7z reader: LZMA, LZMA2, PPMd, BCJ, Delta, a solid block read as a set's ROMs; empty, truncated, corrupt, BZip2, AES, a PPMd model or a block too big: every check passes"
+expect "! echo \"\$SZ_OUT\" | grep -q 'runtime error\|Sanitizer'" "no sanitizer reports"
+# a. Pac-Man as a .7z (its parent puckman.zip beside it): listed and checked like a zip, started from the shelf, runs
+T=$(newroot t34)
+cp tests/7z/pacman.7z "$T/root/roms/"
+cp "$SETS/pacman/puckman.zip" "$T/root/roms/"
+rc=$(MAXFLIPS=600 run "$T" "0:0;40:$CROSS;42:0;150:$UP;190:0;$(QUITAT 300)" "120,170")
+expect "[ $rc = 0 ]" "exit code 0 (got $rc)"
+expect "grep -q '\[games\] 2 archive(s): 2 arcade set(s) (2 complete, 2 checked now), .* 1 .7z, 0 on network shares' $T/root/logs/boot.log && grep -q 'roms/pacman.7z -> \"Pac-Man (Midway)\"' $T/root/logs/boot.log" "the .7z set is named and checked as a zip is"
+expect "grep -q '^pacman	pacman.7z:' $T/root/config/romcheck.txt" "its check is kept (the signature says .7z)"
+expect "grep -q 'loading .*/roms/pacman.7z' $T/root/logs/boot.log && grep -q 'running pacman \"Pac-Man (Midway)\"' $T/root/logs/boot.log" "Cross starts the set from the .7z"
+expect "$CHECK $T/dump/flip00120.ppm 960 540 red >/dev/null && $CHECK $T/dump/flip00170.ppm 960 540 green >/dev/null" "and it runs (red; Up: green)"
+nosan "$T"
+# b. a Neo Geo clone as a .7z on a share, its parent and the BIOS as zips on the same share: checked in the background,
+# started from the share
+T=$(newroot t34b)
+mkdir -p "$T/share"
+cp tests/7z/bstarsh.7z "$T/share/"
+cp "$SETS/bstarsh/bstars.zip" "$SETS/bstarsh/neogeo.zip" "$T/share/"
+echo "smb://10.0.0.5/games" >"$T/root/shares.txt"
+rc=$(FBNEO_HOST_REALTIME=1 MAXFLIPS=600 FBNEO_HOST_NETFS_DIR="$T/share" run "$T" "0:0;196:$RIGHT;198:0;200:$CROSS;202:0;$(QUITAT 350)" "")
+expect "[ $rc = 0 ] && grep -q '1 .7z, 3 on network shares' $T/root/logs/boot.log && grep -q 'network check pass: [0-9]* set(s) checked\$' $T/root/logs/boot.log" "listed and checked in the background"
+expect "grep -q '^bstarsh	bstarsh.7z:' $T/root/config/romcheck.txt" "its check is kept"
+expect "grep -q 'loading /smb/10.0.0.5/games/bstarsh.7z' $T/root/logs/boot.log && grep -q 'running bstarsh \"Baseball Stars Professional (NGH-002)\"' $T/root/logs/boot.log" "it starts from the share"
+nosan "$T"
+# c. what can't be started, and the screen says why: an encrypted set (its names are readable: it is listed), a set in a
+# solid block over 512 MiB (listed: its directory is complete); in one folder a set's .zip is used, not its .7z
+T=$(newroot t34c)
+cp tests/7z/ponpoko.7z "$T/root/roms/"
+cp tests/7z/puckmanbb.7z "$T/root/roms/puckman.7z"
+rc=$(run "$T" "0:0;$(SHELFQUIT_AT 60)" "")
+expect "[ $rc = 0 ] && grep -q '2 archive(s): 2 arcade set(s) (2 complete' $T/root/logs/boot.log" "both are listed (their directories hold every ROM)"
+rc=$(MAXFLIPS=300 run "$T" "0:0;60:$CROSS;62:0" "50" "$T/root/roms/ponpoko.7z")
+expect "grep -q 'could not start ponpoko.7z: FBNeo PS5 could not unpack ponpoko.7z. The archive is encrypted.' $T/root/logs/boot.log && [ -f $T/dump/flip00050.ppm ]" "ponpoko.7z: not started; the screen says it is encrypted"
+nosan "$T"
+rc=$(MAXFLIPS=300 run "$T" "0:0;60:$CROSS;62:0" "50" "$T/root/roms/puckman.7z")
+expect "grep -q 'could not start puckman.7z: FBNeo PS5 could not unpack puckman.7z. The solid block it is packed in is too big (512 MiB at most)' $T/root/logs/boot.log && grep -q 'puckman.7z: can.t unpack .* (too big)' $T/root/logs/boot.log" "puckman.7z (a 513 MiB block): refused before anything is decoded, the screen says why"
+nosan "$T"
+addset ponpoko "$T/root/roms"
+rc=$(run "$T" "0:0;$(SHELFQUIT_AT 60)" "")
+expect "[ $rc = 0 ] && grep -q 'roms/ponpoko.zip -> \"Ponpoko\"' $T/root/logs/boot.log && ! grep -q 'roms/ponpoko.7z ->' $T/root/logs/boot.log" "ponpoko.zip beside ponpoko.7z: the zip is the one used"
+nosan "$T"
 fi
 
 echo

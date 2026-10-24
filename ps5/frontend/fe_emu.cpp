@@ -27,6 +27,8 @@
 #include "ProsperoSce.h"
 #include "ProsperoVideo.h"
 
+#include "netfs.h"
+
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -577,13 +579,15 @@ bool LoadGame(const std::string& path, std::string* error)
 		return false;
 	FBNEO_STAGE(Emu, "load game");
 	CloseGame();
-	// "<dir>/<zip>#<set>": a clone kept inside its parent's zip (a merged set); FBNeo finds its ROMs in the parent
+	// "<dir>/<zip>#<set>": a clone kept inside its parent's archive (a merged set); FBNeo finds its ROMs in the parent
 	const size_t hash = path.find('#', path.find_last_of('/') + 1);
 	const std::string zip = hash == std::string::npos ? path : path.substr(0, hash);
 	std::string file = zip.substr(zip.find_last_of('/') + 1);
 	std::string set = hash == std::string::npos ? file : path.substr(hash + 1);
 	if (set.size() > 4 && strcasecmp(set.c_str() + set.size() - 4, ".zip") == 0)
 		set = set.substr(0, set.size() - 4);
+	else if (set.size() > 3 && strcasecmp(set.c_str() + set.size() - 3, ".7z") == 0)
+		set = set.substr(0, set.size() - 3);
 	for (char& c : set)
 		c = char(tolower(uint8_t(c)));
 	const int drv = burn::FindDriver(set);
@@ -599,13 +603,10 @@ bool LoadGame(const std::string& path, std::string* error)
 		if (name == set && hash == std::string::npos)
 			return zip;
 		std::string p = fe::FindSetZip(name);
-		if (p.empty())
-		{
-			// not scanned (a game started from the command line): beside the game
-			const std::string beside = dir + "/" + name + ".zip";
-			if (FileExists(beside))
-				p = beside;
-		}
+		// not scanned (a game started from the command line): beside the game
+		for (const char* ext : {".zip", ".7z"})
+			if (p.empty() && FileExists(dir + "/" + name + ext))
+				p = dir + "/" + name + ext;
 		return p;
 	};
 	ApplySettings();
@@ -656,6 +657,9 @@ bool LoadGame(const std::string& path, std::string* error)
 	FindGameLayout();
 	ApplyLayout();
 	ps5video::InvalidateFrame();
+	// realtime from here: the set was read as the driver started (from a share too); the shelf's check pass is stopped,
+	// and nothing in netfs waits on the network for the game's thread unless the driver reads a ROM again (a reset)
+	netfs_set_realtime(true);
 	OrbisLog("[emu] running %s \"%s\" (%s), %.3f fps (%s), aspect %.4f, %d button(s)", g.set.c_str(), g.title.c_str(),
 		g.board.c_str(), g.fps, g.vsynced ? "at 60 Hz, vsync" : "paced by the sound", burn::Aspect(), burn::ButtonCount());
 	return true;
@@ -669,6 +673,7 @@ void CloseGame()
 	burn::Unload(); // writes the NVRAM (and the core its EEPROM and high scores)
 	g.loaded = false;
 	g.frame.clear();
+	netfs_set_realtime(false);
 	OrbisLog("[emu] game closed");
 }
 

@@ -30,6 +30,8 @@
 #include "fe_prefetch.h"
 #include "fe_settings.h"
 #include "fe_shelf.h"
+#include "fe_text.h"
+#include "netfs.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -75,12 +77,37 @@ double Now()
 bool PlayGame(const std::string& rom, bool from_command_line)
 {
 	std::string error;
+	if (netfs_is_network_path(rom.c_str()))
+	{
+		// a set on a share is read as the driver starts (a big one takes a few seconds): say so meanwhile
+		const int W = ps5video::kWidth, H = ps5video::kHeight;
+		ps5video::FillRect(0, 0, W, H, ps5video::Rgb(12, 10, 26));
+		fe::DrawText(80, 50, "FBNeo PS5", 6, ps5video::Rgb(150, 125, 255));
+		const char* text = fe::T("Reading the game from the network share...");
+		fe::DrawText((W - fe::TextWidth(text, 4)) / 2, H / 2 - 20, text, 4, ps5video::Rgb(220, 220, 235));
+		ps5video::Present(0, 0, 0, 0, true);
+	}
 	if (!emu::LoadGame(rom, &error))
 	{
-		ProsperoNotify(fe::T("FBNeo PS5: could not start %s"), rom.substr(rom.find_last_of('/') + 1).c_str());
-		fe::MessageBox("Could not start the game", error);
+		// a game on a share that is down says why (no answer, wrong password...): that share's own sentence, only when
+		// the share failed or was lost (a missing BIOS set on a connected share is not the network's fault); netfs's
+		// sentences carry no password
+		std::string why;
+		for (const NetfsShareInfo& sh : netfs_shares())
+			if (rom.size() > sh.mount_point.size() && rom.compare(0, sh.mount_point.size(), sh.mount_point) == 0 &&
+				rom[sh.mount_point.size()] == '/' && (sh.state == NetfsState::Failed || sh.state == NetfsState::Dead))
+			{
+				char text[512];
+				snprintf(text, sizeof text, fe::T("%s is not available."), sh.label.c_str());
+				why = sh.error.empty() ? std::string(text) : sh.error;
+			}
+		const std::string file = rom.substr(rom.find_last_of('/') + 1);
+		OrbisLog("[boot] could not start %s: %s%s%s", file.c_str(), error.c_str(), why.empty() ? "" : " ", why.c_str());
+		ProsperoNotify(fe::T("FBNeo PS5: could not start %s"), (file + (why.empty() ? "" : " - " + why)).c_str());
+		fe::MessageBox("Could not start the game", why.empty() ? error : error + " " + why);
 		return !from_command_line;
 	}
+	unsigned frames = 0;
 	const double quit_at = from_command_line && QuitAfter() > 0 ? Now() + QuitAfter() : 0;
 	for (;;)
 	{
@@ -92,6 +119,13 @@ bool PlayGame(const std::string& rom, bool from_command_line)
 		switch (emu::RunFrame())
 		{
 			case emu::FrameResult::Continue:
+				// a share that was lost mid-game: the notice comes once; the game goes on from what it has in memory
+				if (++frames % 60 == 0)
+					for (const std::string& ev : netfs_take_events())
+					{
+						OrbisLog("[net] %s", ev.c_str());
+						ProsperoNotify("FBNeo PS5: %s", ev.c_str());
+					}
 				break;
 			case emu::FrameResult::Stopped:
 				emu::CloseGame();
@@ -203,6 +237,22 @@ int Run(int argc, char** argv)
 	}
 	fe::Config().Load();
 
+	if (have_data)
+	{
+		// network shares (shares.txt): connecting happens in the background, the shelf picks the games up when it is done
+		netfs_set_log([](const std::string& l) { OrbisLog("[net] %s", l.c_str()); });
+		const int shares = netfs_load(OrbisRoot() + "/shares.txt");
+		OrbisLog("[net] %d share(s) in shares.txt", shares);
+		int shown = 0;
+		for (const std::string& n : netfs_notices())
+		{
+			OrbisLog("[net] shares.txt: %s", n.c_str());
+			if (shown++ < 3)
+				ProsperoNotify("FBNeo PS5: shares.txt: %s", n.c_str());
+		}
+		netfs_start();
+	}
+
 	FBNEO_STAGE(Boot, "video");
 	if (!ps5video::Init())
 	{
@@ -259,6 +309,7 @@ int Run(int argc, char** argv)
 	fe::ShelfShutdown();
 	fe::Config().Save();
 	emu::DeinitCore();
+	netfs_stop();
 	ps5input::Shutdown();
 	ps5audio::Shutdown();
 	ps5video::Shutdown();

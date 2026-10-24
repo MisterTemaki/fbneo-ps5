@@ -8,7 +8,8 @@
 PS5 as a **native home-screen app** with its own icon and background. It plays the arcade games FBNeo emulates --
 8,379 drivers: Capcom CPS-1, CPS-2 and CPS-3, **Neo Geo MVS/AES**, IGS PGM and PGM2, Cave, Toaplan, Psikyo, Sega
 System 1/16/18/24/32, X and Y boards, Konami, Taito, Irem, Data East, Midway, Kaneko, Seta, the classics of the 70s
-and 80s, and many more -- from their ROM sets (`.zip`), named as FBNeo names them.
+and 80s, and many more -- from their ROM sets (`.zip` or `.7z`), named as FBNeo names them, on the console, a USB
+drive or a network share (SMB or NFS).
 
 **Inside the emulator, to access the main menu press L3 + R3.**
 
@@ -30,14 +31,15 @@ Everything outside `ps5/` is FBNeo's source, **unchanged**, apart from this READ
 compiled as it is, with the object lists of FBNeo's `makefile.burn_rules` and the generated sources its makefiles
 make (the driver list, Musashi's 68000 core, the CPS, Neo Geo, Cave, Psikyo, Toaplan and PGM render functions).
 `ps5/frontend/fe_burn.cpp` is the frontend FBNeo's core needs, written again for this port the way FBNeo's own
-frontends (`src/burner`) and its libretro port host the core: ROM loading from the sets' zips, inputs, DIP
+frontends (`src/burner`) and its libretro port host the core: ROM loading from the sets' zips and 7z archives, inputs, DIP
 switches, states, NVRAM, the picture turned the right way up and the sound.
 
-> **Status (2.0):** builds with the ps5-payload-dev SDK into a signed native app, and passes 317 host tests, which
+> **Status (2.0):** builds with the ps5-payload-dev SDK into a signed native app, and passes 427 host tests, which
 > run the same code (FBNeo's core included) on Linux with the PS5 calls simulated: two arcade boards running a tiny
 > test program each (a vertical and a horizontal game) are played through the whole chain -- the shelf, the pad,
 > the core, the video and sound output -- and 26 more boards start, run, save and load a state under
-> AddressSanitizer. If something fails, the logs in `/data/fbneo/logs/` say where.
+> AddressSanitizer. The network shares and the `.7z` sets have run only in those tests (a local folder standing in
+> for the share), not yet on a PS5. If something fails, the logs in `/data/fbneo/logs/` say where.
 
 ## How it works
 
@@ -81,7 +83,25 @@ Square, Triangle, R1; kicks Cross, Circle, R2) instead of heavy kick on L1; a la
 (6 buttons) is still there. **A game with no cover** gets a card with an arcade panel (a stick and six buttons)
 instead of the SNES pad's four coloured buttons, and a long title starts below it (thanks to CroCop86,
 genplusgxPS5#4). Also in 2.0, from 1.9.1 (not released on its own): the interface in English, Spanish, Portuguese
-(Brazil), French and German, and debug logs off by default.
+(Brazil), French and German, and debug logs off by default. And what the other ports have (CroCop86 asked for them on
+Beetle PCE PS5, NES FCEUmm PS5 and Genesis Plus GX PS5), ported from NES FCEUmm PS5 1.1:
+
+- **Sets on network shares (SMB and NFS):** keep your ROM sets on a NAS or PC and play them from the shelf (Settings,
+  LIBRARY, Network shares, with an on-screen keyboard and Test connection). A set's parent and BIOS sets are found on
+  the console first, then on the shares. A set is read as its driver starts; nothing is read from the share while it
+  runs. Saves, states, NVRAM, high scores, DIP switches, button layouts, samples and covers stay on the console. The
+  sets on a share are listed at once and checked in the background. After the design of
+  [thatboialex](https://github.com/thatboialex)'s pull request to Snes9x PS5
+  ([#3](https://github.com/MisterTemaki/snes9xPS5/pull/3)). See [Network shares](#network-shares-smb-and-nfs).
+- **Shelf tabs:** Internal, USB and Network on **L1 / R1**, as in the other ports; the letters stay on Up / Down, **L2 /
+  R2 now skip 10 games** (L1 / R1 did), and the makers moved to **L3 / R3** (the sticks pressed; L2 / R2 before).
+  Square on the Network tab scans the shares again. See [Controls](#controls).
+- **`.7z` sets:** a set can be a `.7z` (LZMA, LZMA2, PPMd...) instead of a `.zip`, as in FBNeo's own frontends, read
+  with FBNeo's own LZMA SDK copy. See [7-Zip sets](#7-zip-sets).
+- The new screens in the five languages. libsmb2 and libnfs (LGPL-2.1-or-later) are built in, as the other ports carry
+  them.
+- **Not tried on a PS5 yet:** the network shares and the `.7z` sets have run only in the host tests (a local folder
+  standing in for the share).
 
 **1.9.1** (not released on its own; in 2.0): **Interface languages:** English (the default), Spanish, Portuguese (Brazil), French and German
 (Settings, SYSTEM, Language; see [Language](#language)). **Debug logs are off by default** (turn them on in
@@ -244,13 +264,14 @@ exits.
 FBNeo PS5 plays the same ROM sets as FBNeo 1.0.0.3 (and its libretro core of the same version), with the same
 names. As in every FBNeo build:
 
-- **One zip per set, named as FBNeo names it:** `sf2ce.zip`, `mslug.zip`, `pacman.zip`. The name is how the game
-  is recognised; a renamed zip is not.
+- **One zip per set, named as FBNeo names it:** `sf2ce.zip`, `mslug.zip`, `pacman.zip` (or `sf2ce.7z`: see
+  [7-Zip sets](#7-zip-sets)). The name is how the game is recognised; a renamed zip is not.
 - **Clones need their parent:** `sf2ce.zip` (a clone) loads what it shares with `sf2.zip` from there, so put the
-  parent next to it (anywhere in the ROM folders). Merged sets (the clones inside the parent's zip, as
+  parent next to it (anywhere in the ROM folders: the console's, a USB drive's or a share's). Merged sets (the clones inside the parent's zip, as
   ClrMamePro's "merged" option makes them) work too: a clone with no zip of its own is listed when all of its ROMs
   are in its parent's zip with the right CRC (`boot.log`: `<parent>.zip#<clone>`).
-- **BIOS sets:** the games of a board with a BIOS need the BIOS set too, anywhere in the ROM folders:
+- **BIOS sets:** the games of a board with a BIOS need the BIOS set too, anywhere in the ROM folders (a share's
+  included):
 
   | Games | BIOS set |
   |---|---|
@@ -272,9 +293,11 @@ names. As in every FBNeo build:
   games it knows keep their high score tables (`<set>.hi`, same folder). Settings, "Save high scores", turns it
   off.
 
-**Checked before they are listed:** at each start the shelf checks every set it finds the way FBNeo loads it,
-and lists only the complete ones. The result is kept in `/data/fbneo/config/romcheck.txt` and a set is checked
-again only when one of its zips changes (or after an update to another FBNeo version), so later starts are quick.
+**Checked before they are listed:** at each start the shelf checks every set it finds the way FBNeo loads it (only
+the archives' directories are read), and lists only the complete ones. The result is kept in
+`/data/fbneo/config/romcheck.txt` and a set is checked again only when one of its archives changes (or after an update
+to another FBNeo version), so later starts are quick. Sets on a network share are not checked before the shelf opens:
+see [Network shares](#network-shares-smb-and-nfs).
 The first start with a large merged collection takes longer: each clone is looked for in its parent's zip once. A set with ROMs missing is hidden unless
 Settings, **Show incomplete sets**, is on; starting it then names the missing ROMs on the screen. `boot.log` lists
 every set found (`[games] ... -> "<name>"`) and the ROMs a set is missing (`[games] <set>: N ROM(s) missing, first
@@ -282,10 +305,11 @@ every set found (`[games] ... -> "<name>"`) and the ROMs a set is missing (`[gam
 
 | Folder | Contents |
 |---|---|
-| `/data/fbneo/roms` | your ROM sets and BIOS sets (`.zip`), sub-folders included; on a USB drive, `fbneo/roms` |
+| `/data/fbneo/roms` | your ROM sets and BIOS sets (`.zip` or `.7z`), sub-folders included; on a USB drive, `fbneo/roms` |
+| `/data/fbneo/shares.txt` | the network shares (Settings, Network shares; written with examples on the first start) |
 | `/data/fbneo/saves` | NVRAM (`<set>.nvram`, written within 5 seconds of a change and when the game closes) and EEPROMs (`<set>.nv`) |
 | `/data/fbneo/states` | save states, `<set>.state1` to `.state10` |
-| `/data/fbneo/config` | the DIP switches you changed, per game (`<set>.dip`), the button layouts set in a game (`<set>.btn`), and `romcheck.txt` |
+| `/data/fbneo/config` | the DIP switches you changed, per game (`<set>.dip`), the button layouts set in a game (`<set>.btn`), and `romcheck.txt` (the ROM check, of the console's sets and the shares') |
 | `/data/fbneo/samples` | sample sets |
 | `/data/fbneo/hiscore` | `hiscore.dat` and the high scores (`<set>.hi`) |
 | `/data/fbneo/blend` | FBNeo's blend tables (`<set>.bld`, optional) |
@@ -326,12 +350,16 @@ before the art changed, register it again once: select **FBNeo PS5** on the home
 The start screen is a 3D shelf of game covers, like PS5SX2's and Snes9x PS5's, with the author's line under the
 wordmark: **github.com/MisterTemaki**.
 
+- **Storage tabs:** **Internal** (the console's drive), **USB** (shown while a USB drive has sets) and **Network**
+  (the shares), at the top; **L1 / R1** switch between them, and each keeps its own selection. The shelf opens on
+  the tab it was left on (`last_tab` in `fbneo-ps5.ini`). The makers and the letters below work inside the tab.
 - **A letter at a time:** with thousands of sets, the shelf shows one letter tab at a time -- **`#`** (titles that
   start with a digit or a sign: *1942*, *'99: The Last War*...) and **A** to **Z** -- sorted by title (a parent
   before its clones). The strip at the top shows every letter: the current one large, the ones with no games
   dimmed. **Up / Down** go to the previous / next letter that has games. Each game's line says its board, maker,
   year, the version (`World 920513`) and the set's name.
-- **By maker:** **L2 / R2** switch between "All games" and the makers and boards that have games: Capcom (CPS-1,
+- **By maker:** **L3 / R3** (the sticks pressed; L2 / R2 up to 2.0) switch between "All games" and the makers and
+  boards that have games: Capcom (CPS-1,
   CPS-2, CPS-3 and the rest), Neo Geo, Sega, Konami, Taito, "Toaplan, Cave, Psikyo", Data East, Irem, Midway, IGS,
   Classics (the 70s and 80s: Pac-Man, Galaxian and their kind) and Other; the letter tabs then show that maker's
   games (the letter is kept when the maker has games under it, else the nearest one). The shelf remembers the
@@ -355,7 +383,8 @@ wordmark: **github.com/MisterTemaki**.
     doesn't have is marked (`.missing`) and only looked for again after 30 days; **Square** forces a new try.
   - Without a network nothing is tried and the shelf works the same.
 - **Your own covers:** a `.png` or `.jpg` named after the set, in `/data/fbneo/covers/FBNeo/` or `covers/`
-  (`covers/sf2ce.png`), or next to the zip, takes priority over downloads.
+  (`covers/sf2ce.png`), or next to the zip (not on a share: the covers of a share's sets are kept on the console),
+  takes priority over downloads.
 - **No cover:** the game gets a card with its title and board, and an arcade panel (a stick and six buttons) at the
   top right.
 - **Turning downloads off:** Settings, "Download covers".
@@ -389,6 +418,82 @@ Notes:
 The shelf is drawn by the CPU in real 3D perspective (each cover a quad turned about the vertical axis, drawn
 column by column with bilinear filtering, mipmaps and anti-aliased edges, split across several cores).
 
+## Network shares (SMB and NFS)
+
+ROM sets can be read from a Windows, Samba, NAS or router share instead of a drive: the network shares of NES FCEUmm
+PS5 1.1 (and Beetle PCE PS5, Genesis Plus GX PS5), which come from Snes9x PS5, where they are by
+[thatboialex](https://github.com/thatboialex) (pull request [#3](https://github.com/MisterTemaki/snes9xPS5/pull/3)).
+Add one on the console: **Settings (Triangle on the shelf) > LIBRARY > Network shares > Add a share**. Pick SMB or NFS,
+type the server's IP address, the share (or export) and, if it needs them, a user name and password with the
+on-screen keyboard (D-pad and Cross; Square deletes, Triangle is a space, L1 / R1 move the cursor, L2 is Shift, R2 the
+symbols page, OPTIONS is Done). **Test connection** says what is in the folder, or why it cannot be reached, before
+you save. Open a share in the list to change or remove it. (In the settings opened from the pause menu the row can't
+be chosen: changing the shares reconnects them.)
+
+The screen keeps its shares in `/data/fbneo/shares.txt` (the first start writes it with examples). You can edit the
+file instead, one address per line (up to 8); the screen changes only the line you edit and keeps your comments:
+
+```
+smb://192.168.1.50/games/arcade
+smb://jason@192.168.1.50/games/arcade?password=secret
+nfs://192.168.1.50/export/arcade
+```
+
+Use the server's IP address. Inside a user name, password or folder, write `& = % # @ ; / ? ` and spaces as `%XX`
+(`p@ss` is `p%40ss`). The password sits in this file in plain text (it is never written to a log or shown).
+
+- The share's sets appear on the **Network** tab as soon as it has connected (sub-folders included, as on a drive);
+  the other tabs do not wait for it. While a share is connecting, or cannot be reached, the tab says so (and why, in a
+  sentence), and with no share set up it points to Settings > Network shares. **Square** on the tab scans again: it
+  forgets the folder listings and connects the shares that were down once more.
+- **Parents and BIOS sets:** as on a drive, a set finds its parent and its BIOS set anywhere in the ROM folders: the
+  console's first (`/data/fbneo/roms`, then the USB drives), then the shares (the same share or another). So a
+  `neogeo.zip` on the console serves the Neo Geo games of every share, and a share that holds a whole romset needs
+  nothing on the console. A set that is both on the console and on a share is the console's.
+- **The ROM check:** listing a share reads its folders only. A set whose check needs an archive on a share (its own,
+  its parent's or its BIOS's) is listed at once as it is ("ROMs not checked yet" on its line), and a background pass
+  then reads each archive's directory once -- never a whole archive -- while the shelf is open, and keeps the result in
+  `config/romcheck.txt` like the console's sets (by size and date: a set is read again only when it changes). The
+  shelf updates when the pass is done (a set found incomplete then leaves it, unless Show incomplete sets is on); the
+  BIOS sets screen says "Not checked yet" meanwhile. An archive that could not be read (a link that dropped) is tried
+  again at the next visit of the shelf, never remembered as incomplete. The pass stops while a game runs and while
+  Settings is open.
+- **A set is read as its driver starts** (its ROMs go into the driver's memory, from the share through a block cache
+  with read-ahead; "Reading the game from the network share..." meanwhile): a big set (a Neo Geo or CPS-3 one, 30 to
+  100+ MiB) takes a few seconds on a home network. Nothing is read from the share while the game runs, except when a
+  driver loads a ROM again at a reset (the Neo Geo's BIOS).
+- A share is read-only. Saves (NVRAM, EEPROMs), states, high scores, DIP switches, button layouts, samples, covers and
+  settings stay on the console.
+- If a share cannot be reached, a notification says why (no answer, wrong password, share not found...) and the
+  same sentence is in `/data/fbneo/logs/boot.log` (`[net]`); a set on it that won't start says so too. A share lost
+  while a game runs is announced once; the game goes on.
+- SMB uses libsmb2 and NFS uses libnfs; both are LGPL-2.1-or-later and sit in `ps5/third_party/` with their licence
+  notices.
+
+## 7-Zip sets
+
+A set can be a `.7z` instead of a `.zip` (`sf2ce.7z`), as FBNeo's own frontends read them, and the parent or BIOS set
+of a `.7z` set can be either. Its ROMs are found by the CRCs and names its directory keeps, as in a zip.
+
+- **In one folder,** when a set is there as both `.zip` and `.7z`, the `.zip` is used.
+- **Methods:** LZMA, LZMA2 (7-Zip's default), PPMd, with the BCJ / BCJ2 / ARM / Delta filters, and stored files. Not
+  BZip2, Deflate or Zstandard (7-Zip's other choices), and not encrypted archives: such a set says on the screen why
+  it can't start (the method, "encrypted", a damaged archive).
+- **Solid blocks:** 7-Zip packs a set's files in one "solid" block by default, and the whole block is unpacked to reach
+  one file: each archive's block (the set's, its parent's, its BIOS's) is unpacked once as the driver starts and the
+  ROMs are copied out of it, then it is let go (a reset that loads a ROM again, the Neo Geo's BIOS, unpacks it again).
+  A block over **512 MiB** is refused before anything is unpacked (it takes every FBNeo arcade set but the biggest
+  PGM2 ones, `kof98umh`); everything unpacking one archive needs (the block, the directory, PPMd's model) comes out
+  of 584 MiB, and an archive listing more than 65,536 files is refused. A set over the limit can be packed as a
+  `.zip`, or as a `.7z` with smaller solid blocks (7-Zip's "Solid block size").
+- A `.7z` on a network share is read through the share like any file.
+- The 7z decoder is FBNeo's own copy of the [LZMA SDK](https://www.7-zip.org/sdk.html) (`src/dep/libs/lib7z`, 25.01,
+  public domain, unchanged), with NES FCEUmm PS5's reader (`ps5/frontend/fe_7z.cpp`): FBNeo's `src/burner/un7z.cpp`
+  is not used, because it copies the length a driver asks for out of the decoded block without checking it against
+  the file's size, has no memory limit, keeps the decoded blocks of the last eight archives, and ignores a read that
+  fails. No other LZMA code in the app has the same names (FBNeo's libchdr has its own, `CHDR_`-prefixed); the build
+  checks it.
+
 ## Controls
 
 **Inside the emulator, to access the main menu press L3 + R3.**
@@ -399,11 +504,12 @@ column by column with bilinear filtering, mipmaps and anti-aliased edges, split 
 |---|---|
 | Left / Right (D-pad or stick) | change game (hold to speed up) |
 | Up / Down | previous / next letter tab (#, A-Z) |
-| L2 / R2 | previous / next maker (All games, Capcom, Neo Geo, ...) |
-| L1 / R1 | skip 10 games |
+| L1 / R1 | previous / next storage tab (Internal, USB, Network); up to 2.0 they skipped 10 games |
+| L2 / R2 | skip 10 games; up to 2.0 they changed the maker |
+| L3 / R3 (the sticks pressed) | previous / next maker (All games, Capcom, Neo Geo, ...) |
 | Cross | play |
 | Triangle | settings |
-| Square | download this game's cover again (the cover it has stays until the new one has arrived) |
+| Square | download this game's cover again (the cover it has stays until the new one has arrived); on the Network tab: scan the shares again |
 | OPTIONS | quit FBNeo PS5 (asks first) |
 
 **In a game:** the joystick is the D-pad or the left stick; **touchpad click = Coin**, **OPTIONS = Start**. The
@@ -468,7 +574,8 @@ Triangle on the shelf, or "Settings" in the pause menu:
   menu, the change is for that game only (`config/<set>.btn`, the same keys; see [Controls](#controls)), and
   Default button layout puts the game back on the general layout.
 - **Library:** download covers, show clones, show incomplete sets, **BIOS sets** (Cross: which BIOS sets your
-  games need and whether each is there; see [ROM sets](#rom-sets)).
+  games need and whether each is there; see [ROM sets](#rom-sets)), **Network shares** (see
+  [Network shares](#network-shares-smb-and-nfs); not from a game's pause menu).
 - **System:** **Language** (see [Language](#language)); **Debug logs** (Off by default) -- see [Debugging](#debugging-logs-and-crashes); **Updates** -- see
   [Updates](#updates).
 
@@ -559,7 +666,13 @@ covers, emu, menu), and the return addresses, which map into `ps5/build/app/fbne
 - Arcade games only: no console drivers, no Neo Geo CD.
 - The PS and Create buttons are not reported by `scePadReadState`, so Coin is on the touchpad.
 - No light-gun aiming beyond the left stick, no mouse, no keyboard games (mahjong panels, typing games).
-- No cheats, no IPS patches, no `.7z` sets, no FBNeo "romdata" files, no netplay, no input recording.
+- No cheats, no IPS patches, no FBNeo "romdata" files, no netplay, no input recording.
+- `.7z` sets packed with BZip2, Deflate or Zstandard, encrypted, or in a solid block over 512 MiB are refused; sample
+  sets (`samples/`) must be zips.
+- Network shares: SMB 2/3 and NFS 3/4, read only, up to 8; names of servers often don't resolve on the console (use
+  the IP address). Tested here with a folder of the test machine standing in for the share, and the NFS backend
+  against a mock and loopback sockets; **not yet on a PS5**, nor against a real NAS in this port (Beetle PCE PS5,
+  NES FCEUmm PS5, Genesis Plus GX PS5 and Snes9x PS5 run the same network code).
 - The heaviest boards (CPS-3, PGM2, Konami GX, Midway's 3D ones) depend on the PS5's CPU running FBNeo's
   interpreters; not measured on a console yet.
 
@@ -575,7 +688,7 @@ make ps5 -j$(nproc)              # build/ps5/FBNeoPS5.elf (installer + helper, w
 make send PS5_HOST=192.168.0.10  # sends it to elfldr (port 9021)
 make dist                        # build/dist/FBNeoPS5-v<version>.elf + the release zip
 make app                         # only build/app/PPSA99924/, to copy by hand
-make test                        # Linux builds (app, installer, helper, headless core) + 317 host tests (ASan/UBSan)
+make test                        # Linux builds (app, installer, helper, headless core) + 427 host tests (ASan/UBSan)
 ```
 
 The first build compiles FBNeo's 1,039 core files (about 15 minutes on 2 cores; `make core-ps5` builds just those).
@@ -620,8 +733,23 @@ The build has three stages:
     Mozilla's CA list);
   - `fe_menu.cpp`, `fe_settings.cpp`, `fe_text.cpp`: menus (the pause menu's DIP switches included), settings, text
     with PS5SX2's fonts;
+  - `fe_netscreen.cpp`, `fe_osk.cpp`, `fe_ui.cpp`: Settings > Network shares, its on-screen keyboard and the screens'
+    common drawing; `fe_tabs.h`: the shelf's storage tabs (from NES FCEUmm PS5, Beetle PCE PS5, Genesis Plus GX PS5
+    and Snes9x PS5);
+  - `fe_7z.cpp`: sets inside a `.7z`, read through the app's stdio calls with FBNeo's LZMA SDK;
   - `third_party/`: minizip (unzip.c, ioapi.c), stb, Mbed TLS 3.6.7 (`mbedtls/`, its `include/` and `library/` as
     released).
+- **`ps5/netfs/`**: network shares as folders (from NES FCEUmm PS5 1.1, Beetle PCE PS5 1.1.1, Genesis Plus GX PS5
+  2.1.1 and Snes9x PS5): `shares.txt` (`netfs_share.cpp`, `netfs_edit.cpp`), the connections and their watchdog
+  (`netfs_core.cpp`), folder listings and file blocks with read-ahead (`netfs_cache.cpp`), the libc calls for
+  `/smb/...` and `/nfs/...` paths (`netfs_vfs.cpp`, `netfs_wrap.cpp`: the link's `--wrap` list, so the frontend,
+  minizip and the 7z reader read a share like a drive), the SMB and NFS backends (`backend_smb.cpp`,
+  `backend_nfs.cpp`) and the console's socket and resolver shims (`netfs_shims_ps5.cpp`).
+  **`ps5/third_party/libsmb2/`**, **`ps5/third_party/libnfs/`**: the two libraries, as the other ports carry them. On
+  the host, `ps5/host/netfs_dirbackend.cpp` turns a share into a local folder (`FBNEO_HOST_NETFS_DIR`); netfs's own
+  tests are `test-netfs` (an in-memory share), `make test-nfs` (the NFS backend on a mock and on loopback sockets),
+  `make test-nfs-server` (a real unfsd), `smb-test` (a real Samba, skipped without `smbd`), `make test-tabs`, and the
+  7z reader's `make test-7z` (the archives in `ps5/tests/7z/`, made by `tests/make_7z_fixtures.py`).
 - **`ps5/proto/native/`**: ps5-native-app-boilerplate's tools (BlackBearReloaded, GPL-3.0), taken from PS5SX2 and
   PS5_Vulkan (mihawk-99): `ps5-native-tool`, `app_crt.cpp`, `ps5-pie.ld`, `libc_builder.cpp` and its manifests.
 - **`ps5/app/sce_sys/`**: param.json, icon and backgrounds; `ps5/tools/make_art.py` encodes the background.
@@ -630,7 +758,7 @@ The build has three stages:
   DIP switches saved and read back and in place before a driver starts, a frame's and a save state's time, a driver's palette made at start), the
   stand-in ROM sets (`make_fake_set.py`: every ROM a driver lists, with its name and its CRC, as FBNeo's split
   sets are made), the test programs (`tests/data`: a tiny Z80 program on the Pac-Man board, red screen, green
-  while the joystick or the button is pressed), and the 317 tests: picture, rotation, input and states on a
+  while the joystick or the button is pressed), and the 427 tests: picture, rotation, input and states on a
   vertical and a horizontal game, the library (parents, BIOS sets, incomplete sets, the check's cache), a set with
   a ROM missing, DIP switches, button layouts (a layout per game, a clone using its parent's, Auto's Fighting (R1 R2) for 6-button games), sound latency and pacing by the sound, 720p, install (packed
   files), covers (flyer, parent's flyer, screenshot, 404, the no-cover card's arcade panel with a long title below it), tabs and clones, the CRT shaders (each one, both
@@ -640,7 +768,12 @@ The build has three stages:
   palette, the DIP switches set before a driver starts, Settings' BIOS sets screen (missing, OK, incomplete), L2 / R2 as game buttons, NVRAM, the helper's HTTPS (a local server with a test certificate authority:
   a certificate from another authority or for another name refused, chunked answers, redirects, the connection
   kept), and the fixes of the 1.0 code review (merged sets, clones of a hidden parent,
-  the check's version, repeated DIP switch names, ROMs larger than the set says).
+  the check's version, repeated DIP switch names, ROMs larger than the set says); the network shares (a local folder
+  standing in for the NAS: sets with their parent and BIOS started from a share, a big set on a slow link, a BIOS set
+  missing, the background check and its read errors, Settings stopping it, the Network shares screen typed with its
+  keyboard, the storage tabs, their translations); the `.7z` sets (every method and refusal, a `.7z` set started
+  from the shelf, a `.7z` clone on a share, an encrypted set and a block over the limit refused with the reason on
+  the screen).
 
 ## License and credits
 
@@ -659,6 +792,20 @@ The build has three stages:
   `app_cpp_runtime.cpp`, `ps5-pie.ld` and the `libc.prx` generator, via PS5SX2 and PS5_Vulkan (mihawk-99).
 - The VideoOut tiling and setup follow the SDK's SDL2 port (zlib license).
 - **minizip** (Gilles Vollant) and **zlib** (FBNeo's copy, for the installer's unpacking too): zlib license.
+- **LZMA SDK** (Igor Pavlov, [7-zip.org/sdk.html](https://www.7-zip.org/sdk.html)), FBNeo's copy in `src/dep/libs/lib7z`
+  (25.01): public domain; only its C 7z decoder is built in.
+- **libsmb2** (Ronnie Sahlberg and contributors, [github.com/sahlberg/libsmb2](https://github.com/sahlberg/libsmb2))
+  and **libnfs** (Ronnie Sahlberg and contributors, [github.com/sahlberg/libnfs](https://github.com/sahlberg/libnfs)):
+  LGPL-2.1-or-later, linked statically into the app for the network shares. Their full source, with the few changes
+  Snes9x PS5 made (`ps5/third_party/libnfs/PATCHES.md`, `ps5/third_party/libsmb2/README.snes9xps5`), is in this
+  repository, together with everything needed to rebuild and relink the app with a modified version. libsmb2 also
+  contains code under other terms: "derived from the RSA Data Security, Inc. MD4 Message-Digest Algorithm",
+  public-domain AES and MD5, and the RFC 4634 SHA/HMAC code (its notices are in the files); libnfs's generated RPC
+  code is under its BSD licence.
+- **The network share code** (`ps5/netfs/`, the Network shares screen, the on-screen keyboard) and the shelf's storage
+  tabs come from NES FCEUmm PS5 1.1 (and Beetle PCE PS5 1.1.1, Genesis Plus GX PS5 2.1.1), which took them from
+  Snes9x PS5, where they are by [thatboialex](https://github.com/thatboialex) (pull request
+  [#3](https://github.com/MisterTemaki/snes9xPS5/pull/3)). The 7z reader (`fe_7z.cpp`) is NES FCEUmm PS5 1.1's.
 - **Mbed TLS** 3.6.7 ([github.com/Mbed-TLS/mbedtls](https://github.com/Mbed-TLS/mbedtls), the Mbed TLS
   contributors): Apache-2.0 (`ps5/frontend/third_party/mbedtls/LICENSE`).
 - **Mozilla's CA certificate list** (`ps5/frontend/data/cacert.pem`, as packaged by

@@ -1,17 +1,21 @@
-// FBNeo PS5 frontend: the game library -- every arcade ROM set (.zip) under the ROM folders that FBNeo knows.
+// FBNeo PS5 frontend: the game library -- every arcade ROM set (.zip or .7z) under the ROM folders that FBNeo knows:
+// the console's (/data/fbneo/roms, fbneo/roms on USB drives) and the network shares that are connected.
 //
-// A set is known by its file name, as in every FBNeo frontend: sf2ce.zip is "Street Fighter II' - Champion
-// Edition (World 920513)". A set that needs others (its parent, sf2.zip; its BIOS, neogeo.zip) finds them
-// anywhere in the ROM folders. Each set is checked once (by CRC, then by name, as FBNeo loads it) and the result
-// kept in /data/fbneo/config/romcheck.txt until one of its zips changes: the shelf lists the complete sets (the
-// incomplete ones too with the "Show incomplete sets" setting). BIOS sets (neogeo.zip, pgm.zip...) are not
-// games and are not listed.
+// A set is known by its file name, as in every FBNeo frontend: sf2ce.zip (or sf2ce.7z) is "Street Fighter II' -
+// Champion Edition (World 920513)". A set that needs others (its parent, sf2.zip; its BIOS, neogeo.zip) finds them
+// anywhere in the ROM folders, the console's first (the internal drive, then USB drives), then the shares. Each set is
+// checked once (by CRC, then by name, as FBNeo loads it: only the archives' directories are read) and the result kept
+// in /data/fbneo/config/romcheck.txt until one of its archives changes: the shelf lists the complete sets (the
+// incomplete ones too with the "Show incomplete sets" setting). BIOS sets (neogeo.zip, pgm.zip...) are not games and
+// are not listed. A set whose check needs an archive on a share is not checked by the scan (a big library would
+// crawl): it is listed as it is, and NetCheck checks it in the background.
 //
 // SPDX-License-Identifier: MIT
 #pragma once
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -59,9 +63,9 @@ void PrepareFolders();
 
 struct GameInfo
 {
-	std::string path;      // the set's zip
+	std::string path;      // the set's archive ("<parent's archive>#<set>" for a clone inside its parent's)
 	std::string file_base; // the set's name: "sf2ce"
-	std::string ext;       // ".zip"
+	std::string ext;       // ".zip" or ".7z"
 	System system = System::Arcade;
 	std::string nointro;   // FBNeo's full name: "Street Fighter II' - Champion Edition (World 920513)" (the cover's)
 	std::string title;     // what the shelf shows: "Street Fighter II' - Champion Edition"
@@ -73,6 +77,8 @@ struct GameInfo
 	Family family = Family::Other;
 	int driver = -1;       // the core's driver index
 	bool on_usb = false;
+	bool on_network = false;  // on a share (/smb/..., /nfs/...)
+	bool check_pending = false; // its ROM check needs a share's archives and is not done yet (NetCheck): listed as complete
 	bool name_by_crc = false; // (not used: sets are named by their file name)
 	bool clone = false, vertical = false, working = true;
 	bool complete = true;  // every needed ROM found
@@ -92,15 +98,43 @@ struct BiosStatus
 {
 	std::string set;   // "neogeo"
 	std::string title; // "Neo Geo"
-	std::string path;  // its zip, or "" when there is none
-	std::vector<std::string> missing; // the ROMs it must have that it hasn't (its zip found)
+	std::string path;  // its archive, or "" when there is none
+	std::vector<std::string> missing; // the ROMs it must have that it hasn't (its archive found)
 	int optional = 0, optional_found = 0; // other versions it can have (the Neo Geo's BIOSes)
 	int games = 0;   // games of your library that need it
 	int drivers = 0; // FBNeo's games that need it
-	bool ok() const { return !path.empty() && missing.empty(); }
+	bool on_network = false; // its archive is on a share
+	bool pending = false;    // on a share and not checked yet (NetCheck does it)
+	bool ok() const { return !path.empty() && missing.empty() && !pending; }
 };
 std::vector<BiosStatus> BiosReport();
 
-// The zip of a ROM set by its name, from the last scan ("" when there is none): what burn::Load looks for.
+// The archive of a ROM set by its name, from the last scan ("" when there is none): what burn::Load looks for. Any
+// thread.
 std::string FindSetZip(const std::string& set);
+
+// The folders to look for games in: OrbisRomRoots() plus the network shares that are connected (in memory, no I/O).
+std::vector<std::string> RomRoots();
+
+// Checks the sets on shares in the background (Snes9x PS5's design for naming network games, by thatboialex, as NES
+// FCEUmm PS5's NetNaming does): the scan doesn't open the archives on a share; this does, one set at a time (their
+// directories only: burn::CheckRoms), for the sets the last scan left unchecked (games, clones in a parent's archive,
+// BIOS sets), and keeps each result in romcheck.txt, so the next ScanGames lists them as checked. A result that a read
+// error made (a share that dropped) is not kept. Add() starts or extends the pass with the last scan's list; it stops
+// by itself when a game starts (netfs_realtime) and when Stop() or the destructor is called (leaving the shelf: the
+// pass reads the core's driver tables, which a running game owns).
+class NetCheck
+{
+public:
+	NetCheck();
+	~NetCheck();
+	void Add();
+	void Stop();
+	int Resolved() const; // sets checked so far
+	bool Busy() const;
+
+private:
+	struct Impl;
+	std::unique_ptr<Impl> m_i;
+};
 } // namespace fe

@@ -6,6 +6,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "fe_burn.h"
+#include "fe_7z.h"
 
 #include "burnint.h"
 #include "unzip.h"
@@ -22,6 +23,8 @@ extern int bDrvOkay; // core/burn_frontend.cpp (cheat.cpp reads it)
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <memory>
+#include <mutex>
 
 namespace
 {
@@ -32,18 +35,21 @@ std::string Lower(std::string s)
 	return s;
 }
 
-// ---- the ROM-set zips of the game being started -------------------------------------------------------------
+// ---- the ROM-set archives of the game being started (.zip, or .7z) ------------------------------------------------
 struct ZipEntry
 {
-	std::string name; // as in the zip
+	std::string name; // as in the archive
 	std::string lower; // without any folder part, lower case
 	uint32_t crc = 0, size = 0;
+	size_t index = 0; // a .7z's entry number
 };
 struct Zip
 {
 	std::string set, path;
 	unzFile uf = nullptr;
+	std::unique_ptr<fe::sevenzip::Archive> sz; // a .7z
 	std::vector<ZipEntry> entries;
+	std::string File() const { return path.substr(path.find_last_of('/') + 1); } // "sf2ce.zip"
 };
 struct RomLoc
 {
@@ -87,6 +93,8 @@ struct G
 	void (*log)(const char*) = nullptr;
 	std::vector<Zip> zips;
 	std::vector<RomLoc> roms;
+	// why a .7z's ROM could not be read while the driver started (an English sentence, "" if none): Load says it
+	std::string sevenz_why;
 
 	// video: what the driver draws (pBurnDraw, nBurnBpp bytes a pixel), and the picture turned the right way up
 	int bpp = 4;
@@ -173,13 +181,61 @@ UINT32 __cdecl HighCol16(INT32 r, INT32 g_, INT32 b, INT32)
 	return (UINT32(r & 0xf8) << 8) | (UINT32(g_ & 0xfc) << 3) | UINT32((b & 0xf8) >> 3);
 }
 
-// Reads up to `cap` bytes of entry e of zip z into dest (straight in: no copy of the file, and a zip that claims a
-// huge size can't make it allocate anything). *got: the bytes read.
-bool ReadEntry(int z, int e, uint8_t* dest, size_t cap, size_t* got)
+// The driver tables are read by setting nBurnDrvActive (the core's way): the shelf's background ROM check (fe_games.cpp)
+// does it on its own thread, so every function that moves nBurnDrvActive while no game runs holds this lock.
+std::recursive_mutex g_drv_mu;
+
+// ---- 7z ---------------------------------------------------------------------------------------------------------
+// .7z sets are read with FBNeo's own LZMA SDK (src/dep/libs/lib7z) through fe_7z.cpp (NES FCEUmm PS5's reader), not
+// with FBNeo's src/burner/un7z.cpp: its _7z_file_decompress copies the length the caller asks for out of the decoded
+// block without checking it against the file's size (a driver's ROM longer than the file in the archive reads past
+// the block), allocates whatever block or PPMd model an archive asks for, keeps the decoded blocks of the last 8
+// archives after they are closed, and its reads ignore a failed seek or a short read (a share that drops mid-read).
+// fe_7z.cpp has a memory budget (fe::sevenzip::kMaxBlock), checks each read, and keeps one decoded block per archive,
+// only while the driver starts.
+
+// What went wrong with a .7z, for the player (English; the screen translates it).
+const char* SevenZipWhy(fe::sevenzip::Status st)
+{
+	switch (st)
+	{
+		case fe::sevenzip::Status::Unsupported:
+			return "It is packed with a method FBNeo PS5 can't unpack (LZMA, LZMA2 and PPMd work), or its names are encrypted.";
+		case fe::sevenzip::Status::Encrypted: return "The archive is encrypted.";
+		case fe::sevenzip::Status::TooBig:
+			return "The solid block it is packed in is too big (512 MiB at most): pack the set as a .zip, or as a .7z with smaller solid blocks.";
+		case fe::sevenzip::Status::ReadError: return "The file could not be read.";
+		case fe::sevenzip::Status::NoMemory: return "There is not enough memory to unpack it.";
+		default: return "The archive is damaged, or it is not a 7z archive.";
+	}
+}
+
+bool Is7z(const std::string& path)
+{
+	return path.size() > 3 && strcasecmp(path.c_str() + path.size() - 3, ".7z") == 0;
+}
+
+// Reads up to `cap` bytes of entry e of archive z into dest (straight in from a zip: no copy of the file, and a zip that
+// claims a huge size can't make it allocate anything; from a .7z, out of its decoded block). *got: the bytes read.
+bool ReadEntry(std::vector<Zip>& zips, int z, int e, uint8_t* dest, size_t cap, size_t* got)
 {
 	*got = 0;
-	Zip& zip = g.zips[size_t(z)];
+	Zip& zip = zips[size_t(z)];
 	const ZipEntry& en = zip.entries[size_t(e)];
+	if (zip.sz)
+	{
+		// each archive keeps the block it decoded last until the driver has started (Load releases them): a driver asks
+		// for its ROMs in its own order, a clone's and its parent's in turn, and each block is decoded once
+		const fe::sevenzip::Status st = zip.sz->ExtractTo(en.index, dest, std::min(size_t(en.size), cap), got);
+		if (st != fe::sevenzip::Status::Ok)
+		{
+			Log("[burn] %s: can't unpack %s (%s)", zip.path.c_str(), en.name.c_str(), fe::sevenzip::StatusName(st));
+			if (g.sevenz_why.empty())
+				g.sevenz_why = TrFmt("FBNeo PS5 could not unpack %s.", zip.File().c_str()) + " " + (g.tr ? g.tr(SevenZipWhy(st)) : SevenZipWhy(st));
+			return false;
+		}
+		return true;
+	}
 	if (unzLocateFile(zip.uf, en.name.c_str(), 1) != UNZ_OK || unzOpenCurrentFile(zip.uf) != UNZ_OK)
 	{
 		Log("[burn] %s: can't open %s in it (a damaged zip?)", zip.path.c_str(), en.name.c_str());
@@ -221,28 +277,66 @@ INT32 __cdecl LoadRom(UINT8* dest, INT32* wrote, INT32 i)
 		return 1;
 	}
 	size_t n = 0;
-	if (!ReadEntry(loc.zip, loc.entry, dest, size_t(ri.nLen), &n))
+	if (!ReadEntry(g.zips, loc.zip, loc.entry, dest, size_t(ri.nLen), &n))
 		return 1;
 	if (wrote)
 		*wrote = INT32(n);
 	return 0;
 }
 
-void CloseZips()
+void CloseArchives(std::vector<Zip>& zips)
 {
-	for (Zip& z : g.zips)
+	for (Zip& z : zips)
 		if (z.uf)
 			unzClose(z.uf);
-	g.zips.clear();
+	zips.clear(); // a .7z closes with its object
+}
+
+void CloseZips()
+{
+	CloseArchives(g.zips);
 	g.roms.clear();
 }
 
-bool OpenZip(Zip* z)
+// Opens a set's .zip or .7z and lists what is in it. *why: a .7z's problem for the player ("" for none); *read_error:
+// it could not be read (not a fault of the file's: a share that dropped, say).
+bool OpenZip(Zip* z, std::string* why, bool* read_error)
 {
+	if (Is7z(z->path))
+	{
+		z->sz.reset(new fe::sevenzip::Archive);
+		const fe::sevenzip::Status st = z->sz->Open(z->path);
+		if (st != fe::sevenzip::Status::Ok)
+		{
+			Log("[burn] can't open %s (%s)", z->path.c_str(), fe::sevenzip::StatusName(st));
+			*why = SevenZipWhy(st);
+			*read_error = st == fe::sevenzip::Status::ReadError || st == fe::sevenzip::Status::NotFound;
+			z->sz.reset();
+			return false;
+		}
+		const std::vector<fe::sevenzip::Entry>& list = z->sz->Entries();
+		for (size_t i = 0; i < list.size(); i++)
+		{
+			const fe::sevenzip::Entry& en = list[i];
+			if (en.is_dir || en.size > 0xffffffffu)
+				continue;
+			ZipEntry e;
+			e.name = en.name;
+			const size_t slash = en.name.find_last_of("/\\");
+			e.lower = Lower(slash == std::string::npos ? en.name : en.name.substr(slash + 1));
+			e.crc = en.has_crc ? en.crc : 0;
+			e.size = uint32_t(en.size);
+			e.index = i;
+			if (!e.lower.empty())
+				z->entries.push_back(e);
+		}
+		return true;
+	}
 	z->uf = unzOpen(z->path.c_str());
 	if (!z->uf)
 	{
 		Log("[burn] can't open %s as a zip", z->path.c_str());
+		*read_error = true; // or not a zip at all: the same answer
 		return false;
 	}
 	if (unzGoToFirstFile(z->uf) != UNZ_OK)
@@ -266,78 +360,173 @@ bool OpenZip(Zip* z)
 	return true;
 }
 
-// The driver's zips, in the core's order: the set, then its BIOS/board set, then its parents (BurnDrvGetZipName).
-void OpenZips(const burn::ZipFinder& find, burn::RomCheck* check)
+// The directories of the archives CheckRoms read last (by path, size and time): a clone kept in its parent's archive is
+// checked against that archive's directory without reading it again -- dozens of clones for one parent, and on a share
+// each new read of an archive's directory is a block fetched over the network. At most kDirCache, the oldest out first.
+struct DirCacheEntry
 {
-	CloseZips();
+	std::string path;
+	long long size = 0, mtime = 0;
+	std::vector<ZipEntry> entries;
+};
+constexpr size_t kDirCache = 64;
+std::mutex g_dir_mu;
+std::vector<DirCacheEntry> g_dirs; // the newest last
+
+// The archive's directory only (no handle kept): from the cache while the file is unchanged, else read and kept.
+bool ListZip(Zip* z, std::string* why, bool* read_error)
+{
+	struct stat st = {};
+	if (stat(z->path.c_str(), &st) != 0)
+	{
+		*read_error = true;
+		return false;
+	}
+	{
+		std::lock_guard<std::mutex> lk(g_dir_mu);
+		for (size_t i = 0; i < g_dirs.size(); i++)
+			if (g_dirs[i].path == z->path && g_dirs[i].size == (long long)st.st_size && g_dirs[i].mtime == (long long)st.st_mtime)
+			{
+				z->entries = g_dirs[i].entries;
+				DirCacheEntry e = std::move(g_dirs[i]);
+				g_dirs.erase(g_dirs.begin() + long(i));
+				g_dirs.push_back(std::move(e));
+				return true;
+			}
+	}
+	if (!OpenZip(z, why, read_error))
+		return false;
+	if (z->uf)
+		unzClose(z->uf);
+	z->uf = nullptr;
+	z->sz.reset();
+	std::lock_guard<std::mutex> lk(g_dir_mu);
+	if (g_dirs.size() >= kDirCache)
+		g_dirs.erase(g_dirs.begin());
+	g_dirs.push_back(DirCacheEntry{z->path, (long long)st.st_size, (long long)st.st_mtime, z->entries});
+	return true;
+}
+
+// What a driver needs, read from the core's tables (under g_drv_mu): the sets it loads from, in the core's order (the
+// set, then its BIOS/board set, then its parents: BurnDrvGetZipName), and each ROM's type, length, CRC and names.
+struct RomWant
+{
+	UINT32 type = 0, len = 0, crc = 0;
+	std::vector<std::string> names; // its name, then the other names it is known by
+};
+struct DriverWant
+{
+	std::vector<std::string> sets;
+	std::vector<RomWant> roms;
+};
+
+DriverWant Wants() // nBurnDrvActive set by the caller
+{
+	DriverWant w;
 	for (UINT32 j = 0; j < 8; j++)
 	{
 		char* name = nullptr;
 		if (BurnDrvGetZipName(&name, j) != 0 || !name || !*name)
 			break;
-		Zip z;
-		z.set = name;
-		check->sets.push_back(z.set);
-		z.path = find(z.set);
-		if (z.path.empty() || !OpenZip(&z))
-			continue;
-		g.zips.push_back(std::move(z));
+		w.sets.push_back(name);
 	}
-}
-
-// Where each ROM of the driver is: by CRC (any name), then by any of its names (CRC differs: used anyway).
-void FindRoms(burn::RomCheck* check)
-{
-	check->missing.clear();
-	check->bad_crc.clear();
-	check->optional = check->optional_found = 0;
-	g.roms.clear();
 	for (UINT32 i = 0; i < 1024; i++)
 	{
 		struct BurnRomInfo ri = {};
 		if (BurnDrvGetRomInfo(&ri, i) != 0)
 			break;
-		RomLoc loc;
-		if (ri.nType != 0 && ri.nLen != 0)
+		RomWant r;
+		r.type = ri.nType;
+		r.len = ri.nLen;
+		r.crc = ri.nCrc;
+		for (INT32 aka = 0; aka < 16; aka++)
 		{
-			if (ri.nCrc != 0)
-				for (size_t z = 0; z < g.zips.size() && loc.zip < 0; z++)
-					for (size_t e = 0; e < g.zips[z].entries.size(); e++)
-						if (g.zips[z].entries[e].crc == ri.nCrc)
+			char* name = nullptr;
+			if (BurnDrvGetRomName(&name, i, aka) != 0 || !name || !*name)
+				break;
+			r.names.push_back(name);
+		}
+		w.roms.push_back(r);
+	}
+	return w;
+}
+
+// The driver's archives, found by `find` and opened (the core's tables aren't touched: no lock needed). list_only: their
+// directories only, no handle kept (CheckRoms), through the directory cache.
+std::vector<Zip> OpenArchives(const DriverWant& w, const burn::ZipFinder& find, burn::RomCheck* check, bool list_only = false)
+{
+	std::vector<Zip> zips;
+	for (const std::string& set : w.sets)
+	{
+		Zip z;
+		z.set = set;
+		check->sets.push_back(z.set);
+		z.path = find(z.set);
+		if (z.path.empty())
+			continue;
+		std::string why;
+		bool read_error = false;
+		if (!(list_only ? ListZip(&z, &why, &read_error) : OpenZip(&z, &why, &read_error)))
+		{
+			check->unreadable.push_back(z.File());
+			if (read_error)
+				check->read_error = true;
+			if (check->why.empty() && !why.empty())
+				check->why = why;
+			continue;
+		}
+		check->files.push_back(z.File());
+		zips.push_back(std::move(z));
+	}
+	return zips;
+}
+
+// Where each ROM of the driver is: by CRC (any name), then by any of its names (CRC differs: used anyway).
+std::vector<RomLoc> FindRoms(const DriverWant& w, const std::vector<Zip>& zips, burn::RomCheck* check)
+{
+	check->missing.clear();
+	check->bad_crc.clear();
+	check->optional = check->optional_found = 0;
+	std::vector<RomLoc> roms;
+	for (const RomWant& ri : w.roms)
+	{
+		RomLoc loc;
+		if (ri.type != 0 && ri.len != 0)
+		{
+			if (ri.crc != 0)
+				for (size_t z = 0; z < zips.size() && loc.zip < 0; z++)
+					for (size_t e = 0; e < zips[z].entries.size(); e++)
+						if (zips[z].entries[e].crc == ri.crc)
 						{
 							loc = RomLoc{int(z), int(e)};
 							break;
 						}
-			char* first = nullptr;
-			BurnDrvGetRomName(&first, i, 0);
-			for (INT32 aka = 0; aka < 16 && loc.zip < 0; aka++)
+			for (size_t aka = 0; aka < ri.names.size() && loc.zip < 0; aka++)
 			{
-				char* name = nullptr;
-				if (BurnDrvGetRomName(&name, i, aka) != 0 || !name || !*name)
-					break;
-				const std::string want = Lower(name);
-				for (size_t z = 0; z < g.zips.size() && loc.zip < 0; z++)
-					for (size_t e = 0; e < g.zips[z].entries.size(); e++)
-						if (g.zips[z].entries[e].lower == want)
+				const std::string want = Lower(ri.names[aka]);
+				for (size_t z = 0; z < zips.size() && loc.zip < 0; z++)
+					for (size_t e = 0; e < zips[z].entries.size(); e++)
+						if (zips[z].entries[e].lower == want)
 						{
 							loc = RomLoc{int(z), int(e)};
-							if (!(ri.nType & BRF_NODUMP) && ri.nCrc != 0)
-								check->bad_crc.push_back(g.zips[z].set + ".zip: " + name);
+							if (!(ri.type & BRF_NODUMP) && ri.crc != 0)
+								check->bad_crc.push_back(zips[z].File() + ": " + ri.names[aka]);
 							break;
 						}
 			}
-			const bool needed = !(ri.nType & (BRF_OPT | BRF_NODUMP));
+			const bool needed = !(ri.type & (BRF_OPT | BRF_NODUMP));
 			if (loc.zip < 0 && needed)
-				check->missing.push_back(std::string(first ? first : "?"));
-			if (ri.nType & BRF_OPT)
+				check->missing.push_back(ri.names.empty() ? std::string("?") : ri.names[0]);
+			if (ri.type & BRF_OPT)
 			{
 				check->optional++;
 				check->optional_found += loc.zip >= 0 ? 1 : 0;
 			}
 		}
-		g.roms.push_back(loc);
+		roms.push_back(loc);
 	}
 	check->ok = check->missing.empty();
+	return roms;
 }
 
 // ---- inputs --------------------------------------------------------------------------------------------------
@@ -1070,6 +1259,7 @@ bool GetDriver(int index, Driver* out)
 {
 	if (!g.inited || index < 0 || UINT32(index) >= nBurnDrvCount || g.loaded)
 		return false;
+	std::lock_guard<std::recursive_mutex> lk(g_drv_mu);
 	const UINT32 old = nBurnDrvActive;
 	nBurnDrvActive = UINT32(index);
 	auto text = [](UINT32 i) {
@@ -1104,6 +1294,7 @@ int FindDriver(const std::string& name)
 	if (!g.inited)
 		return -1;
 	const std::string want = Lower(name);
+	std::lock_guard<std::recursive_mutex> lk(g_drv_mu);
 	const UINT32 old = nBurnDrvActive;
 	int found = -1;
 	for (UINT32 i = 0; i < nBurnDrvCount && found < 0; i++)
@@ -1122,12 +1313,18 @@ RomCheck CheckRoms(int driver, const ZipFinder& find)
 	RomCheck check;
 	if (!g.inited || g.loaded || driver < 0 || UINT32(driver) >= nBurnDrvCount)
 		return check;
-	const UINT32 old = nBurnDrvActive;
-	nBurnDrvActive = UINT32(driver);
-	OpenZips(find, &check);
-	FindRoms(&check);
-	CloseZips();
-	nBurnDrvActive = old;
+	DriverWant w;
+	{
+		std::lock_guard<std::recursive_mutex> lk(g_drv_mu);
+		const UINT32 old = nBurnDrvActive;
+		nBurnDrvActive = UINT32(driver);
+		w = Wants();
+		nBurnDrvActive = old;
+	}
+	// the archives are read without the lock (on a share that takes a while; the shelf's thread may want the tables)
+	std::vector<Zip> zips = OpenArchives(w, find, &check, true);
+	FindRoms(w, zips, &check);
+	CloseArchives(zips);
 	return check;
 }
 
@@ -1136,19 +1333,41 @@ bool Load(int driver, const ZipFinder& find, std::string* error, const std::stri
 	if (!g.inited || driver < 0 || UINT32(driver) >= nBurnDrvCount)
 		return false;
 	Unload();
+	std::lock_guard<std::recursive_mutex> lk(g_drv_mu);
 	if (!GetDriver(driver, &g.cur))
 		return false;
 	nBurnDrvActive = UINT32(driver);
 	RomCheck check;
-	OpenZips(find, &check);
-	FindRoms(&check);
+	const DriverWant w = Wants();
+	g.zips = OpenArchives(w, find, &check);
+	g.roms = FindRoms(w, g.zips, &check);
+	g.sevenz_why.clear();
 	for (const std::string& b : check.bad_crc)
 		Log("[burn] %s: found by name, with another CRC (used anyway)", b.c_str());
+	if (!check.ok && !check.why.empty() && !check.unreadable.empty())
+	{
+		// a .7z of the set that can't be opened (encrypted names, damaged...): that, rather than every ROM in it missing
+		Log("[burn] %s: %s can't be read: %s", g.cur.name.c_str(), check.unreadable[0].c_str(), check.why.c_str());
+		if (error)
+			*error = TrFmt("FBNeo PS5 could not unpack %s.", check.unreadable[0].c_str()) + " " + (g.tr ? g.tr(check.why.c_str()) : check.why);
+		CloseZips();
+		return false;
+	}
 	if (!check.ok)
 	{
+		// the archives looked in: the ones found by their file names, the others as "<set>.zip"
 		std::string sets, roms;
 		for (const std::string& s : check.sets)
-			sets += (sets.empty() ? "" : ", ") + s + ".zip";
+		{
+			std::string shown = s + ".zip";
+			for (const Zip& z : g.zips)
+				if (z.set == s)
+					shown = z.File();
+			for (const std::string& u : check.unreadable)
+				if (u.compare(0, s.size() + 1, s + ".") == 0)
+					shown = u;
+			sets += (sets.empty() ? "" : ", ") + shown;
+		}
 		for (size_t i = 0; i < check.missing.size() && i < 6; i++)
 			roms += (roms.empty() ? "" : ", ") + check.missing[i];
 		if (check.missing.size() > 6)
@@ -1184,13 +1403,18 @@ bool Load(int driver, const ZipFinder& find, std::string* error, const std::stri
 	pBurnDraw = nullptr;
 	g.drawing = false;
 	const INT32 rc = BurnDrvInit();
+	// a .7z's decoded block is not kept while the game runs (a reset that loads a ROM again decodes it again)
+	for (Zip& z : g.zips)
+		if (z.sz)
+			z.sz->Release();
 	if (rc != 0)
 	{
 		Log("[burn] %s: BurnDrvInit failed (%d)", g.cur.name.c_str(), rc);
 		BurnDrvExit();
 		CloseZips();
 		if (error)
-			*error = TrFmt("FBNeo could not start %s (the ROMs may be from another version of the set).", g.cur.name.c_str());
+			*error = !g.sevenz_why.empty() ? g.sevenz_why
+				: TrFmt("FBNeo could not start %s (the ROMs may be from another version of the set).", g.cur.name.c_str());
 		return false;
 	}
 	bDrvOkay = 1;

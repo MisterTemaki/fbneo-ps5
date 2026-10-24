@@ -106,6 +106,8 @@ void Settings::Load()
 			shelf_family = Clamp(n, 0, 64);
 		else if (key == "shelf_letter")
 			shelf_letter = std::string(val).substr(0, 1);
+		else if (key == "last_tab")
+			last_tab = Clamp(n, 0, 2);
 		else if (key == "last_rom")
 			last_rom = val;
 	}
@@ -143,6 +145,7 @@ void Settings::Save() const
 	fprintf(f, "debug_logs=%d\n", debug_logs ? 1 : 0);
 	fprintf(f, "shelf_family=%d\n", shelf_family);
 	fprintf(f, "shelf_letter=%s\n", shelf_letter.c_str());
+	fprintf(f, "last_tab=%d\n", last_tab);
 	fprintf(f, "last_rom=%s\n", last_rom.c_str());
 	bool ok = ferror(f) == 0;
 	ok = fflush(f) == 0 && ok;

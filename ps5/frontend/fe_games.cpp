@@ -6,6 +6,8 @@
 #include "fe_burn.h"
 
 #include "OrbisPaths.h"
+#include "ProsperoThread.h"
+#include "netfs.h"
 
 #include <dirent.h>
 #include <strings.h>
@@ -13,11 +15,14 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cstdio>
 #include <cstring>
+#include <deque>
 #include <map>
 #include <mutex>
+#include <set>
 #include <unordered_map>
 
 namespace fe
@@ -60,7 +65,7 @@ Family FamilyOf(uint32_t hw)
 	}
 }
 
-// The library's zips: set name (lower case) -> path; the internal folder first, then the USB drives.
+// The library's archives: set name (lower case) -> path; the internal folder first, then the USB drives, then the shares.
 std::mutex s_lock;
 std::unordered_map<std::string, std::string> s_zips;
 std::vector<BiosStatus> s_bios; // the last scan's (BiosReport)
@@ -68,24 +73,38 @@ std::vector<BiosStatus> s_bios; // the last scan's (BiosReport)
 struct Zip
 {
 	std::string path;
-	bool usb;
+	bool usb = false, net = false;
 	long long size = 0, mtime = 0; // from the folder walk's stat: the ROM check cache's signatures use them
 };
-// set (lower case) -> "size:mtime" of its zip, from the last walk (Signature reads it instead of a stat per set and
-// per driver: thousands of them on a USB drive with a big library)
+// set (lower case) -> "size:mtime" of its archive, from the last walk (Signature reads it instead of a stat per set and
+// per driver: thousands of them on a USB drive with a big library); and the sets whose archive is on a share
 std::unordered_map<std::string, std::string> s_zip_stamp;
+std::unordered_map<std::string, bool> s_zip_net;
 
-void Walk(const std::string& dir, int depth, bool usb, std::map<std::string, Zip>& out, const ScanProgress& progress)
+bool HasExt(const std::string& name, const char* ext)
+{
+	const size_t n = strlen(ext);
+	return name.size() > n && strcasecmp(name.c_str() + name.size() - n, ext) == 0;
+}
+
+std::string DirOf(const std::string& path)
+{
+	return path.substr(0, path.find_last_of('/'));
+}
+
+void Walk(const std::string& dir, int depth, bool usb, bool net, std::map<std::string, Zip>& out, const ScanProgress& progress)
 {
 	DIR* d = opendir(dir.c_str());
 	if (!d)
 		return;
-	std::vector<std::string> subdirs;
+	std::vector<std::string> names, subdirs;
 	while (dirent* e = readdir(d))
+		if (e->d_name[0] != '.')
+			names.push_back(e->d_name);
+	closedir(d);
+	std::sort(names.begin(), names.end()); // the same order on every drive and share
+	for (const std::string& name : names)
 	{
-		if (e->d_name[0] == '.')
-			continue;
-		const std::string name = e->d_name;
 		const std::string path = dir + "/" + name;
 		struct stat st = {};
 		if (stat(path.c_str(), &st) != 0)
@@ -96,22 +115,22 @@ void Walk(const std::string& dir, int depth, bool usb, std::map<std::string, Zip
 				subdirs.push_back(path);
 			continue;
 		}
-		if (!S_ISREG(st.st_mode) || name.size() <= 4 || name.size() > 200)
+		if (!S_ISREG(st.st_mode) || name.size() <= 3 || name.size() > 200)
 			continue; // a FIFO or a device would block the zip reader forever
-		if (strcasecmp(name.c_str() + name.size() - 4, ".zip") != 0)
+		const bool zip = HasExt(name, ".zip"), sevenz = HasExt(name, ".7z");
+		if (!zip && !sevenz)
 			continue;
-		const std::string set = Lower(name.substr(0, name.size() - 4));
-		if (!out.count(set))
-		{
-			out[set] = Zip{path, usb, (long long)st.st_size, (long long)st.st_mtime};
-			if (progress)
-				progress(0, out.size(), 0);
-		}
+		const std::string set = Lower(name.substr(0, name.size() - (zip ? 4 : 3)));
+		auto it = out.find(set);
+		// the first one found wins; in one folder a set's .zip over its .7z
+		if (it != out.end() && !(zip && HasExt(it->second.path, ".7z") && DirOf(it->second.path) == dir))
+			continue;
+		out[set] = Zip{path, usb, net, (long long)st.st_size, (long long)st.st_mtime};
+		if (progress)
+			progress(0, out.size(), 0);
 	}
-	closedir(d);
-	std::sort(subdirs.begin(), subdirs.end());
 	for (const std::string& s : subdirs)
-		Walk(s, depth + 1, usb, out, progress);
+		Walk(s, depth + 1, usb, net, out, progress);
 }
 
 // "Street Fighter II' - Champion Edition (World 920513)" -> the title and the part in brackets
@@ -138,23 +157,46 @@ std::string Header()
 	return "# FBNeo " + burn::CoreVersion() + ", " + std::to_string(burn::DriverCount()) + " drivers\n";
 }
 
+// One entry: the signature of the archives it was made with, the essential ROMs missing, and for a BIOS set (the BIOS
+// sets screen) its optional ROMs and the names of the missing ones. A line: set \t sig \t missing [\t optional \t
+// found \t name,name...] (older lines have the first three fields only).
+struct CheckEntry
+{
+	std::string sig;
+	int missing = 0;
+	bool detail = false;
+	int optional = 0, optional_found = 0;
+	std::vector<std::string> names;
+};
+
+// One per process: the scan (the shelf's thread) and NetCheck's pass (its own) share it, each under the lock.
 struct CheckCache
 {
-	std::unordered_map<std::string, std::pair<std::string, int>> entries; // set -> (signature, missing)
+	std::mutex lock;
+	std::unordered_map<std::string, CheckEntry> entries;
 	bool dirty = false;
+	bool loaded = false;
+	std::string header; // the FBNeo the file was loaded for
 
-	void Load()
+	// Reads the file the first time (or again when FBNeo changed: another version's drivers may list other ROMs).
+	void Begin()
 	{
+		std::lock_guard<std::mutex> g(lock);
+		const std::string want = Header();
+		if (loaded && header == want)
+			return;
+		loaded = true;
+		header = want;
+		entries.clear();
 		FILE* f = fopen(CachePath().c_str(), "r");
 		if (!f)
 			return;
-		char line[2048];
-		// the check holds for the FBNeo it was made with: another version's drivers may list other ROMs
-		const std::string want = Header();
+		char line[4096];
 		if (!fgets(line, sizeof(line), f) || want != line)
 		{
 			fclose(f);
 			OrbisLog("[games] romcheck.txt is from another FBNeo: every set is checked again");
+			dirty = true;
 			return;
 		}
 		while (fgets(line, sizeof(line), f))
@@ -162,37 +204,122 @@ struct CheckCache
 			std::string s = line;
 			while (!s.empty() && (s.back() == '\n' || s.back() == '\r'))
 				s.pop_back();
-			const size_t t1 = s.find('\t');
-			const size_t t2 = t1 == std::string::npos ? t1 : s.find('\t', t1 + 1);
-			if (t2 == std::string::npos)
+			std::vector<std::string> fields;
+			for (size_t at = 0;;)
+			{
+				const size_t t = s.find('\t', at);
+				fields.push_back(s.substr(at, t == std::string::npos ? std::string::npos : t - at));
+				if (t == std::string::npos)
+					break;
+				at = t + 1;
+			}
+			if (fields.size() < 3)
 				continue;
-			entries[s.substr(0, t1)] = {s.substr(t1 + 1, t2 - t1 - 1), atoi(s.c_str() + t2 + 1)};
+			CheckEntry e;
+			e.sig = fields[1];
+			e.missing = atoi(fields[2].c_str());
+			if (fields.size() >= 6)
+			{
+				e.detail = true;
+				e.optional = atoi(fields[3].c_str());
+				e.optional_found = atoi(fields[4].c_str());
+				for (size_t at = 0; at < fields[5].size();)
+				{
+					const size_t c = fields[5].find(',', at);
+					e.names.push_back(fields[5].substr(at, c == std::string::npos ? std::string::npos : c - at));
+					at = c == std::string::npos ? fields[5].size() : c + 1;
+				}
+			}
+			entries[fields[0]] = std::move(e);
 		}
 		fclose(f);
 	}
 
+	bool Find(const std::string& set, const std::string& sig, CheckEntry* out)
+	{
+		std::lock_guard<std::mutex> g(lock);
+		auto it = entries.find(set);
+		if (it == entries.end() || it->second.sig != sig)
+			return false;
+		*out = it->second;
+		return true;
+	}
+
+	void Put(const std::string& set, CheckEntry e)
+	{
+		std::lock_guard<std::mutex> g(lock);
+		entries[set] = std::move(e);
+		dirty = true;
+	}
+
 	void Save()
 	{
+		std::lock_guard<std::mutex> g(lock);
 		if (!dirty)
 			return;
 		const std::string path = CachePath(), tmp = path + ".part";
 		FILE* f = fopen(tmp.c_str(), "w");
 		if (!f)
 			return;
-		bool ok = fputs(Header().c_str(), f) >= 0;
+		bool ok = fputs(header.c_str(), f) >= 0;
 		for (const auto& e : entries)
-			ok = fprintf(f, "%s\t%s\t%d\n", e.first.c_str(), e.second.first.c_str(), e.second.second) > 0 && ok;
+		{
+			ok = fprintf(f, "%s\t%s\t%d", e.first.c_str(), e.second.sig.c_str(), e.second.missing) > 0 && ok;
+			if (e.second.detail)
+			{
+				std::string names;
+				for (const std::string& n : e.second.names)
+					names += (names.empty() ? "" : ",") + n;
+				ok = fprintf(f, "\t%d\t%d\t%s", e.second.optional, e.second.optional_found, names.c_str()) >= 0 && ok;
+			}
+			ok = fputc('\n', f) != EOF && ok;
+		}
 		ok = fflush(f) == 0 && ok;
 		ok = fsync(fileno(f)) == 0 && ok;
 		ok = fclose(f) == 0 && ok;
 		if (!ok || rename(tmp.c_str(), path.c_str()) != 0)
 			unlink(tmp.c_str());
+		else
+			dirty = false;
 	}
 };
 
-// The sets a driver loads from (itself, its BIOS, its parents) and the state of their zips: "name:size:mtime;..."
+CheckCache& SharedCheckCache()
+{
+	static CheckCache* c = new CheckCache; // never freed: the check pass may still run at exit
+	return *c;
+}
+
+// What the scan left for NetCheck: sets whose check needs an archive on a share.
+struct PendingCheck
+{
+	std::string set; // the cache's key: the driver's name
+	int driver = -1;
+	std::string sig; // the archives as the scan saw them
+	bool merged = false; // a clone looked for in its parent's archive (a ROM found only by name counts as missing)
+	bool bios = false;   // a BIOS set: its details are kept for the BIOS sets screen
+};
+std::vector<PendingCheck> s_pending; // under s_lock
+
+CheckEntry EntryFrom(const burn::RomCheck& rc, const std::string& sig, bool merged, bool bios)
+{
+	CheckEntry e;
+	e.sig = sig;
+	e.missing = int(rc.missing.size() + (merged ? rc.bad_crc.size() : 0));
+	if (bios)
+	{
+		e.detail = true;
+		e.optional = rc.optional;
+		e.optional_found = rc.optional_found;
+		e.names = rc.missing;
+	}
+	return e;
+}
+
+// The sets a driver loads from (itself, its BIOS, its parents) and the state of their archives: "name:size:mtime;..."
+// (a .7z: "name.7z:size:mtime"). *net: one of them is on a share.
 std::string Signature(const burn::Driver& d, const std::vector<burn::Driver>& drivers,
-	const std::unordered_map<std::string, int>& by_name)
+	const std::unordered_map<std::string, int>& by_name, bool* net)
 {
 	std::vector<std::string> sets = {d.name};
 	if (!d.board.empty())
@@ -204,13 +331,19 @@ std::string Signature(const burn::Driver& d, const std::vector<burn::Driver>& dr
 		auto it = by_name.find(p);
 		p = it == by_name.end() ? "" : drivers[size_t(it->second)].parent;
 	}
+	*net = false;
 	std::string sig;
 	for (const std::string& s : sets)
 	{
-		// the same "size:mtime" the stat gave, from the walk that has just stat'ed every zip
-		auto z = s_zip_stamp.find(Lower(s));
+		// the same "size:mtime" the stat gave, from the walk that has just stat'ed every archive
+		const std::string key = Lower(s);
+		auto z = s_zip_stamp.find(key);
 		if (z != s_zip_stamp.end())
-			sig += s + ":" + z->second + ";";
+		{
+			auto n = s_zip_net.find(key);
+			*net = *net || (n != s_zip_net.end() && n->second);
+			sig += s + z->second + ";";
+		}
 		else
 			sig += s + ":-;";
 	}
@@ -250,21 +383,38 @@ std::string FindSetZip(const std::string& set)
 	return it == s_zips.end() ? std::string() : it->second;
 }
 
+std::vector<std::string> RomRoots()
+{
+	std::vector<std::string> roots = OrbisRomRoots();
+	for (const std::string& r : netfs_mount_points())
+		roots.push_back(r);
+	return roots;
+}
+
 std::vector<GameInfo> ScanGames(const ScanProgress& progress)
 {
 	PrepareFolders();
 	std::map<std::string, Zip> found;
-	for (const std::string& root : OrbisRomRoots())
-		Walk(root, 0, root.rfind("/mnt/", 0) == 0, found, progress);
+	// the console's folders first (internal, USB drives), then the shares: a set on both is the console's
+	for (const std::string& root : RomRoots())
+		Walk(root, 0, root.rfind("/mnt/", 0) == 0, netfs_is_network_path(root.c_str()), found, progress);
 	{
-		std::lock_guard<std::mutex> lk(s_lock);
-		s_zips.clear();
+		std::unordered_map<std::string, std::string> zips;
 		for (const auto& z : found)
-			s_zips[z.first] = z.second.path;
+			zips[z.first] = z.second.path;
+		std::lock_guard<std::mutex> lk(s_lock);
+		s_zips.swap(zips); // whole: NetCheck's thread may be looking sets up
 	}
 	s_zip_stamp.clear();
+	s_zip_net.clear();
+	int on_net = 0;
 	for (const auto& z : found)
-		s_zip_stamp[z.first] = std::to_string(z.second.size) + ":" + std::to_string(z.second.mtime);
+	{
+		s_zip_stamp[z.first] = (HasExt(z.second.path, ".7z") ? ".7z:" : ":") + std::to_string(z.second.size) + ":" +
+			std::to_string(z.second.mtime);
+		s_zip_net[z.first] = z.second.net;
+		on_net += z.second.net ? 1 : 0;
+	}
 
 	// the drivers, by name
 	std::vector<burn::Driver> drivers(size_t(std::max(0, burn::DriverCount())));
@@ -285,32 +435,40 @@ std::vector<GameInfo> ScanGames(const ScanProgress& progress)
 			}
 		}
 
-	CheckCache cache;
-	cache.Load();
+	CheckCache& cache = SharedCheckCache();
+	cache.Begin();
+	std::vector<PendingCheck> pending;
 	std::vector<GameInfo> games;
 	int unknown = 0, bios = 0, checked = 0, merged = 0, merged_checked = 0;
-	// Missing ROMs of a driver: from the cache while its zips are unchanged, else counted now. A clone looked for in
-	// its parent's zip (counter == &merged_checked) also counts the ROMs found only by name: a parent's ROM of the same
-	// name isn't the clone's
+	size_t left = 0; // sets left to NetCheck
+	// Missing ROMs of a driver: from the cache while its archives are unchanged, else counted now; -1 when an archive
+	// is on a share (NetCheck counts them). A clone looked for in its parent's archive (counter == &merged_checked) also
+	// counts the ROMs found only by name: a parent's ROM of the same name isn't the clone's
 	auto missing_of = [&](const burn::Driver& d, int* counter) {
-		const std::string sig = Signature(d, drivers, by_name);
-		auto c = cache.entries.find(d.name);
-		if (c != cache.entries.end() && c->second.first == sig)
-			return c->second.second;
+		bool net = false;
+		const std::string sig = Signature(d, drivers, by_name, &net);
+		CheckEntry e;
+		if (cache.Find(d.name, sig, &e))
+			return e.missing;
+		const bool is_merged = counter == &merged_checked;
+		if (net)
+		{
+			pending.push_back(PendingCheck{d.name, d.index, sig, is_merged, false});
+			return -1;
+		}
 		const burn::RomCheck rc = burn::CheckRoms(d.index, [](const std::string& set) { return FindSetZip(set); });
-		const int n = int(rc.missing.size() + (counter == &merged_checked ? rc.bad_crc.size() : 0));
-		cache.entries[d.name] = {sig, n};
-		cache.dirty = true;
+		e = EntryFrom(rc, sig, is_merged, false);
+		cache.Put(d.name, e);
 		(*counter)++;
-		if (n && counter == &checked)
-			OrbisLog("[games] %s: %d ROM(s) missing, first %s", d.name.c_str(), n, rc.missing[0].c_str());
-		return n;
+		if (e.missing && counter == &checked && !rc.missing.empty())
+			OrbisLog("[games] %s: %d ROM(s) missing, first %s", d.name.c_str(), e.missing, rc.missing[0].c_str());
+		return e.missing;
 	};
-	auto add = [&](const burn::Driver& d, const std::string& path, bool usb, int missing) {
+	auto add = [&](const burn::Driver& d, const std::string& path, const Zip& z, int missing) {
 		GameInfo g;
 		g.path = path;
 		g.file_base = d.name;
-		g.ext = ".zip";
+		g.ext = HasExt(z.path, ".7z") ? ".7z" : ".zip";
 		g.nointro = d.title;
 		SplitName(d.title, &g.title, &g.region);
 		g.parent = d.parent;
@@ -326,12 +484,14 @@ std::vector<GameInfo> ScanGames(const ScanProgress& progress)
 		g.board = d.system;
 		g.family = FamilyOf(d.hardware);
 		g.driver = d.index;
-		g.on_usb = usb;
+		g.on_usb = z.usb;
+		g.on_network = z.net;
 		g.clone = d.clone;
 		g.vertical = d.vertical;
 		g.working = d.working;
-		g.missing = missing;
-		g.complete = missing == 0;
+		g.check_pending = missing < 0; // listed until NetCheck says otherwise
+		g.missing = std::max(0, missing);
+		g.complete = missing <= 0;
 		games.push_back(std::move(g));
 	};
 	auto is_game = [&](const burn::Driver& d) { return d.arcade && !d.bios && !boards.count(d.name); };
@@ -354,10 +514,10 @@ std::vector<GameInfo> ScanGames(const ScanProgress& progress)
 			bios++;
 			continue;
 		}
-		add(d, z.second.path, z.second.usb, missing_of(d, &checked));
+		add(d, z.second.path, z.second, missing_of(d, &checked));
 	}
-	// Clones kept inside their parent's zip (merged sets, as FBNeo's own frontends read them): a clone with no zip of
-	// its own whose parent's zip is here is listed as "<parent zip>#<clone>" when all its ROMs are found
+	// Clones kept inside their parent's archive (merged sets, as FBNeo's own frontends read them): a clone with no
+	// archive of its own whose parent's archive is here is listed as "<parent archive>#<clone>" when all its ROMs are found
 	for (const burn::Driver& d : drivers)
 	{
 		if (!d.clone || d.parent.empty() || !is_game(d) || found.count(Lower(d.name)))
@@ -367,11 +527,10 @@ std::vector<GameInfo> ScanGames(const ScanProgress& progress)
 			continue;
 		if (missing_of(d, &merged_checked) == 0)
 		{
-			add(d, pz->second.path + "#" + d.name, pz->second.usb, 0);
+			add(d, pz->second.path + "#" + d.name, pz->second, 0);
 			merged++;
 		}
 	}
-	cache.Save();
 
 	// the BIOS sets: found or not, complete or not, and how many of your games need each
 	{
@@ -394,16 +553,37 @@ std::vector<GameInfo> ScanGames(const ScanProgress& progress)
 			if (z != found.end())
 			{
 				st.path = z->second.path;
-				const burn::RomCheck rc = burn::CheckRoms(bd.index, [](const std::string& set) { return FindSetZip(set); });
-				st.missing = rc.missing;
-				st.optional = rc.optional;
-				st.optional_found = rc.optional_found;
+				st.on_network = z->second.net;
+				bool net = false;
+				const std::string sig = Signature(bd, drivers, by_name, &net);
+				CheckEntry e;
+				if (cache.Find(bd.name, sig, &e) && e.detail)
+				{
+					st.missing = e.names;
+					st.optional = e.optional;
+					st.optional_found = e.optional_found;
+				}
+				else if (net)
+				{
+					st.pending = true;
+					pending.push_back(PendingCheck{bd.name, bd.index, sig, false, true});
+				}
+				else
+				{
+					const burn::RomCheck rc = burn::CheckRoms(bd.index, [](const std::string& set) { return FindSetZip(set); });
+					cache.Put(bd.name, EntryFrom(rc, sig, false, true));
+					st.missing = rc.missing;
+					st.optional = rc.optional;
+					st.optional_found = rc.optional_found;
+				}
 			}
 			const std::string what = st.path.empty() ? "not found"
+				: st.pending ? "on a share, checked in the background"
 				: st.missing.empty() ? "OK"
 				: "incomplete, " + std::to_string(st.missing.size()) + " ROM(s) missing, first " + st.missing[0];
-			OrbisLog("[bios] %s.zip (%s): %s; needed by %d of your games (%d in FBNeo)", st.set.c_str(), st.title.c_str(),
-				what.c_str(), st.games, st.drivers);
+			OrbisLog("[bios] %s (%s): %s; needed by %d of your games (%d in FBNeo)",
+				st.path.empty() ? (st.set + ".zip").c_str() : st.path.substr(st.path.find_last_of('/') + 1).c_str(),
+				st.title.c_str(), what.c_str(), st.games, st.drivers);
 			report.push_back(std::move(st));
 		}
 		// the ones your games need first (missing before OK), then the rest by name
@@ -416,7 +596,12 @@ std::vector<GameInfo> ScanGames(const ScanProgress& progress)
 		});
 		std::lock_guard<std::mutex> lk(s_lock);
 		s_bios = std::move(report);
+		// BIOS sets first: the BIOS sets screen, and a game's check needs its BIOS's archive read anyway
+		std::stable_sort(pending.begin(), pending.end(), [](const PendingCheck& a, const PendingCheck& b) { return a.bios && !b.bios; });
+		left = pending.size();
+		s_pending = std::move(pending);
 	}
+	cache.Save();
 
 	std::sort(games.begin(), games.end(), [](const GameInfo& a, const GameInfo& b) {
 		const int c = strcasecmp(a.title.c_str(), b.title.c_str());
@@ -428,19 +613,134 @@ std::vector<GameInfo> ScanGames(const ScanProgress& progress)
 	});
 	int complete = 0;
 	for (const GameInfo& g : games)
-		complete += g.complete ? 1 : 0;
-	OrbisLog("[games] %zu zip(s): %zu arcade set(s) (%d complete, %d checked now), %d BIOS set(s), %d not FBNeo's; "
-		"%d clone(s) in a parent's zip (%d checked now)", found.size(), games.size(), complete, checked, bios, unknown, merged,
-		merged_checked);
+		complete += g.complete && !g.check_pending ? 1 : 0;
+	int sevenz = 0;
+	for (const auto& z : found)
+		sevenz += HasExt(z.second.path, ".7z") ? 1 : 0;
+	OrbisLog("[games] %zu archive(s): %zu arcade set(s) (%d complete, %d checked now), %d BIOS set(s), %d not FBNeo's; %d "
+		"clone(s) in a parent's archive (%d checked now); %d .7z, %d on network shares (%d set(s) left to the background "
+		"check)", found.size(), games.size(), complete, checked, bios, unknown, merged, merged_checked, sevenz, on_net,
+		int(left));
 	constexpr size_t kLogged = 200;
 	for (size_t i = 0; i < games.size() && i < kLogged; i++)
 	{
 		const GameInfo& g = games[i];
 		OrbisLog("[games]   %s -> \"%s\" [%s]%s", g.path.c_str(), g.nointro.c_str(), g.board.c_str(),
-			g.complete ? "" : " (incomplete)");
+			g.check_pending ? " (not checked yet)" : g.complete ? "" : " (incomplete)");
 	}
 	if (games.size() > kLogged)
 		OrbisLog("[games]   ... and %zu more", games.size() - kLogged);
 	return games;
+}
+
+// ---- the check pass for sets on shares ----
+
+struct NetCheck::Impl
+{
+	std::mutex lock;
+	std::deque<PendingCheck> todo;
+	std::set<std::string> tried; // every set queued: one is checked once per visit of the shelf
+	std::atomic<bool> stop{false};
+	std::atomic<int> resolved{0};
+	std::atomic<bool> busy{false};
+	ps5::BigThread thread;
+
+	void Run()
+	{
+		CheckCache& cache = SharedCheckCache();
+		int done = 0, since_save = 0, read_errors = 0;
+		for (;;)
+		{
+			PendingCheck p;
+			{
+				std::lock_guard<std::mutex> g(lock);
+				if (stop.load() || todo.empty() || netfs_realtime())
+				{
+					busy = false; // under the lock: an Add() from now on starts a new pass
+					break;
+				}
+				p = todo.front();
+				todo.pop_front();
+			}
+			const burn::RomCheck rc = burn::CheckRoms(p.driver, [](const std::string& set) { return FindSetZip(set); });
+			if (rc.read_error)
+			{
+				// not the archive's fault (a share that dropped, the watchdog, Settings connecting the shares again):
+				// nothing kept, the next visit of the shelf checks it again
+				read_errors++;
+				OrbisLog("[games] %s: an archive could not be read (%s): checked again next time", p.set.c_str(),
+					rc.unreadable.empty() ? "?" : rc.unreadable[0].c_str());
+				continue;
+			}
+			const CheckEntry e = EntryFrom(rc, p.sig, p.merged, p.bios);
+			cache.Put(p.set, e);
+			if (e.missing && !p.merged && !rc.missing.empty())
+				OrbisLog("[games] %s: %d ROM(s) missing, first %s", p.set.c_str(), e.missing, rc.missing[0].c_str());
+			done++;
+			resolved++;
+			if (++since_save >= 20)
+			{
+				cache.Save();
+				since_save = 0;
+			}
+		}
+		cache.Save();
+		OrbisLog("[games] network check pass: %d set(s) checked%s%s", done,
+			read_errors ? (", " + std::to_string(read_errors) + " not readable").c_str() : "", stop.load() ? " (stopped)" : "");
+	}
+};
+
+NetCheck::NetCheck() : m_i(new Impl) {}
+
+NetCheck::~NetCheck()
+{
+	Stop();
+}
+
+void NetCheck::Add()
+{
+	std::vector<PendingCheck> list;
+	{
+		std::lock_guard<std::mutex> lk(s_lock);
+		list = s_pending;
+	}
+	size_t added = 0;
+	bool start = false;
+	{
+		std::lock_guard<std::mutex> g(m_i->lock);
+		for (const PendingCheck& p : list)
+			if (m_i->tried.insert(p.set).second)
+			{
+				m_i->todo.push_back(p);
+				added++;
+			}
+		// nothing new may still leave work (what a Stop() cut short); a running pass takes the new ones too
+		if (!m_i->todo.empty() && !m_i->busy.load())
+			start = m_i->busy = true;
+	}
+	if (added)
+		OrbisLog("[games] checking %zu set(s) on network shares in the background", added);
+	if (!start)
+		return;
+	m_i->thread.join(); // a pass that has just ended
+	m_i->stop = false;
+	m_i->thread = ps5::BigThread([this] { m_i->Run(); }, 256 * 1024);
+}
+
+void NetCheck::Stop()
+{
+	m_i->stop = true;
+	m_i->thread.join();
+	m_i->busy = false;
+}
+
+int NetCheck::Resolved() const
+{
+	return m_i->resolved.load();
+}
+
+bool NetCheck::Busy() const
+{
+	return m_i->busy.load();
 }
 } // namespace fe

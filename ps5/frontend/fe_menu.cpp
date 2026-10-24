@@ -21,6 +21,8 @@
 #include "ProsperoSce.h"
 #include "ProsperoVideo.h"
 
+#include "netfs.h"
+
 #include <algorithm>
 #include <cstdarg>
 #include <cstdio>
@@ -253,6 +255,7 @@ enum SettingRow
 	S_CLONES,
 	S_INCOMPLETE,
 	S_BIOS,
+	S_NETWORK, // Network shares: a screen of its own (fe_netscreen.cpp); not over a game (its sets may be on a share)
 	H_SYSTEM,
 	S_LANGUAGE,
 	S_DEBUGLOGS,
@@ -260,6 +263,18 @@ enum SettingRow
 	S_COUNT
 };
 
+
+// The Network shares row: how many shares are set up, and how many of them are connected.
+std::string NetworkSummary()
+{
+	const std::vector<NetfsShareInfo> shares = netfs_shares();
+	if (shares.empty())
+		return "None";
+	int ready = 0;
+	for (const NetfsShareInfo& i : shares)
+		ready += i.state == NetfsState::Ready;
+	return Fmt(T("%d of %d connected"), ready, int(shares.size()));
+}
 
 // The game's buttons, when one is running (the layouts depend on how many it has: auto)
 int GameButtons()
@@ -381,15 +396,22 @@ Row SettingRowFor(int s)
 		case S_BIOS:
 		{
 			// the BIOS sets your games need: all there, or how many are missing / incomplete
-			int needed = 0, bad = 0;
+			int needed = 0, bad = 0, pending = 0;
 			for (const BiosStatus& b : BiosReport())
 				if (b.games > 0)
 				{
 					needed++;
-					bad += b.ok() ? 0 : 1;
+					pending += b.pending ? 1 : 0;
+					bad += b.ok() || b.pending ? 0 : 1;
 				}
-			std::string v = needed == 0 ? "None needed" : bad == 0 ? "All OK" : Fmt(T("%d missing"), bad);
+			std::string v = needed == 0 ? "None needed" : bad > 0 ? Fmt(T("%d missing"), bad) : pending > 0 ? "Not checked yet" : "All OK";
 			Row r{"BIOS sets (Cross: details)", v};
+			r.action = true;
+			return r;
+		}
+		case S_NETWORK:
+		{
+			Row r{"Network shares", NetworkSummary()};
 			r.action = true;
 			return r;
 		}
@@ -473,7 +495,11 @@ std::vector<Row> SettingRows()
 {
 	std::vector<Row> rows;
 	for (int s = 0; s < S_COUNT; s++)
+	{
 		rows.push_back(SettingRowFor(s));
+		if (s == S_NETWORK && emu::GameLoaded())
+			rows.back().enabled = false; // changing the shares reconnects them: not while a game may be reading from one
+	}
 	rows.push_back({"Back", ""});
 	return rows;
 }
@@ -512,10 +538,12 @@ void SettingsScreen(bool over_game)
 			Footer(std::string(icon::Cross) + " " + T("Change") + "     " + icon::DpadLeftRight + " " + T("Adjust") + "     " + icon::Circle + " " + T("Back"));
 		Present();
 		const Nav n = nav.Read();
-		if (n.up)
-			sel = Step(sel, -1, rows);
-		if (n.down)
-			sel = Step(sel, 1, rows);
+		if (n.up || n.down)
+		{
+			sel = Step(sel, n.up ? -1 : 1, rows);
+			if (sel == S_NETWORK && !rows[size_t(sel)].enabled)
+				sel = Step(sel, n.up ? -1 : 1, rows); // over a game the Network shares row is passed over
+		}
 		if (sel == S_UPDATES)
 		{
 			if (n.ok)
@@ -525,6 +553,14 @@ void SettingsScreen(bool over_game)
 		{
 			if (n.ok)
 				BiosScreen(over_game);
+		}
+		else if (sel == S_NETWORK)
+		{
+			if (n.ok && rows[size_t(sel)].enabled)
+			{
+				NetworkMenu();
+				nav = NavReader();
+			}
 		}
 		else if (sel < S_COUNT && (n.left || n.right || n.ok))
 			ChangeSetting(sel, n.left ? -1 : 1);
@@ -626,11 +662,13 @@ void BiosScreen(bool over_game)
 			other_header = true;
 		}
 		std::string v = b.path.empty() ? (b.games > 0 ? "Missing" : "Not found")
+			: b.pending ? "Not checked yet"
 			: b.missing.empty() ? "OK"
 			: Fmt(T(b.missing.size() == 1 ? "%zu ROM missing" : "%zu ROMs missing"), b.missing.size());
-		Row r{b.set + ".zip  -  " + b.title, v, b.games > 0 || !b.path.empty()};
+		const std::string file = b.path.empty() ? b.set + ".zip" : b.path.substr(b.path.find_last_of('/') + 1);
+		Row r{file + "  -  " + b.title, v, b.games > 0 || !b.path.empty()};
 		r.action = true;
-		r.value_color = b.ok() ? Rgb(120, 220, 140) : b.games > 0 ? Rgb(255, 120, 120) : kDim;
+		r.value_color = b.ok() ? Rgb(120, 220, 140) : b.pending ? kDim : b.games > 0 ? Rgb(255, 120, 120) : kDim;
 		rows.push_back(r);
 		index.push_back(int(i));
 	}
@@ -657,6 +695,9 @@ void BiosScreen(bool over_game)
 				detail = need + " " +
 					Fmt(T("Not found: put %s.zip (FBNeo %s's set) in /data/fbneo/roms or fbneo/roms on a USB drive."),
 						b.set.c_str(), FBNEO_CORE_VERSION);
+			else if (b.pending)
+				detail = need + " " + Fmt(T("Found on a network share: %s. It is checked in the background while the game list is open."),
+					b.path.c_str());
 			else if (!b.missing.empty())
 			{
 				std::string list;
