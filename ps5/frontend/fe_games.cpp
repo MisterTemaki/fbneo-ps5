@@ -635,11 +635,50 @@ std::vector<GameInfo> ScanGames(const ScanProgress& progress)
 
 // ---- the check pass for sets on shares ----
 
+// Whether a check saw the archives the scan's signature names (the same size and date, the same extension; a set that
+// had none, none). A share that dropped or reconnected between the scan and the check leaves find() with no archive or
+// another one: that result is not the set's.
+bool StampsMatch(const std::string& sig, const std::vector<std::pair<std::string, std::string>>& stamps)
+{
+	for (const auto& st : stamps)
+	{
+		const std::string name = Lower(st.first);
+		for (size_t at = 0; at < sig.size();)
+		{
+			size_t end = sig.find(';', at);
+			if (end == std::string::npos)
+				end = sig.size();
+			const std::string piece = sig.substr(at, end - at);
+			at = end + 1;
+			const size_t cut = piece.find_first_of(".:");
+			if (cut == std::string::npos || Lower(piece.substr(0, cut)) != name)
+				continue;
+			if (piece.substr(cut) != st.second)
+				return false;
+		}
+	}
+	return true;
+}
+
+// A path on a share that is not connected now (its archive could not be read for that, not for a fault of its own).
+bool OnShareNotReady(const std::string& path)
+{
+	if (path.empty() || !netfs_is_network_path(path.c_str()))
+		return false;
+	for (const std::string& m : netfs_mount_points())
+		if (path.size() > m.size() && path.compare(0, m.size(), m) == 0 && path[m.size()] == '/')
+			return false;
+	return true;
+}
+
 struct NetCheck::Impl
 {
 	std::mutex lock;
 	std::deque<PendingCheck> todo;
-	std::set<std::string> tried; // every set queued: one is checked once per visit of the shelf
+	// every set queued, with the signature it was queued with: one is checked once per visit of the shelf (a read error
+	// is tried again at the next visit), unless its share was not connected or its archives changed meanwhile: then it
+	// is let go, and the next scan that sees it queues it again
+	std::set<std::string> tried;
 	std::atomic<bool> stop{false};
 	std::atomic<int> resolved{0};
 	std::atomic<bool> busy{false};
@@ -648,7 +687,7 @@ struct NetCheck::Impl
 	void Run()
 	{
 		CheckCache& cache = SharedCheckCache();
-		int done = 0, since_save = 0, read_errors = 0;
+		int done = 0, since_save = 0, read_errors = 0, later = 0;
 		for (;;)
 		{
 			PendingCheck p;
@@ -662,11 +701,35 @@ struct NetCheck::Impl
 				p = todo.front();
 				todo.pop_front();
 			}
-			const burn::RomCheck rc = burn::CheckRoms(p.driver, [](const std::string& set) { return FindSetZip(set); });
+			const burn::RomCheck rc =
+				burn::CheckRoms(p.driver, [](const std::string& set) { return FindSetZip(set); }, &stop);
+			if (stop.load())
+			{
+				// cut short (a game, Settings, Square): nothing kept, and it is the first one when the pass goes on
+				std::lock_guard<std::mutex> g(lock);
+				todo.push_front(p);
+				break;
+			}
+			// the archives the scan saw, or another state of the shares (one dropped or reconnecting since the scan)
+			bool share_down = !StampsMatch(p.sig, rc.stamps);
+			for (const auto& st : rc.stamps)
+				share_down = share_down || OnShareNotReady(FindSetZip(st.first));
+			if (share_down)
+			{
+				// not the set's result: nothing kept, and the next scan that sees its archives queues it again
+				later++;
+				{
+					std::lock_guard<std::mutex> g(lock);
+					tried.erase(p.set + "\t" + p.sig);
+				}
+				OrbisLog("[games] %s: its share is not connected, or its archives changed since the scan: checked when "
+					"the shelf sees them again", p.set.c_str());
+				continue;
+			}
 			if (rc.read_error)
 			{
-				// not the archive's fault (a share that dropped, the watchdog, Settings connecting the shares again):
-				// nothing kept, the next visit of the shelf checks it again
+				// not the archive's fault (a link that dropped, the watchdog): nothing kept, the next visit of the shelf
+				// checks it again
 				read_errors++;
 				OrbisLog("[games] %s: an archive could not be read (%s): checked again next time", p.set.c_str(),
 					rc.unreadable.empty() ? "?" : rc.unreadable[0].c_str());
@@ -685,8 +748,12 @@ struct NetCheck::Impl
 			}
 		}
 		cache.Save();
-		OrbisLog("[games] network check pass: %d set(s) checked%s%s", done,
-			read_errors ? (", " + std::to_string(read_errors) + " not readable").c_str() : "", stop.load() ? " (stopped)" : "");
+		std::string extra;
+		if (read_errors)
+			extra += ", " + std::to_string(read_errors) + " not readable";
+		if (later)
+			extra += ", " + std::to_string(later) + " left for when their share is back";
+		OrbisLog("[games] network check pass: %d set(s) checked%s%s", done, extra.c_str(), stop.load() ? " (stopped)" : "");
 	}
 };
 
@@ -709,7 +776,7 @@ void NetCheck::Add()
 	{
 		std::lock_guard<std::mutex> g(m_i->lock);
 		for (const PendingCheck& p : list)
-			if (m_i->tried.insert(p.set).second)
+			if (m_i->tried.insert(p.set + "\t" + p.sig).second)
 			{
 				m_i->todo.push_back(p);
 				added++;

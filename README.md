@@ -34,7 +34,7 @@ make (the driver list, Musashi's 68000 core, the CPS, Neo Geo, Cave, Psikyo, Toa
 frontends (`src/burner`) and its libretro port host the core: ROM loading from the sets' zips and 7z archives, inputs, DIP
 switches, states, NVRAM, the picture turned the right way up and the sound.
 
-> **Status (2.0):** builds with the ps5-payload-dev SDK into a signed native app, and passes 427 host tests, which
+> **Status (2.0):** builds with the ps5-payload-dev SDK into a signed native app, and passes 443 host tests, which
 > run the same code (FBNeo's core included) on Linux with the PS5 calls simulated: two arcade boards running a tiny
 > test program each (a vertical and a horizontal game) are played through the whole chain -- the shelf, the pad,
 > the core, the video and sound output -- and 26 more boards start, run, save and load a state under
@@ -480,12 +480,15 @@ of a `.7z` set can be either. Its ROMs are found by the CRCs and names its direc
   BZip2, Deflate or Zstandard (7-Zip's other choices), and not encrypted archives: such a set says on the screen why
   it can't start (the method, "encrypted", a damaged archive).
 - **Solid blocks:** 7-Zip packs a set's files in one "solid" block by default, and the whole block is unpacked to reach
-  one file: each archive's block (the set's, its parent's, its BIOS's) is unpacked once as the driver starts and the
-  ROMs are copied out of it, then it is let go (a reset that loads a ROM again, the Neo Geo's BIOS, unpacks it again).
-  A block over **512 MiB** is refused before anything is unpacked (it takes every FBNeo arcade set but the biggest
-  PGM2 ones, `kof98umh`); everything unpacking one archive needs (the block, the directory, PPMd's model) comes out
-  of 584 MiB, and an archive listing more than 65,536 files is refused. A set over the limit can be packed as a
-  `.zip`, or as a `.7z` with smaller solid blocks (7-Zip's "Solid block size").
+  one file. An archive (the set's, its parent's, its BIOS's) unpacks a block once and copies the driver's ROMs out of
+  it; it lets go of the block as soon as the ROMs the driver needs from it have been read, and every block is let go
+  once the driver has started (a reset that loads a ROM again, the Neo Geo's BIOS, unpacks it again). A block over
+  **512 MiB** is refused before anything is unpacked: that takes every FBNeo arcade set but the biggest PGM2 ones
+  (`kof98umh`, `kof98umhd`), which can be packed as a `.zip`, or as a `.7z` with smaller solid blocks (7-Zip's "Solid
+  block size"). The blocks a set's archives hold at one time stay within those 512 MiB together (a block that would go
+  over makes the others let go of theirs first; they are unpacked again if the driver asks for more of them), and the
+  decoder's other needs (an archive's directory, PPMd's model) come out of 72 MiB more per archive: at most about
+  600 MiB besides the driver's own copy of the ROMs. An archive listing more than 65,536 files is refused.
 - A `.7z` on a network share is read through the share like any file.
 - The 7z decoder is FBNeo's own copy of the [LZMA SDK](https://www.7-zip.org/sdk.html) (`src/dep/libs/lib7z`, 25.01,
   public domain, unchanged), with NES FCEUmm PS5's reader (`ps5/frontend/fe_7z.cpp`): FBNeo's `src/burner/un7z.cpp`
@@ -688,7 +691,7 @@ make ps5 -j$(nproc)              # build/ps5/FBNeoPS5.elf (installer + helper, w
 make send PS5_HOST=192.168.0.10  # sends it to elfldr (port 9021)
 make dist                        # build/dist/FBNeoPS5-v<version>.elf + the release zip
 make app                         # only build/app/PPSA99924/, to copy by hand
-make test                        # Linux builds (app, installer, helper, headless core) + 427 host tests (ASan/UBSan)
+make test                        # Linux builds (app, installer, helper, headless core) + 443 host tests (ASan/UBSan)
 ```
 
 The first build compiles FBNeo's 1,039 core files (about 15 minutes on 2 cores; `make core-ps5` builds just those).
@@ -758,7 +761,7 @@ The build has three stages:
   DIP switches saved and read back and in place before a driver starts, a frame's and a save state's time, a driver's palette made at start), the
   stand-in ROM sets (`make_fake_set.py`: every ROM a driver lists, with its name and its CRC, as FBNeo's split
   sets are made), the test programs (`tests/data`: a tiny Z80 program on the Pac-Man board, red screen, green
-  while the joystick or the button is pressed), and the 427 tests: picture, rotation, input and states on a
+  while the joystick or the button is pressed), and the 443 tests: picture, rotation, input and states on a
   vertical and a horizontal game, the library (parents, BIOS sets, incomplete sets, the check's cache), a set with
   a ROM missing, DIP switches, button layouts (a layout per game, a clone using its parent's, Auto's Fighting (R1 R2) for 6-button games), sound latency and pacing by the sound, 720p, install (packed
   files), covers (flyer, parent's flyer, screenshot, 404, the no-cover card's arcade panel with a long title below it), tabs and clones, the CRT shaders (each one, both
@@ -773,7 +776,8 @@ The build has three stages:
   missing, the background check and its read errors, Settings stopping it, the Network shares screen typed with its
   keyboard, the storage tabs, their translations); the `.7z` sets (every method and refusal, a `.7z` set started
   from the shelf, a `.7z` clone on a share, an encrypted set and a block over the limit refused with the reason on
-  the screen).
+  the screen); the fixes of the 2.0 review (a share that drops or reconnects while the background check runs, Connect
+  again in Settings, a zip directory cut by a read error, the check's cancel, a `.7z` letting go of its block).
 
 ## License and credits
 

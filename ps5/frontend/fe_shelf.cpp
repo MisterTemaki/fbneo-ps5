@@ -839,6 +839,15 @@ std::string Shelf()
 	NetView net;
 	std::string net_key;
 	bool rescan = false; // Square on the Network tab
+	// the shares are connecting again (Square with one down, Settings > Network shares): once every one has answered,
+	// the library is scanned again and the check pass goes on, whether or not the list of connected shares changed
+	bool reload_wait = false;
+	auto Reloading = [] {
+		for (const NetfsShareInfo& sh : netfs_shares())
+			if (sh.state == NetfsState::Idle || sh.state == NetfsState::Connecting)
+				return true;
+		return false;
+	};
 	// The games of the storage tab, the maker and the letter, the selection on `keep` (else the first game). `letter`:
 	// the letter to show (0: the one `keep` is under, else the one shown, else the nearest that has games). restart:
 	// the cover service starts again even when the list is the same (the shelf opens on a library that changed).
@@ -954,7 +963,10 @@ std::string Shelf()
 			// the check pass's results count when it is done, or a minute after the last look
 			const int resolved = checking.Resolved();
 			const bool checked = resolved != checked_seen && (!checking.Busy() || now - checked_refreshed >= 60.0);
-			if (mounts != net_seen || checked || rescan)
+			const bool reloaded = reload_wait && netfs_mount_finished();
+			if (reloaded)
+				reload_wait = false;
+			if (mounts != net_seen || checked || rescan || reloaded)
 			{
 				if (rescan)
 					Loading("Scanning the network shares...");
@@ -1059,7 +1071,10 @@ std::string Shelf()
 			// running: the check pass waits, and goes on (with what it had left) afterwards
 			checking.Stop();
 			SettingsMenu();
-			checking.Add();
+			if (Reloading())
+				reload_wait = true; // the shares were changed or connected again: the pass goes on once they have answered
+			else
+				checking.Add();
 			if (st.shown_clones != cfg.show_clones || st.shown_incomplete != cfg.show_incomplete)
 			{
 				// another view of the library: the tabs and the shelf again, the selection kept when it is shown
@@ -1095,6 +1110,7 @@ std::string Shelf()
 				checking.Stop(); // it reads archives of the shares that are about to be disconnected
 				netfs_reload();
 				net_since.clear();
+				reload_wait = true; // scanned again, and the pass goes on, once every share has answered
 			}
 			rescan = !share_down;
 			next_net = now;

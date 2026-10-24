@@ -25,6 +25,7 @@ The app (tests/run-tests.sh), stand-in sets as FBNeo names them:
                  zips the test makes)
   puckmanbb.7z   the Puck Man set plus 513 MiB of zeros in one block: listed (its directory is complete), refused
                  when started ("too big")
+  puckman.7z     the Puck Man set: Pac-Man's parent as a .7z (each archive lets go of its block once its ROMs are read)
 """
 import os
 import random
@@ -123,6 +124,7 @@ def main():
     make(os.path.join(out, "pacman.7z"), fake_set(headless, "pacman", pac_put)["pacman.zip"], lz2)
     make(os.path.join(out, "ponpoko.7z"), fake_set(headless, "ponpoko", pon_put)["ponpoko.zip"], aes, password="fbneo")
     make(os.path.join(out, "bstarsh.7z"), fake_set(headless, "bstarsh")["bstarsh.zip"], lz2)
+    make(os.path.join(out, "puckman.7z"), fake_set(headless, "puckman")["puckman.zip"], lz2)
     make(os.path.join(out, "puckmanbb.7z"), fake_set(headless, "puckman")["puckman.zip"] + [("padding.bin", zeros)], lz2)
     for n in sorted(os.listdir(out)):
         print("%-14s %7d bytes" % (n, os.path.getsize(os.path.join(out, n))))

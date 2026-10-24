@@ -11,6 +11,9 @@
 //       frame: "lit N" counts the pixels that aren't black (0 when the driver never made its palette)
 //   fbneo_headless dipstart <rom dir> <set>       loads the set and checks that its DIP switch inputs already hold their
 //       defaults as the driver starts (FBNeo's frontends set them before BurnDrvInit)
+//   fbneo_headless check <rom dir> <set> [--cancelled]   the shelf's ROM check (burn::CheckRoms) of the set's archives
+//       (.zip, else .7z) in <rom dir>: "missing N read_error 0|1 stamps <set><stamp>;..."; --cancelled: with its cancel
+//       flag already set (NetCheck stopping), which must end as a read error, not as ROMs missing
 //   fbneo_headless bench <rom dir> <set> <frames> the time a frame takes (drawn), and a save state's: its time and size
 //   fbneo_headless run <rom dir> <set> <frames> [out.ppm] [--state] [--dips] [--press N]
 //       runs the set for N frames (no input but coin+start pressed at frames 60 and 90 and fire 1 every 8 frames
@@ -26,6 +29,8 @@
 
 #include <cinttypes>
 #include <cmath>
+#include <atomic>
+#include <unistd.h>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -131,6 +136,29 @@ int main(int argc, char** argv)
 		}
 		if (const char* b = BurnDrvGetTextA(DRV_BOARDROM))
 			printf("board\t%s\n", b);
+		return 0;
+	}
+	if (cmd == "check" && argc > 3)
+	{
+		const std::string dir = argv[2];
+		const int drv = burn::FindDriver(argv[3]);
+		if (drv < 0)
+			return 1;
+		std::atomic<bool> cancel{argc > 4 && std::string(argv[4]) == "--cancelled"};
+		auto find = [&](const std::string& set) {
+			for (const char* ext : {".zip", ".7z"})
+			{
+				const std::string p = dir + "/" + set + ext;
+				if (access(p.c_str(), R_OK) == 0)
+					return p;
+			}
+			return std::string();
+		};
+		const burn::RomCheck rc = burn::CheckRoms(drv, find, &cancel);
+		std::string stamps;
+		for (const auto& st : rc.stamps)
+			stamps += st.first + st.second + ";";
+		printf("missing %zu read_error %d stamps %s\n", rc.missing.size(), rc.read_error ? 1 : 0, stamps.c_str());
 		return 0;
 	}
 	if (cmd == "nvram" && argc > 3)

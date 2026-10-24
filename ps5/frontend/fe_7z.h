@@ -72,6 +72,11 @@ public:
 	// the last call. The block stays (in the budget) until Release() or the next block.
 	Status ExtractTo(size_t i, uint8_t* dest, size_t cap, size_t* got);
 	void Release(); // lets go of the kept block
+	// The size of the block entry i is in (0 for an empty file or a bad index), whether that block is the one kept,
+	// and the kept block's size (0 when none).
+	uint64_t BlockBytes(size_t i) const;
+	bool Kept(size_t i) const;
+	size_t KeptBytes() const;
 	// Whether entry i can be decoded at all, without decoding it: Ok, Encrypted, TooBig (its block), NotFound.
 	Status Check(size_t i) const;
 

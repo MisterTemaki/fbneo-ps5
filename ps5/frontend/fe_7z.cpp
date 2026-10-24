@@ -410,6 +410,24 @@ Status Archive::ExtractTo(size_t i, uint8_t* dest, size_t cap, size_t* got)
 	return Status::Ok;
 }
 
+uint64_t Archive::BlockBytes(size_t i) const
+{
+	if (!m->open || i >= m->entries.size())
+		return 0;
+	const UInt32 folder = m->db.FileToFolder[i];
+	return folder == UInt32(-1) ? 0 : SzAr_GetFolderUnpackSize(&m->db.db, folder);
+}
+
+bool Archive::Kept(size_t i) const
+{
+	return m->open && i < m->entries.size() && m->kept && m->kept_block == m->db.FileToFolder[i];
+}
+
+size_t Archive::KeptBytes() const
+{
+	return m->kept ? m->kept_size : 0;
+}
+
 void Archive::Release()
 {
 	if (m->kept)

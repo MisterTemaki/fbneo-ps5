@@ -1536,6 +1536,76 @@ expect "[ $rc = 0 ] && grep -q 'roms/ponpoko.zip -> \"Ponpoko\"' $T/root/logs/bo
 nosan "$T"
 fi
 
+if want 35; then
+echo "== 35. the background check after a share drops or reconnects; a zip directory cut by a read error; a cancel; .7z blocks let go"
+# FBNEO_HOST_NETFS_CONNECT_MS: every connect takes that long; FBNEO_HOST_NETFS_DOWN: a server that never answers;
+# FBNEO_HOST_NETFS_EIO_RANGE: the reads of some bytes of a file fail
+# a. Square on the Network tab with one share down (10.0.0.6) while the pass reads (2 s a read): the shares connect
+# again (3 s each), the library is scanned meanwhile without the share; the sets still queued are not checked against
+# that (no archive found) and kept as incomplete: they are checked once the share is back, and found complete
+T=$(newroot t35a)
+mkdir -p "$T/share"
+addset pacman "$T/share"
+printf 'smb://10.0.0.5/games\nsmb://10.0.0.6/games\n' >"$T/root/shares.txt"
+rc=$(FBNEO_HOST_REALTIME=1 FBNEO_HOST_NETFS_DELAY_MS=2000 FBNEO_HOST_NETFS_CONNECT_MS=3000 FBNEO_HOST_NETFS_DOWN=10.0.0.6 MAXFLIPS=1500 FBNEO_HOST_NETFS_DIR="$T/share" run "$T" "0:0;280:$SQUARE;282:0;$(SHELFQUIT_AT 1400)" "")
+expect "[ $rc = 0 ] && grep -q 'network tab: scan again, reconnecting' $T/root/logs/boot.log" "Square while the pass reads: the shares connect again"
+expect "grep -q '^puckman	[^	]*	0\$' $T/root/config/romcheck.txt && grep -q '^pacman	[^	]*	0\$' $T/root/config/romcheck.txt" "both sets kept as complete (none kept as incomplete while the share was away)"
+expect "grep -q '(2 complete, 0 checked now)' $T/root/logs/boot.log" "and listed complete once the share is back"
+nosan "$T"
+# b. Settings > Network shares > Connect again while the pass reads: the pass goes on once the share has answered (it
+# no longer gives the sets up as unreadable for the rest of the visit)
+T=$(newroot t35b)
+mkdir -p "$T/share"
+addset pacman "$T/share"
+echo "smb://10.0.0.5/games" >"$T/root/shares.txt"
+pad="0:0"; f=200
+key() { pad="$pad;$f:$1;$((f + 2)):0"; f=$((f + ${2:-8})); }
+key $TRIANGLE 20; for i in $(seq 1 5); do key $UP; done; key $CROSS 30; key $DOWN; key $DOWN; key $CROSS 30; key $CIRCLE 20; key $CIRCLE 20
+pad="$pad;$(SHELFQUIT_AT 1300)"
+rc=$(FBNEO_HOST_REALTIME=1 FBNEO_HOST_NETFS_DELAY_MS=2000 FBNEO_HOST_NETFS_CONNECT_MS=2000 MAXFLIPS=1400 FBNEO_HOST_NETFS_DIR="$T/share" run "$T" "$pad" "")
+expect "[ $rc = 0 ] && grep -q '^puckman	[^	]*	0\$' $T/root/config/romcheck.txt && grep -q '^pacman	[^	]*	0\$' $T/root/config/romcheck.txt" "Connect again in Settings: both sets are checked once the share is back"
+expect "grep -q '(2 complete, 0 checked now)' $T/root/logs/boot.log" "and listed complete in the same visit of the shelf"
+nosan "$T"
+# c. a zip whose directory sits across netfs's second block (512 KiB - 1 MiB), whose reads fail: a read error, not a
+# zip with no ROMs; nothing kept, and the next start (no error) finds the set complete
+T=$(newroot t35c)
+mkdir -p "$T/share"
+cp "$SETS/pacman/puckman.zip" "$T/share/"
+python3 - "$SETS/pacman/pacman.zip" "$T/share/pacman.zip" <<'PY'
+import sys, zipfile
+src = zipfile.ZipFile(sys.argv[1])
+with zipfile.ZipFile(sys.argv[2], 'w', zipfile.ZIP_STORED) as z:
+    z.writestr('padding.bin', b'\x55' * (700 * 1024))
+    for i in src.infolist():
+        z.writestr(i.filename, src.read(i.filename))
+    for n in range(8000):
+        z.writestr('e%05d' % n, b'')
+PY
+echo "smb://10.0.0.5/games" >"$T/root/shares.txt"
+cdir=$(python3 -c "import sys,zipfile; z=zipfile.ZipFile(sys.argv[1]); print(z.start_dir)" "$T/share/pacman.zip")
+expect "[ $cdir -gt 524288 ] && [ $cdir -lt 1048576 ] && [ \$(stat -c %s $T/share/pacman.zip) -gt 1100000 ]" "the test zip: its directory starts in the second block, its end record in the third"
+rc=$(FBNEO_HOST_REALTIME=1 FBNEO_HOST_NETFS_EIO_RANGE=pacman.zip:524288-1048575 MAXFLIPS=400 FBNEO_HOST_NETFS_DIR="$T/share" run "$T" "0:0;$(SHELFQUIT_AT 300)" "")
+expect "[ $rc = 0 ] && grep -q 'pacman.zip: its directory could not be read to the end' $T/root/logs/boot.log && grep -q '\[games\] pacman: an archive could not be read (pacman.zip)' $T/root/logs/boot.log" "the directory's read error is a read error"
+expect "! grep -q '^pacman	' $T/root/config/romcheck.txt" "and nothing is kept for the set"
+rc=$(FBNEO_HOST_REALTIME=1 MAXFLIPS=400 FBNEO_HOST_NETFS_DIR="$T/share" run "$T" "0:0;$(SHELFQUIT_AT 300)" "")
+expect "[ $rc = 0 ] && grep -q '^pacman	[^	]*	0\$' $T/root/config/romcheck.txt" "the next start: the set is checked again, complete"
+nosan "$T"
+# d. the check's cancel flag (NetCheck stopping): a zip's and a .7z's directory not read, a read error, not ROMs missing
+T=$(newroot t35d)
+cp "$SETS/pacman/puckman.zip" "$T/root/roms/" && cp tests/7z/pacman.7z "$T/root/roms/"
+o1=$(ASAN_OPTIONS=detect_leaks=0 "$HEADLESS" check "$T/root/roms" pacman 2>/dev/null)
+o2=$(ASAN_OPTIONS=detect_leaks=0 "$HEADLESS" check "$T/root/roms" pacman --cancelled 2>/dev/null)
+expect "echo '$o1' | grep -q '^missing 0 read_error 0 stamps pacman.7z:[0-9]*:[0-9]*;puckman:[0-9]*:[0-9]*;'" "the check: complete, each archive's size and date ($o1)"
+expect "echo '$o2' | grep -q 'read_error 1'" "cancelled: a read error ($o2)"
+# e. a .7z set (its parent a .7z too, nothing read from it: the set's archive has every ROM): an archive lets go of its
+# decoded block once the essential ROMs the driver needs from it are read, before the driver has started
+T=$(newroot t35e)
+cp tests/7z/pacman.7z tests/7z/puckman.7z "$T/root/roms/"
+rc=$(MAXFLIPS=300 run "$T" "0:0;$(QUITAT 120)" "" "$T/root/roms/pacman.7z")
+expect "[ $rc = 0 ] && grep -q 'running pacman' $T/root/logs/boot.log && awk '/pacman.7z: every ROM read from it, its block .* let go/{n++} /\[burn\] running pacman/{exit !(n == 1)}' $T/root/logs/boot.log" "pacman.7z lets go of its block once its ROMs are read, before the driver has started"
+nosan "$T"
+fi
+
 echo
 echo "passed $PASS, failed $FAIL  (work dir $WORK)"
 [ $FAIL = 0 ]

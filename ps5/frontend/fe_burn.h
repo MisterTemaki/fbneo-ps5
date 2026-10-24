@@ -9,6 +9,7 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -60,12 +61,16 @@ struct RomCheck
 	std::vector<std::string> sets;    // the sets it looked for: "sf2ce", "sf2"
 	std::vector<std::string> files;   // the archives it read: "sf2ce.zip", "sf2.7z"
 	std::vector<std::string> unreadable; // archives found that could not be opened: "sf2.7z"
-	bool read_error = false; // one of them could not be read (a share that dropped...): the result may change
+	bool read_error = false; // one of them could not be read (a share that dropped, a cancel...): the result may change
 	std::string why;          // a .7z's problem, in English, for the player ("" for none)
+	// CheckRoms: each set looked for and the archive it found, as "<set>" + ":<size>:<mtime>" (".7z:<size>:<mtime>" for
+	// a .7z), ":-" when find() had none, "?" when it could not be looked at
+	std::vector<std::pair<std::string, std::string>> stamps;
 };
 // Checks that every ROM the driver needs is in its archives (by CRC, then by name). Reads only the archives'
-// directories. Safe on another thread while no game runs (the driver tables are read under a lock).
-RomCheck CheckRoms(int driver, const ZipFinder& find);
+// directories. Safe on another thread while no game runs (the driver tables are read under a lock). cancel (when
+// given): once it turns true the reads stop, and the result is a read error.
+RomCheck CheckRoms(int driver, const ZipFinder& find, const std::atomic<bool>* cancel = nullptr);
 
 // Starts the driver. On failure *error says why (missing ROMs listed).
 // `dips`: the game's saved DIP switches (LoadDips' file), set with the defaults before the driver starts, as

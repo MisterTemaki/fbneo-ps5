@@ -23,6 +23,7 @@ extern int bDrvOkay; // core/burn_frontend.cpp (cheat.cpp reads it)
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <atomic>
 #include <memory>
 #include <mutex>
 
@@ -95,6 +96,9 @@ struct G
 	std::vector<RomLoc> roms;
 	// why a .7z's ROM could not be read while the driver started (an English sentence, "" if none): Load says it
 	std::string sevenz_why;
+	// while the driver starts: the ROMs read once, and for each archive how many of its ROMs are still to be read
+	std::vector<bool> rom_read;
+	std::vector<int> zip_left;
 
 	// video: what the driver draws (pBurnDraw, nBurnBpp bytes a pixel), and the picture turned the right way up
 	int bpp = 4;
@@ -224,8 +228,21 @@ bool ReadEntry(std::vector<Zip>& zips, int z, int e, uint8_t* dest, size_t cap, 
 	const ZipEntry& en = zip.entries[size_t(e)];
 	if (zip.sz)
 	{
-		// each archive keeps the block it decoded last until the driver has started (Load releases them): a driver asks
-		// for its ROMs in its own order, a clone's and its parent's in turn, and each block is decoded once
+		// Each archive keeps the block it decoded last (a driver asks for its ROMs in its own order, a clone's and its
+		// parent's in turn: each block is then decoded once), until the ROMs the driver needs from it are all read
+		// (LoadRom) or the driver has started (Load). The blocks kept by the set's archives together stay within
+		// kMaxBlock: a block that would go over it makes the others let go of theirs first (decoded again if needed).
+		if (!zip.sz->Kept(en.index))
+		{
+			uint64_t others = 0;
+			for (const Zip& o : zips)
+				if (&o != &zip && o.sz)
+					others += o.sz->KeptBytes();
+			if (others && others + zip.sz->BlockBytes(en.index) > fe::sevenzip::kMaxBlock)
+				for (Zip& o : zips)
+					if (&o != &zip && o.sz)
+						o.sz->Release();
+		}
 		const fe::sevenzip::Status st = zip.sz->ExtractTo(en.index, dest, std::min(size_t(en.size), cap), got);
 		if (st != fe::sevenzip::Status::Ok)
 		{
@@ -279,6 +296,18 @@ INT32 __cdecl LoadRom(UINT8* dest, INT32* wrote, INT32 i)
 	size_t n = 0;
 	if (!ReadEntry(g.zips, loc.zip, loc.entry, dest, size_t(ri.nLen), &n))
 		return 1;
+	// a .7z whose essential ROMs have all been read once lets go of its block (an optional one a driver may never ask
+	// for is not waited for: Load lets go of every block once the driver has started)
+	if (size_t(i) < g.rom_read.size() && !g.rom_read[size_t(i)])
+	{
+		g.rom_read[size_t(i)] = true;
+		Zip& z = g.zips[size_t(loc.zip)];
+		if (z.sz && --g.zip_left[size_t(loc.zip)] == 0 && z.sz->KeptBytes())
+		{
+			Log("[burn] %s: every ROM read from it, its block (%zu KiB) let go", z.File().c_str(), z.sz->KeptBytes() >> 10);
+			z.sz->Release();
+		}
+	}
 	if (wrote)
 		*wrote = INT32(n);
 	return 0;
@@ -298,14 +327,39 @@ void CloseZips()
 	g.roms.clear();
 }
 
-// Opens a set's .zip or .7z and lists what is in it. *why: a .7z's problem for the player ("" for none); *read_error:
-// it could not be read (not a fault of the file's: a share that dropped, say).
-bool OpenZip(Zip* z, std::string* why, bool* read_error)
+// minizip's reads with a cancel flag (CheckRoms on NetCheck's thread): once it is set every read comes back short, so
+// a directory being read from a share that hangs stops at its next read instead of holding the thread. The other
+// functions are minizip's own stdio ones (they ignore the opaque pointer).
+zlib_filefunc64_def BaseFileFuncs()
 {
+	zlib_filefunc64_def ff;
+	fill_fopen64_filefunc(&ff);
+	return ff;
+}
+
+uLong ZCALLBACK CancelRead(voidpf opaque, voidpf stream, void* buf, uLong size)
+{
+	static const zlib_filefunc64_def base = BaseFileFuncs();
+	const std::atomic<bool>* cancel = static_cast<const std::atomic<bool>*>(opaque);
+	if (cancel && cancel->load())
+		return 0;
+	return base.zread_file(base.opaque, stream, buf, size);
+}
+
+// Opens a set's .zip or .7z and lists what is in it. *why: a .7z's problem for the player ("" for none); *read_error:
+// it could not be read whole (not a fault of the file's: a share that dropped, a cancel). A zip's directory must be read
+// to its end: a walk that stops on an I/O error is a read error, not a zip with fewer files.
+bool OpenZip(Zip* z, std::string* why, bool* read_error, const std::atomic<bool>* cancel = nullptr)
+{
+	if (cancel && cancel->load())
+	{
+		*read_error = true;
+		return false;
+	}
 	if (Is7z(z->path))
 	{
 		z->sz.reset(new fe::sevenzip::Archive);
-		const fe::sevenzip::Status st = z->sz->Open(z->path);
+		const fe::sevenzip::Status st = z->sz->Open(z->path, cancel);
 		if (st != fe::sevenzip::Status::Ok)
 		{
 			Log("[burn] can't open %s (%s)", z->path.c_str(), fe::sevenzip::StatusName(st));
@@ -332,21 +386,31 @@ bool OpenZip(Zip* z, std::string* why, bool* read_error)
 		}
 		return true;
 	}
-	z->uf = unzOpen(z->path.c_str());
+	if (cancel)
+	{
+		zlib_filefunc64_def ff = BaseFileFuncs();
+		ff.zread_file = CancelRead;
+		ff.opaque = const_cast<std::atomic<bool>*>(cancel);
+		z->uf = unzOpen2_64(z->path.c_str(), &ff);
+	}
+	else
+		z->uf = unzOpen(z->path.c_str());
 	if (!z->uf)
 	{
 		Log("[burn] can't open %s as a zip", z->path.c_str());
 		*read_error = true; // or not a zip at all: the same answer
 		return false;
 	}
-	if (unzGoToFirstFile(z->uf) != UNZ_OK)
-		return true; // an empty zip
-	do
+	int rc = unzGoToFirstFile(z->uf);
+	for (; rc == UNZ_OK; rc = unzGoToNextFile(z->uf))
 	{
 		unz_file_info info = {};
 		char name[512] = "";
 		if (unzGetCurrentFileInfo(z->uf, &info, name, sizeof(name) - 1, nullptr, 0, nullptr, 0) != UNZ_OK)
-			continue;
+		{
+			rc = UNZ_ERRNO;
+			break;
+		}
 		name[sizeof(name) - 1] = 0;
 		ZipEntry e;
 		e.name = name;
@@ -356,7 +420,17 @@ bool OpenZip(Zip* z, std::string* why, bool* read_error)
 		e.size = uint32_t(info.uncompressed_size);
 		if (!e.lower.empty())
 			z->entries.push_back(e);
-	} while (unzGoToNextFile(z->uf) == UNZ_OK);
+	}
+	if (rc != UNZ_END_OF_LIST_OF_FILE)
+	{
+		Log("[burn] %s: its directory could not be read to the end (%d, %zu file(s) listed)", z->path.c_str(), rc,
+			z->entries.size());
+		unzClose(z->uf);
+		z->uf = nullptr;
+		z->entries.clear();
+		*read_error = true;
+		return false;
+	}
 	return true;
 }
 
@@ -374,14 +448,8 @@ std::mutex g_dir_mu;
 std::vector<DirCacheEntry> g_dirs; // the newest last
 
 // The archive's directory only (no handle kept): from the cache while the file is unchanged, else read and kept.
-bool ListZip(Zip* z, std::string* why, bool* read_error)
+bool ListZip(Zip* z, const struct stat& st, std::string* why, bool* read_error, const std::atomic<bool>* cancel)
 {
-	struct stat st = {};
-	if (stat(z->path.c_str(), &st) != 0)
-	{
-		*read_error = true;
-		return false;
-	}
 	{
 		std::lock_guard<std::mutex> lk(g_dir_mu);
 		for (size_t i = 0; i < g_dirs.size(); i++)
@@ -394,8 +462,8 @@ bool ListZip(Zip* z, std::string* why, bool* read_error)
 				return true;
 			}
 	}
-	if (!OpenZip(z, why, read_error))
-		return false;
+	if (!OpenZip(z, why, read_error, cancel))
+		return false; // (nothing kept: an archive that couldn't be read is read again next time)
 	if (z->uf)
 		unzClose(z->uf);
 	z->uf = nullptr;
@@ -452,8 +520,10 @@ DriverWant Wants() // nBurnDrvActive set by the caller
 }
 
 // The driver's archives, found by `find` and opened (the core's tables aren't touched: no lock needed). list_only: their
-// directories only, no handle kept (CheckRoms), through the directory cache.
-std::vector<Zip> OpenArchives(const DriverWant& w, const burn::ZipFinder& find, burn::RomCheck* check, bool list_only = false)
+// directories only, no handle kept (CheckRoms), through the directory cache; each archive's size and date go into
+// check->stamps (the caller compares them with what it expected).
+std::vector<Zip> OpenArchives(const DriverWant& w, const burn::ZipFinder& find, burn::RomCheck* check, bool list_only = false,
+	const std::atomic<bool>* cancel = nullptr)
 {
 	std::vector<Zip> zips;
 	for (const std::string& set : w.sets)
@@ -463,10 +533,27 @@ std::vector<Zip> OpenArchives(const DriverWant& w, const burn::ZipFinder& find, 
 		check->sets.push_back(z.set);
 		z.path = find(z.set);
 		if (z.path.empty())
+		{
+			check->stamps.push_back({set, ":-"});
 			continue;
+		}
 		std::string why;
 		bool read_error = false;
-		if (!(list_only ? ListZip(&z, &why, &read_error) : OpenZip(&z, &why, &read_error)))
+		struct stat st = {};
+		bool ok = false;
+		if (list_only && stat(z.path.c_str(), &st) != 0)
+		{
+			read_error = true; // found by the scan, gone now (a share that dropped)
+			check->stamps.push_back({set, "?"});
+		}
+		else
+		{
+			if (list_only)
+				check->stamps.push_back({set, std::string(Is7z(z.path) ? ".7z:" : ":") + std::to_string((long long)st.st_size) +
+					":" + std::to_string((long long)st.st_mtime)});
+			ok = list_only ? ListZip(&z, st, &why, &read_error, cancel) : OpenZip(&z, &why, &read_error);
+		}
+		if (!ok)
 		{
 			check->unreadable.push_back(z.File());
 			if (read_error)
@@ -1308,7 +1395,7 @@ int FindDriver(const std::string& name)
 	return found;
 }
 
-RomCheck CheckRoms(int driver, const ZipFinder& find)
+RomCheck CheckRoms(int driver, const ZipFinder& find, const std::atomic<bool>* cancel)
 {
 	RomCheck check;
 	if (!g.inited || g.loaded || driver < 0 || UINT32(driver) >= nBurnDrvCount)
@@ -1322,7 +1409,7 @@ RomCheck CheckRoms(int driver, const ZipFinder& find)
 		nBurnDrvActive = old;
 	}
 	// the archives are read without the lock (on a share that takes a while; the shelf's thread may want the tables)
-	std::vector<Zip> zips = OpenArchives(w, find, &check, true);
+	std::vector<Zip> zips = OpenArchives(w, find, &check, true, cancel);
 	FindRoms(w, zips, &check);
 	CloseArchives(zips);
 	return check;
@@ -1342,6 +1429,14 @@ bool Load(int driver, const ZipFinder& find, std::string* error, const std::stri
 	g.zips = OpenArchives(w, find, &check);
 	g.roms = FindRoms(w, g.zips, &check);
 	g.sevenz_why.clear();
+	g.rom_read.assign(g.roms.size(), true); // (true: not counted)
+	g.zip_left.assign(g.zips.size(), 0);
+	for (size_t i = 0; i < g.roms.size() && i < w.roms.size(); i++)
+		if (g.roms[i].zip >= 0 && !(w.roms[i].type & (BRF_OPT | BRF_NODUMP)))
+		{
+			g.rom_read[i] = false;
+			g.zip_left[size_t(g.roms[i].zip)]++;
+		}
 	for (const std::string& b : check.bad_crc)
 		Log("[burn] %s: found by name, with another CRC (used anyway)", b.c_str());
 	if (!check.ok && !check.why.empty() && !check.unreadable.empty())
