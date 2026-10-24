@@ -23,6 +23,7 @@ struct Choice
 extern const Choice kAspects[]; // the game's monitor (4:3, or 3:4 for vertical games), square pixels, 16:9
 extern const int kAspectCount;
 extern const Choice kLayouts[]; // auto, classic, fighting (6 buttons), custom, fighting with R1 R2
+constexpr int kFightingR2Layout = 4;
 extern const int kLayoutCount;
 constexpr int kCustomLayout = 3;
 // The layouts in the order the settings screen steps through them (custom last).
@@ -50,8 +51,33 @@ struct ArcadeButton
 constexpr int kArcadeButtonCount = 8; // Button 1..6, Coin, Start
 extern const ArcadeButton kArcadeButtons[kArcadeButtonCount];
 // The PS5 button (index in kPs5Buttons) of arcade button i (0..7) in layout `layout` for a game with
-// `game_buttons` buttons (auto picks the fighting layout for 6-button games).
-int LayoutButton(int layout, int i, int game_buttons);
+// `game_buttons` buttons (auto picks Fighting (R1 R2) for 6-button games since 2.0); `custom`: the custom layout's
+// buttons (Settings::buttons' order).
+int LayoutButton(int layout, int i, int game_buttons, const int* custom);
+
+// A button layout: one of kLayouts, and the custom one's buttons.
+struct ButtonLayout
+{
+	int layout = 0;
+	int buttons[kArcadeButtonCount] = {0, 1, 2, 3, 4, 5, 7, 6};
+	int Button(int i, int game_buttons) const { return LayoutButton(layout, i, game_buttons, buttons); }
+};
+// Whose layout the running game uses (and Settings, CONTROLS edits): the general one (fbneo-ps5.ini), the game's
+// own (/data/fbneo/config/<set>.btn), or its parent set's (config/<parent>.btn, for a clone without a file).
+enum class LayoutOwner
+{
+	General,
+	Game,
+	Parent,
+};
+LayoutOwner ControlsOwner(); // General when no game runs
+std::string ParentTitle();   // the parent set's title, for LayoutOwner::Parent
+ButtonLayout Controls();     // the layout in use (no game: the general one)
+// Changes the layout: in a game, saved for that game only (config/<set>.btn); with no game, the general one.
+void SetControls(const ButtonLayout& l);
+// "Default button layout": in a game, back to the general layout (its file removed); with no game, the general
+// layout back to Auto.
+void DefaultControls();
 
 bool InitCore();
 void DeinitCore();

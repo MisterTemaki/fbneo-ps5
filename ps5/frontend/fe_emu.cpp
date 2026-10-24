@@ -35,6 +35,7 @@
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <vector>
@@ -77,9 +78,9 @@ const ArcadeButton kArcadeButtons[kArcadeButtonCount] = {
 	{"Button 5", "btn_5"}, {"Button 6", "btn_6"}, {"Coin", "btn_coin"}, {"Start", "btn_start"},
 };
 
-int LayoutButton(int layout, int i, int game_buttons)
+int LayoutButton(int layout, int i, int game_buttons, const int* custom)
 {
-	// indexes in kPs5Buttons: 0 Cross, 1 Circle, 2 Square, 3 Triangle, 4 L1, 5 R1, 6 OPTIONS, 7 touchpad
+	// indexes in kPs5Buttons: 0 Cross, 1 Circle, 2 Square, 3 Triangle, 4 L1, 5 R1, 6 OPTIONS, 7 touchpad, 9 L2, 10 R2
 	// classic (FBNeo's libretro pad): buttons 1-4 = Cross, Circle, Square, Triangle (Neo Geo A B C D), 5-6 = L1 R1
 	static const int kClassic[kArcadeButtonCount] = {0, 1, 2, 3, 4, 5, 7, 6};
 	// fighting (Capcom's 6 buttons, punches on top): Square Triangle R1 = 1 2 3, Cross Circle L1 = 4 5 6
@@ -95,10 +96,11 @@ int LayoutButton(int layout, int i, int game_buttons)
 		case 4: return kFightingR2[i];
 		case kCustomLayout:
 		{
-			const int b = fe::Config().buttons[i];
+			const int b = custom ? custom[i] : kNoButton;
 			return b >= 0 && b < kPs5ButtonCount ? b : kNoButton;
 		}
-		default: return game_buttons >= 6 ? kFighting[i] : kClassic[i];
+		// auto: Capcom's PlayStation layout for 6-button games since 2.0 (it was Fighting, heavy kick on L1)
+		default: return game_buttons >= 6 ? kFightingR2[i] : kClassic[i];
 	}
 }
 namespace
@@ -195,6 +197,11 @@ struct State
 
 	// pads: the layout in use (PS5 button bit of each arcade button)
 	unsigned map[emu::kArcadeButtonCount] = {};
+	std::string map_logged; // the layout last written to the log
+	// the game's own button layout (config/<set>.btn), or its parent set's; else the general one (fbneo-ps5.ini)
+	emu::LayoutOwner owner = emu::LayoutOwner::General;
+	emu::ButtonLayout game_layout;
+	std::string parent, parent_title;
 	uint32_t prev_p1 = 0;
 	bool wait_release = true;
 	bool service = false, test = false;
@@ -228,13 +235,138 @@ std::string DipPath()
 	return OrbisDir("config") + "/" + g.set + ".dip";
 }
 
+// ---- button layouts per game (2.0): config/<set>.btn, the same key=value lines as fbneo-ps5.ini ---------------------
+std::string BtnPath(const std::string& set)
+{
+	return OrbisDir("config") + "/" + set + ".btn";
+}
+
+emu::ButtonLayout GeneralLayout()
+{
+	const fe::Settings& c = fe::Config();
+	emu::ButtonLayout l;
+	l.layout = ((c.layout % emu::kLayoutCount) + emu::kLayoutCount) % emu::kLayoutCount;
+	for (int i = 0; i < emu::kArcadeButtonCount; i++)
+		l.buttons[i] = c.buttons[i];
+	return l;
+}
+
+// What a .btn file holds: nothing (no file), a layout, or "layout=general" (the game follows the general layout
+// even though its parent set has a layout of its own: "Default button layout" in a clone).
+enum class BtnFile
+{
+	None,
+	Layout,
+	General,
+};
+
+BtnFile ReadBtn(const std::string& path, emu::ButtonLayout* out)
+{
+	FILE* f = fopen(path.c_str(), "r");
+	if (!f)
+		return BtnFile::None;
+	emu::ButtonLayout l;
+	bool general = false;
+	char line[256];
+	while (fgets(line, sizeof(line), f))
+	{
+		line[strcspn(line, "\r\n")] = 0;
+		char* eq = strchr(line, '=');
+		if (!eq || line[0] == '#')
+			continue;
+		*eq = 0;
+		const std::string key = line, val = eq + 1;
+		const int n = atoi(val.c_str());
+		if (key == "layout")
+		{
+			general = val == "general";
+			l.layout = std::max(0, std::min(emu::kLayoutCount - 1, n));
+		}
+		for (int i = 0; i < emu::kArcadeButtonCount; i++)
+			if (key == emu::kArcadeButtons[i].key)
+				l.buttons[i] = std::max(0, std::min(emu::kPs5ButtonCount - 1, n));
+	}
+	fclose(f);
+	if (general)
+		return BtnFile::General;
+	if (out)
+		*out = l;
+	return BtnFile::Layout;
+}
+
+// l = nullptr: "layout=general"
+bool WriteBtn(const std::string& path, const emu::ButtonLayout* l)
+{
+	fe::PrepareFolders();
+	const std::string tmp = path + ".tmp";
+	FILE* f = fopen(tmp.c_str(), "w");
+	if (!f)
+		return false;
+	fprintf(f, "# FBNeo PS5: this game's button layout (Settings, CONTROLS, from the pause menu)\n");
+	if (!l)
+		fprintf(f, "layout=general\n");
+	else
+	{
+		fprintf(f, "layout=%d\n", l->layout);
+		for (int i = 0; i < emu::kArcadeButtonCount; i++)
+			fprintf(f, "%s=%d\n", emu::kArcadeButtons[i].key, l->buttons[i]);
+	}
+	bool ok = ferror(f) == 0;
+	ok = fclose(f) == 0 && ok;
+	if (!ok || rename(tmp.c_str(), path.c_str()) != 0)
+	{
+		remove(tmp.c_str());
+		return false;
+	}
+	return true;
+}
+
+// The layout the game starts with: its own file, else its parent's, else the general one.
+void FindGameLayout()
+{
+	g.owner = emu::LayoutOwner::General;
+	const std::string own = BtnPath(g.set);
+	switch (ReadBtn(own, &g.game_layout))
+	{
+		case BtnFile::Layout:
+			g.owner = emu::LayoutOwner::Game;
+			OrbisLog("[emu] button layout of this game: %s", own.c_str());
+			return;
+		case BtnFile::General:
+			OrbisLog("[emu] button layout: the general one (%s says so)", own.c_str());
+			return;
+		case BtnFile::None: break;
+	}
+	if (!g.parent.empty() && ReadBtn(BtnPath(g.parent), &g.game_layout) == BtnFile::Layout)
+	{
+		g.owner = emu::LayoutOwner::Parent;
+		OrbisLog("[emu] button layout of the parent set: %s", BtnPath(g.parent).c_str());
+		return;
+	}
+	OrbisLog("[emu] button layout: the general one");
+}
+
 // ---- pads -> the core ----------------------------------------------------------------------------------------
 void ApplyLayout()
 {
-	const int layout = fe::Config().layout % emu::kLayoutCount;
+	const emu::ButtonLayout l = emu::Controls();
 	const int n = burn::ButtonCount();
+	std::string desc = emu::kLayouts[l.layout].name;
+	if (l.layout == 0)
+		desc += n >= 6 ? " = Fighting (R1 R2)" : " = Classic";
+	desc += ":";
 	for (int i = 0; i < emu::kArcadeButtonCount; i++)
-		g.map[i] = emu::kPs5Buttons[emu::LayoutButton(layout, i, n)].bit;
+	{
+		const int b = l.Button(i, n);
+		g.map[i] = emu::kPs5Buttons[b].bit;
+		desc += std::string(" ") + (i < 6 ? std::to_string(i + 1) : i == 6 ? "coin" : "start") + "=" + emu::kPs5Buttons[b].name;
+	}
+	if (desc != g.map_logged)
+	{
+		g.map_logged = desc;
+		static const char* const kOwner[] = {"general", "this game's", "the parent set's"};
+		OrbisLog("[emu] buttons (%s layout) %s", kOwner[int(emu::ControlsOwner())], desc.c_str());
+	}
 }
 
 int8_t Axis(uint8_t v)
@@ -463,6 +595,17 @@ bool LoadGame(const std::string& path, std::string* error)
 		return p;
 	};
 	ApplySettings();
+	// the parent set (its button layout, for a clone without one), read before the driver starts
+	{
+		burn::Driver dd, pd;
+		g.parent.clear();
+		g.parent_title.clear();
+		if (burn::GetDriver(drv, &dd) && !dd.parent.empty())
+		{
+			g.parent = dd.parent;
+			g.parent_title = burn::GetDriver(burn::FindDriver(dd.parent), &pd) ? pd.title : dd.parent;
+		}
+	}
 	OrbisLog("[emu] loading %s (driver %d)", path.c_str(), drv);
 	// the saved DIP switches go in before the driver starts (it may read them then: BIOS, region)
 	const std::string dips = OrbisDir("config") + "/" + set + ".dip";
@@ -495,6 +638,8 @@ bool LoadGame(const std::string& path, std::string* error)
 	g.stats_reports = 0;
 	g.next_nvram_check = Now() + 5.0;
 	g.overlay_was_drawn = false;
+	g.map_logged.clear();
+	FindGameLayout();
 	ApplyLayout();
 	ps5video::InvalidateFrame();
 	OrbisLog("[emu] running %s \"%s\" (%s), %.3f fps (%s), aspect %.4f, %d button(s)", g.set.c_str(), g.title.c_str(),
@@ -635,6 +780,65 @@ void ResetDips()
 	burn::ResetDips();
 	burn::SaveDips(DipPath());
 	OrbisLog("[emu] DIP switches back to the game's defaults");
+}
+
+LayoutOwner ControlsOwner()
+{
+	return g.loaded ? g.owner : LayoutOwner::General;
+}
+
+std::string ParentTitle()
+{
+	return g.loaded ? g.parent_title : "";
+}
+
+ButtonLayout Controls()
+{
+	return ControlsOwner() == LayoutOwner::General ? GeneralLayout() : g.game_layout;
+}
+
+void SetControls(const ButtonLayout& l)
+{
+	if (!g.loaded)
+	{
+		fe::Settings& c = fe::Config();
+		c.layout = l.layout;
+		for (int i = 0; i < kArcadeButtonCount; i++)
+			c.buttons[i] = l.buttons[i];
+		return;
+	}
+	g.game_layout = l;
+	g.owner = LayoutOwner::Game;
+	const std::string path = BtnPath(g.set);
+	const bool ok = WriteBtn(path, &l);
+	OrbisLog("[emu] button layout for %s only: %s (%s %s)", g.set.c_str(), kLayouts[l.layout].name, path.c_str(),
+		ok ? "saved" : "not saved");
+	ApplyLayout();
+}
+
+void DefaultControls()
+{
+	if (!g.loaded)
+	{
+		fe::Config().DefaultButtons();
+		fe::Config().layout = 0;
+		return;
+	}
+	const std::string path = BtnPath(g.set);
+	// a clone whose parent set has a layout: its file says "general" (without a file it would follow its parent)
+	if (!g.parent.empty() && ReadBtn(BtnPath(g.parent), nullptr) == BtnFile::Layout)
+	{
+		const bool ok = WriteBtn(path, nullptr);
+		OrbisLog("[emu] %s: back to the general button layout (%s %s)", g.set.c_str(), path.c_str(), ok ? "says so" : "not saved");
+	}
+	else
+	{
+		const bool had = FileExists(path);
+		remove(path.c_str());
+		OrbisLog("[emu] %s: back to the general button layout (%s)", g.set.c_str(), had ? (path + " removed").c_str() : "it had no file");
+	}
+	g.owner = LayoutOwner::General;
+	ApplyLayout();
 }
 
 std::string GameButtonName(int i)

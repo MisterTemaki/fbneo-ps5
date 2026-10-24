@@ -23,7 +23,7 @@
 PS5_PAYLOAD_SDK ?= /opt/ps5-payload-sdk
 PS5_HOST ?= ps5
 PS5_PORT ?= 9021
-VERSION ?= 1.9.1
+VERSION ?= 2.0
 TITLE_ID ?= PPSA99924
 # where the app looks for its updates (Settings, SYSTEM, Updates): this repository's GitHub releases
 UPDATE_REPO ?= MisterTemaki/FBNeo-PS5

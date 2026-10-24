@@ -149,6 +149,7 @@ struct Row
 	bool header = false;
 	bool action = false; // a value shown without "< >": Cross opens something, Left / Right change nothing
 	uint32_t value_color = 0; // the value's colour (0: the usual)
+	bool note = false; // with header: a line of text under a section's title (already translated), not a title
 };
 
 // Returns the box's bottom edge.
@@ -173,6 +174,11 @@ int DrawOptionBox(const std::string& title, const std::vector<Row>& rows, int se
 	{
 		const Row& row = rows[size_t(top + i)];
 		const int y = by + 110 + i * row_h;
+		if (row.header && row.note)
+		{
+			DrawText(bx + 40, y + 6, FitText(row.label, 2, bw - 80).c_str(), 2, kText);
+			continue;
+		}
 		if (row.header)
 		{
 			DrawText(bx + 40, y + 6, T(row.label.c_str()), 2, kAccent);
@@ -237,6 +243,7 @@ enum SettingRow
 	H_EMU,
 	S_HISCORES,
 	H_CONTROLS,
+	N_CONTROLS_FOR, // whose layout the rows are: the general one, or (in a game) the game's
 	S_LAYOUT,
 	S_BTN_FIRST,
 	S_BTN_LAST = S_BTN_FIRST + emu::kArcadeButtonCount - 1,
@@ -351,7 +358,21 @@ Row SettingRowFor(int s)
 		case H_EMU: return {"EMULATION", "", true, true};
 		case S_HISCORES: return {"Save high scores (hiscore.dat)", OnOff(c.hiscores)};
 		case H_CONTROLS: return {"CONTROLS (arcade button  ->  PS5 button)", "", true, true};
-		case S_LAYOUT: return {"Button layout", emu::kLayouts[c.layout % emu::kLayoutCount].name};
+		case N_CONTROLS_FOR:
+		{
+			Row r;
+			if (!emu::GameLoaded())
+				r.label = T("The general layout: for every game without a layout of its own");
+			else if (emu::ControlsOwner() == emu::LayoutOwner::Game)
+				r.label = Fmt(T("For this game: %s"), emu::GameTitle().c_str());
+			else if (emu::ControlsOwner() == emu::LayoutOwner::Parent)
+				r.label = Fmt(T("This game uses the layout of %s (a change is kept for this game)"), emu::ParentTitle().c_str());
+			else
+				r.label = T("This game uses the general layout (a change is kept for this game)");
+			r.header = r.note = true;
+			return r;
+		}
+		case S_LAYOUT: return {"Button layout", emu::kLayouts[emu::Controls().layout].name};
 		case S_BTN_DEFAULT: return {"Default button layout", ""};
 		case H_LIBRARY: return {"LIBRARY", "", true, true};
 		case S_COVERS: return {"Download covers", OnOff(c.covers_download)};
@@ -380,7 +401,7 @@ Row SettingRowFor(int s)
 			if (s >= S_BTN_FIRST && s <= S_BTN_LAST)
 			{
 				const int i = s - S_BTN_FIRST;
-				const int b = emu::LayoutButton(c.layout % emu::kLayoutCount, i, GameButtons());
+				const int b = emu::Controls().Button(i, GameButtons());
 				std::string label = T(emu::kArcadeButtons[i].name);
 				const std::string game = i < 6 ? emu::GameButtonName(i) : "";
 				if (!game.empty())
@@ -410,7 +431,13 @@ void ChangeSetting(int s, int dir)
 		case S_AUDIO: c.audio = !c.audio; break;
 		case S_VOLUME: c.volume = std::max(0, std::min(100, c.volume + dir * 10)); break;
 		case S_HISCORES: c.hiscores = !c.hiscores; break;
-		case S_LAYOUT: c.layout = emu::NextLayout(c.layout % emu::kLayoutCount, dir); break;
+		case S_LAYOUT:
+		{
+			emu::ButtonLayout l = emu::Controls();
+			l.layout = emu::NextLayout(l.layout, dir);
+			emu::SetControls(l); // in a game, for that game only
+			break;
+		}
 		case S_COVERS: c.covers_download = !c.covers_download; break;
 		case S_CLONES: c.show_clones = !c.show_clones; break;
 		case S_INCOMPLETE: c.show_incomplete = !c.show_incomplete; break;
@@ -420,21 +447,22 @@ void ChangeSetting(int s, int dir)
 			OrbisLogSetEnabled(c.debug_logs); // at once: the line saying so is the last (or first) one written
 			break;
 		case S_BTN_DEFAULT:
-			c.DefaultButtons();
-			c.layout = 0;
+			emu::DefaultControls(); // in a game: back to the general layout; else the general one back to Auto
 			break;
 		default:
 			if (s >= S_BTN_FIRST && s <= S_BTN_LAST)
 			{
 				// changing one button makes the layout a custom one, starting from the layout shown
-				if (c.layout % emu::kLayoutCount != emu::kCustomLayout)
+				emu::ButtonLayout l = emu::Controls();
+				if (l.layout != emu::kCustomLayout)
 				{
 					for (int i = 0; i < emu::kArcadeButtonCount; i++)
-						c.buttons[i] = emu::LayoutButton(c.layout % emu::kLayoutCount, i, GameButtons());
-					c.layout = emu::kCustomLayout;
+						l.buttons[i] = l.Button(i, GameButtons());
+					l.layout = emu::kCustomLayout;
 				}
-				int& b = c.buttons[s - S_BTN_FIRST];
+				int& b = l.buttons[s - S_BTN_FIRST];
 				b = emu::NextPs5Button(b, dir);
+				emu::SetControls(l);
 			}
 			break;
 	}

@@ -238,14 +238,43 @@ std::shared_ptr<CoverTex> Placeholder(const GameInfo& g)
 			px[size_t(y) * w + i] = edge;
 			px[size_t(y) * w + w - 1 - i] = edge;
 		}
-	// four coloured buttons, top right
-	const uint32_t dots[4] = {Pack(225, 60, 70), Pack(240, 200, 60), Pack(70, 180, 90), Pack(70, 110, 230)};
-	const int cx[4] = {w - 130, w - 95, w - 60, w - 95}, cy[4] = {80, 50, 80, 110};
-	for (int k = 0; k < 4; k++)
-		for (int y = -14; y <= 14; y++)
-			for (int x = -14; x <= 14; x++)
-				if (x * x + y * y <= 196)
-					px[size_t(cy[k] + y) * w + cx[k] + x] = dots[k];
+	// top right, an arcade control panel in brief: a light grey plate with a stick (ball top on a shaft) and two rows
+	// of round buttons (plain shapes, neutral colours, no logo)
+	{
+		const uint32_t plate = Pack(198, 198, 208), ring = Pack(120, 120, 132), shaft = Pack(60, 60, 72),
+					   ball = Pack(36, 36, 44), button = Pack(52, 52, 64), shine = Pack(150, 150, 165);
+		auto disc = [&](int cx, int cy, int rad, uint32_t c) {
+			for (int y = -rad; y <= rad; y++)
+				for (int x = -rad; x <= rad; x++)
+					if (x * x + y * y <= rad * rad)
+						px[size_t(cy + y) * w + cx + x] = c;
+		};
+		// a rectangle with rounded corners
+		auto box = [&](int left, int top, int right, int bottom, int r, uint32_t c) {
+			for (int y = top; y <= bottom; y++)
+				for (int x = left; x <= right; x++)
+				{
+					const int dx = x < left + r ? left + r - x : x > right - r ? x - (right - r) : 0;
+					const int dy = y < top + r ? top + r - y : y > bottom - r ? y - (bottom - r) : 0;
+					if (dx * dx + dy * dy <= r * r)
+						px[size_t(y) * w + x] = c;
+				}
+		};
+		box(w - 240, 44, w - 30, 114, 10, plate);
+		// the stick: its base, the shaft, the ball top
+		const int sx = w - 205;
+		disc(sx, 98, 11, ring);
+		box(sx - 3, 66, sx + 3, 98, 0, shaft);
+		disc(sx, 62, 14, ball);
+		disc(sx - 5, 57, 4, shine);
+		// six buttons, two rows of three
+		for (int cy : {66, 96})
+			for (int cx : {w - 150, w - 110, w - 70})
+			{
+				disc(cx, cy, 12, button);
+				disc(cx - 4, cy - 4, 3, shine);
+			}
+	}
 
 	Canvas canvas{px.data(), w, h, w};
 	// the title, word-wrapped, up to 4 lines
@@ -276,7 +305,9 @@ std::shared_ptr<CoverTex> Placeholder(const GameInfo& g)
 		lines.resize(4);
 		lines[3] = FitText(lines[3] + "...", 5, w - 80);
 	}
-	int y = 190 - int(lines.size()) * 28;
+	// y is each line's baseline: the first line's letters stay below the panel (top right, down to y 114), so a title
+	// of two or more lines is moved down rather than drawn over it
+	int y = std::max(162, 190 - int(lines.size()) * 28);
 	for (const std::string& l : lines)
 	{
 		const std::string fit = FitText(l, 5, w - 80);

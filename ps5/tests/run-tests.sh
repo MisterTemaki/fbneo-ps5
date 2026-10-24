@@ -207,6 +207,72 @@ for i in $(seq 1 10); do P="$P;$t:$DOWN;$((t + 2)):0"; t=$((t + 6)); done
 P="$P;$t:$RIGHT;$((t + 2)):0;$((t + 10)):$CIRCLE;$((t + 12)):0;$(SHELFQUIT_AT $((t + 30)))"
 rc=$(run "$T" "$P" "")
 expect "grep -q '^layout=3$' $T/root/fbneo-ps5.ini && grep -q '^btn_1=1$' $T/root/fbneo-ps5.ini && grep -q '^btn_2=1$' $T/root/fbneo-ps5.ini" "the settings screen made a custom layout from the classic one (button 1: Cross -> Circle)"
+expect "[ -z \"\$(ls $T/root/config/*.btn 2>/dev/null)\" ]" "from the shelf: the general layout, no game's file"
+nosan "$T"
+# 2.0 (fbneo-ps5#2): Auto gives a 6-button game Capcom's PlayStation layout, Fighting (R1 R2): heavy kick on R2, not L1
+T=$(newroot t6g)
+mkset sf2
+addset sf2 "$T/root/roms"
+rc=$(MAXFLIPS=200 run "$T" "0:0;$(QUITAT 60)" "" "$T/root/roms/sf2.zip")
+expect "grep -q 'buttons (general layout) Auto = Fighting (R1 R2): 1=Square 2=Triangle 3=R1 4=Cross 5=Circle 6=R2 coin=Touchpad start=OPTIONS' $T/root/logs/boot.log" "Auto, a 6-button game (Street Fighter II): punches Square Triangle R1, kicks Cross Circle R2"
+expect "grep -q '\[emu\] running sf2 .* 6 button(s)' $T/root/logs/boot.log" "(the game has six buttons)"
+printf 'layout=2\n' >>"$T/root/fbneo-ps5.ini"
+rc=$(MAXFLIPS=200 run "$T" "0:0;$(QUITAT 60)" "" "$T/root/roms/sf2.zip")
+expect "grep -q 'buttons (general layout) Fighting (6 buttons): 1=Square 2=Triangle 3=R1 4=Cross 5=Circle 6=L1 coin=Touchpad start=OPTIONS' $T/root/logs/boot.log" "Fighting (6 buttons) chosen: still there (heavy kick on L1)"
+nosan "$T"
+# 2.0 (fbneo-ps5#2): a button layout per game. Ponpoko: pause menu > Settings > Button 1 Right (Cross -> Circle), kept
+# for Ponpoko only (config/ponpoko.btn); Pac-Man keeps the general layout; Ponpoko again: Circle presses button 1; its
+# clone Ponpoko (Venture Line) without a file of its own: Ponpoko's; "Default button layout": back to the general one
+T=$(newroot t6h)
+addset ponpoko "$T/root/roms"
+addset pacman "$T/root/roms"
+if [ ! -d "$SETS/v-ponpokov" ]; then
+	mkdir -p "$SETS/v-ponpokov"
+	ASAN_OPTIONS=detect_leaks=0 $FAKE ponpokov "$SETS/v-ponpokov" --put ppoko1.bin=tests/data/pacman-test.6e >/dev/null 2>&1
+fi
+cp "$SETS/v-ponpokov/ponpokov.zip" "$T/root/roms/" # its own ROMs: the shared ones (and the colours) come from ponpoko.zip
+# the pause menu (L3 + R3) from frame $1: Down x7 to Settings, Cross; then Down x$2 from Shader, then $3 (Right or Cross);
+# Circle (settings), Circle (resume)
+PAUSE_SETTINGS() {
+	local t=$1 p="$1:$L3R3;$(($1 + 2)):0"
+	t=$((t + 10))
+	for i in $(seq 1 7); do p="$p;$t:$DOWN;$((t + 2)):0"; t=$((t + 6)); done
+	p="$p;$t:$CROSS;$((t + 2)):0"; t=$((t + 12))
+	for i in $(seq 1 $2); do p="$p;$t:$DOWN;$((t + 2)):0"; t=$((t + 6)); done
+	p="$p;$t:$3;$((t + 2)):0;$((t + 10)):$CIRCLE;$((t + 12)):0;$((t + 20)):$CIRCLE;$((t + 22)):0"
+	echo "$p"
+}
+# Ponpoko: before the change (Settings, Down x10: Button 1, Right), Cross presses button 1; after it, Circle does
+rc=$(run "$T" "0:0;30:$CROSS;50:0;$(PAUSE_SETTINGS 60 10 $RIGHT);300:$CIRCLE;340:0;360:$CROSS;400:0;$(QUITAT 420)" "45,330,390" "$T/root/roms/ponpoko.zip")
+expect "[ $rc = 0 ]" "exit code 0 (got $rc)"
+expect "$CHECK $T/dump/flip00045.ppm 960 540 green >/dev/null" "Ponpoko, the general layout (Auto = Classic): Cross presses button 1"
+expect "grep -q '^layout=3$' $T/root/config/ponpoko.btn && grep -q '^btn_1=1$' $T/root/config/ponpoko.btn && grep -q '^btn_2=1$' $T/root/config/ponpoko.btn" "changed in the game: config/ponpoko.btn holds Ponpoko's layout (custom, button 1 on Circle)"
+expect "grep -q '^layout=0$' $T/root/fbneo-ps5.ini && grep -q '^btn_1=0$' $T/root/fbneo-ps5.ini" "the general layout (fbneo-ps5.ini) is unchanged"
+expect "grep -q 'button layout for ponpoko only: Custom' $T/root/logs/boot.log" "logged"
+expect "$CHECK $T/dump/flip00330.ppm 960 540 green >/dev/null && $CHECK $T/dump/flip00390.ppm 960 540 red >/dev/null" "at once: Circle presses button 1, Cross no longer does"
+# another game: the general layout
+rc=$(MAXFLIPS=200 run "$T" "0:0;$(QUITAT 60)" "" "$T/root/roms/pacman.zip")
+expect "grep -q 'button layout: the general one' $T/root/logs/boot.log && grep -q 'buttons (general layout) Auto = Classic: 1=Cross' $T/root/logs/boot.log && [ ! -f $T/root/config/pacman.btn ]" "Pac-Man: the general layout"
+# Ponpoko again: its own layout
+rc=$(run "$T" "0:0;100:$CROSS;140:0;160:$CIRCLE;200:0;$(QUITAT 220)" "130,190" "$T/root/roms/ponpoko.zip")
+expect "grep -q 'button layout of this game: .*/config/ponpoko.btn' $T/root/logs/boot.log && grep -q \"buttons (this game's layout) Custom: 1=Circle\" $T/root/logs/boot.log" "Ponpoko again: its own layout (logged)"
+expect "$CHECK $T/dump/flip00130.ppm 960 540 red >/dev/null && $CHECK $T/dump/flip00190.ppm 960 540 green >/dev/null" "Ponpoko again: Cross does nothing, Circle presses button 1"
+# its clone, no file of its own: Ponpoko's
+rc=$(run "$T" "0:0;100:$CROSS;140:0;160:$CIRCLE;200:0;$(QUITAT 220)" "130,190" "$T/root/roms/ponpokov.zip")
+expect "grep -q 'running ponpokov' $T/root/logs/boot.log && grep -q 'button layout of the parent set: .*/config/ponpoko.btn' $T/root/logs/boot.log" "the clone (Ponpoko (Venture Line)) uses its parent's file"
+expect "$CHECK $T/dump/flip00130.ppm 960 540 red >/dev/null && $CHECK $T/dump/flip00190.ppm 960 540 green >/dev/null" "the clone: Circle presses button 1"
+# the clone's "Default button layout" (Settings, Down x18): the general layout for it, though its parent has one
+rc=$(run "$T" "0:0;$(PAUSE_SETTINGS 30 18 $CROSS);300:$CROSS;340:0;$(QUITAT 360)" "330" "$T/root/roms/ponpokov.zip")
+expect "grep -q '^layout=general$' $T/root/config/ponpokov.btn && grep -q 'ponpokov: back to the general button layout' $T/root/logs/boot.log" "the clone's Default button layout: config/ponpokov.btn says general"
+expect "$CHECK $T/dump/flip00330.ppm 960 540 green >/dev/null" "the clone: Cross presses button 1 again"
+rc=$(MAXFLIPS=200 run "$T" "0:0;$(QUITAT 60)" "" "$T/root/roms/ponpokov.zip")
+expect "grep -q 'button layout: the general one (.*ponpokov.btn says so)' $T/root/logs/boot.log" "and keeps it at the next start"
+# Ponpoko's "Default button layout": its file removed, the general layout back
+rc=$(run "$T" "0:0;$(PAUSE_SETTINGS 30 18 $CROSS);300:$CROSS;340:0;$(QUITAT 360)" "330" "$T/root/roms/ponpoko.zip")
+expect "[ ! -f $T/root/config/ponpoko.btn ] && grep -q 'ponpoko: back to the general button layout (.*ponpoko.btn removed)' $T/root/logs/boot.log" "Default button layout in Ponpoko: config/ponpoko.btn removed"
+expect "$CHECK $T/dump/flip00330.ppm 960 540 green >/dev/null" "Ponpoko: Cross presses button 1 again (the general layout)"
+rc=$(MAXFLIPS=200 run "$T" "0:0;$(QUITAT 60)" "" "$T/root/roms/ponpoko.zip")
+expect "grep -q 'button layout: the general one' $T/root/logs/boot.log" "and at the next start"
 nosan "$T"
 fi
 
@@ -315,6 +381,29 @@ expect "cmp -s '$T/root/covers/FBNeo/Ponpoko.png' '$T/srv/$REPO/Named_Snaps/Ponp
 expect "ls $T/root/covers/FBNeo/ | grep -q '^1942.*\.missing$'" "1942: nothing on the server, remembered (.missing)"
 expect "$CHECK $T/dump/flip00240.ppm 960 420 255 0 0 >/dev/null" "Pac-Man shows the red flyer"
 expect "$CHECK $T/dump/flip00290.ppm 960 420 0 255 0 >/dev/null" "Ponpoko shows the green screenshot"
+# 2.0 (genplusgxPS5 issue #4): the card of a game with no cover (1942) shows an arcade panel, top right -- a light grey
+# plate, a stick (ball top, shaft) and six round buttons --, no longer the SNES pad's four coloured buttons (red,
+# yellow, green, blue: sampled where they were)
+P=$T/dump/flip00190.ppm
+expect "! $CHECK $P 1201 227 225 60 70 40 >/dev/null && ! $CHECK $P 1238 195 240 200 60 40 >/dev/null && ! $CHECK $P 1275 227 70 180 90 40 >/dev/null && ! $CHECK $P 1238 258 70 110 230 40 >/dev/null" "the no-cover card no longer shows the SNES pad's four coloured buttons"
+expect "$CHECK $P 1124 207 36 36 44 12 >/dev/null && $CHECK $P 1124 227 60 60 72 12 >/dev/null && $CHECK $P 1182 212 52 52 64 12 >/dev/null && $CHECK $P 1266 244 52 52 64 12 >/dev/null && $CHECK $P 1238 195 198 198 208 16 >/dev/null && $CHECK $P 1238 258 198 198 208 16 >/dev/null" "it shows the arcade panel: the stick's ball and shaft, the buttons, the grey plate"
+nosan "$T"
+# a title of four lines starts below the panel: no letter (white) over it
+T=$(newroot t10long)
+mkset ssideki2
+addset ssideki2 "$T/root/roms"
+printf 'covers_download=0\nlast_rom=%s\n' "$T/root/roms/ssideki2.zip" >>"$T/root/fbneo-ps5.ini"
+rc=$(run "$T" "0:0;$(SHELFQUIT_AT 70)" "60")
+expect "[ $rc = 0 ]" "exit code 0 (got $rc)"
+expect "python3 - $T/dump/flip00060.ppm <<'PY'
+import sys
+from PIL import Image
+a = Image.open(sys.argv[1]).convert('RGB')
+# the card's title (Super Sidekicks 2 - The World Championship / Tokuten Ou 2 - Real Fight Football: four lines) is shown
+title = sum(1 for y in range(300, 560) for x in range(600, 1320) if min(a.getpixel((x, y))) >= 225)
+white = sum(1 for y in range(186, 266) for x in range(1082, 1310) if min(a.getpixel((x, y))) >= 225)
+sys.exit(0 if white == 0 and title > 2000 else 1)
+PY" "a long title is drawn below the arcade panel, not over it"
 nosan "$T"
 fi
 

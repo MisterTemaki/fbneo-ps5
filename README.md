@@ -33,7 +33,7 @@ make (the driver list, Musashi's 68000 core, the CPS, Neo Geo, Cave, Psikyo, Toa
 frontends (`src/burner`) and its libretro port host the core: ROM loading from the sets' zips, inputs, DIP
 switches, states, NVRAM, the picture turned the right way up and the sound.
 
-> **Status (1.9.1):** builds with the ps5-payload-dev SDK into a signed native app, and passes 289 host tests, which
+> **Status (2.0):** builds with the ps5-payload-dev SDK into a signed native app, and passes 317 host tests, which
 > run the same code (FBNeo's core included) on Linux with the PS5 calls simulated: two arcade boards running a tiny
 > test program each (a vertical and a horizontal game) are played through the whole chain -- the shelf, the pad,
 > the core, the video and sound output -- and 26 more boards start, run, save and load a state under
@@ -69,11 +69,21 @@ next to Snes9x PS5 (PPSA99922, helper port 9089), Mesen2 PS5 (PPSA99923, port 90
 
 ## Versions
 
-Every release carries its version in the file name: `FBNeoPS5-v1.9.1.elf` (`make dist`). When updating, replace the
+Every release carries its version in the file name: `FBNeoPS5-v2.0.elf` (`make dist`). When updating, replace the
 old ELF with the new one in your autoload or Payload Manager. In this README, "`FBNeoPS5.elf`" always means the
 current release's ELF.
 
-**1.9.1:** **Interface languages:** English (the default), Spanish, Portuguese (Brazil), French and German
+**2.0:** **A button layout per game** (thanks to yuri310258, fbneo-ps5#2): change the buttons in Settings,
+CONTROLS from a game's pause menu and the change is kept for that game only (`/data/fbneo/config/<set>.btn`); a
+clone without its own uses its parent's, the others keep the general layout (the shelf's Settings). See
+[Controls](#controls). **Auto now gives 6-button games Fighting (R1 R2)**, Capcom's PlayStation layout (punches
+Square, Triangle, R1; kicks Cross, Circle, R2) instead of heavy kick on L1; a layout you chose stays, and Fighting
+(6 buttons) is still there. **A game with no cover** gets a card with an arcade panel (a stick and six buttons)
+instead of the SNES pad's four coloured buttons, and a long title starts below it (thanks to CroCop86,
+genplusgxPS5#4). Also in 2.0, from 1.9.1 (not released on its own): the interface in English, Spanish, Portuguese
+(Brazil), French and German, and debug logs off by default.
+
+**1.9.1** (not released on its own; in 2.0): **Interface languages:** English (the default), Spanish, Portuguese (Brazil), French and German
 (Settings, SYSTEM, Language; see [Language](#language)). **Debug logs are off by default** (turn them on in
 Settings, SYSTEM, Debug logs, to report a problem).
 
@@ -210,10 +220,10 @@ installer's and the helper's notifications stay in English.
 
 1. **Send `FBNeoPS5.elf`** with PS5 Payload Manager, or from a PC on the same network:
    ```sh
-   nc -q0 PS5_IP 9021 < FBNeoPS5-v1.9.1.elf
+   nc -q0 PS5_IP 9021 < FBNeoPS5-v2.0.elf
    ```
    It installs the app in `/data/homebrew/PPSA99924/` (`eboot.bin`, `sce_module/libc.prx`, `param.json`, the
-   icon and the backgrounds), shows **"FBNeo PS5 1.9.1 installed. Open it from the FBNeo PS5 icon on the home
+   icon and the backgrounds), shows **"FBNeo PS5 2.0 installed. Open it from the FBNeo PS5 icon on the home
    screen."** and stays running as the helper.
 2. **Open the FBNeo PS5 icon.** The game shelf appears and the controller works.
 3. **Copy your ROM sets** to `/data/fbneo/roms/` (over FTP, for example), or to `fbneo/roms/` on a USB drive.
@@ -346,7 +356,8 @@ wordmark: **github.com/MisterTemaki**.
   - Without a network nothing is tried and the shelf works the same.
 - **Your own covers:** a `.png` or `.jpg` named after the set, in `/data/fbneo/covers/FBNeo/` or `covers/`
   (`covers/sf2ce.png`), or next to the zip, takes priority over downloads.
-- **No cover:** the game gets a card with its title and board.
+- **No cover:** the game gets a card with its title and board, and an arcade panel (a stick and six buttons) at the
+  top right.
 - **Turning downloads off:** Settings, "Download covers".
 
 ### Downloading all the covers yourself
@@ -398,21 +409,22 @@ column by column with bilinear filtering, mipmaps and anti-aliased edges, split 
 **In a game:** the joystick is the D-pad or the left stick; **touchpad click = Coin**, **OPTIONS = Start**. The
 buttons follow the **button layout** (Settings, CONTROLS):
 
-| PS5 | Classic layout (games with up to 5 buttons) | Fighting layout (6-button games: Street Fighter...) | Fighting (R1 R2) layout |
+| PS5 | Classic layout (games with up to 5 buttons) | Fighting (R1 R2) layout (6-button games: Street Fighter...) | Fighting (6 buttons) layout |
 |---|---|---|---|
 | Cross | Button 1 (Neo Geo A) | Button 4 (light kick) | Button 4 (light kick) |
 | Circle | Button 2 (Neo Geo B) | Button 5 (medium kick) | Button 5 (medium kick) |
 | Square | Button 3 (Neo Geo C) | Button 1 (light punch) | Button 1 (light punch) |
 | Triangle | Button 4 (Neo Geo D) | Button 2 (medium punch) | Button 2 (medium punch) |
-| L1 | Button 5 | Button 6 (heavy kick) | -- |
+| L1 | Button 5 | -- | Button 6 (heavy kick) |
 | R1 | Button 6 | Button 3 (heavy punch) | Button 3 (heavy punch) |
-| R2 | -- | -- | Button 6 (heavy kick) |
+| R2 | -- | Button 6 (heavy kick) | -- |
 | touchpad click | Coin | Coin | Coin |
 | OPTIONS | Start | Start | Start |
 
-The **Auto** layout (the default) uses the fighting layout for games with six buttons and the classic one for the
-rest, as FBNeo's libretro core does with a pad. **Fighting (R1 R2)** is Capcom's own PlayStation layout (punches
-on Square, Triangle, R1; kicks on Cross, Circle, R2). In **Custom**, any arcade button can go to L2 or R2 too.
+The **Auto** layout (the default) uses **Fighting (R1 R2)**, Capcom's own PlayStation layout (punches on Square,
+Triangle, R1; kicks on Cross, Circle, R2), for games with six buttons (since 2.0; up to 1.9 it was Fighting (6
+buttons), heavy kick on L1) and the classic one for the rest. **Fighting (6 buttons)** is still there to choose. In
+**Custom**, any arcade button can go to L2 or R2 too.
 L2 and R2 do nothing unless the layout gives them a game button: there are no hot keys on them. Games with analog
 controls (wheels, dials, trackballs, guns) read
 the left stick (and the right stick for a second axis or pedal).
@@ -424,6 +436,13 @@ the left stick (and the right stick for a second axis or pedal).
 That is the only combination: there is no fast forward, and saving or loading a state goes through the pause menu.
 
 Up to four players: players 2 to 4 are the other signed-in users' controllers, with the same layout.
+
+**A layout per game (2.0):** Settings, CONTROLS from the shelf sets the **general layout**, the one every game uses
+unless it has its own. Opened from a game's pause menu, it says whose layout it shows ("For this game: ..." or "This
+game uses the general layout"), and a change there is kept for **that game only**, in
+`/data/fbneo/config/<set>.btn` (next to its `.dip`): set King of Fighters' buttons without touching Street
+Fighter's. A clone without its own file uses its parent set's. **Default button layout** in a game puts it back on
+the general layout (its file is removed; a clone whose parent has a layout gets a file saying `layout=general`).
 
 **DIP switches:** the pause menu's **DIP switches** shows the game's switches (difficulty, lives, coinage, cabinet,
 the Neo Geo's BIOS and region...) with their current setting; **Left / Right** change one (`*` marks a setting
@@ -445,7 +464,9 @@ Triangle on the shelf, or "Settings" in the pause menu:
   touchpad, or none). In a game the rows show the game's own names for its buttons (`Button 1 (Weak Punch)`).
   Changing a button makes the layout Custom, starting from the one shown; **Default button layout** goes back to
   Auto. L3 and R3 stay for the pause menu.
-  Saved in `fbneo-ps5.ini` (`layout`, `btn_1`...`btn_start`; L2 is 9 and R2 is 10 there).
+  Saved in `fbneo-ps5.ini` (`layout`, `btn_1`...`btn_start`; L2 is 9 and R2 is 10 there). From a game's pause
+  menu, the change is for that game only (`config/<set>.btn`, the same keys; see [Controls](#controls)), and
+  Default button layout puts the game back on the general layout.
 - **Library:** download covers, show clones, show incomplete sets, **BIOS sets** (Cross: which BIOS sets your
   games need and whether each is there; see [ROM sets](#rom-sets)).
 - **System:** **Language** (see [Language](#language)); **Debug logs** (Off by default) -- see [Debugging](#debugging-logs-and-crashes); **Updates** -- see
@@ -554,7 +575,7 @@ make ps5 -j$(nproc)              # build/ps5/FBNeoPS5.elf (installer + helper, w
 make send PS5_HOST=192.168.0.10  # sends it to elfldr (port 9021)
 make dist                        # build/dist/FBNeoPS5-v<version>.elf + the release zip
 make app                         # only build/app/PPSA99924/, to copy by hand
-make test                        # Linux builds (app, installer, helper, headless core) + 289 host tests (ASan/UBSan)
+make test                        # Linux builds (app, installer, helper, headless core) + 317 host tests (ASan/UBSan)
 ```
 
 The first build compiles FBNeo's 1,039 core files (about 15 minutes on 2 cores; `make core-ps5` builds just those).
@@ -609,10 +630,10 @@ The build has three stages:
   DIP switches saved and read back and in place before a driver starts, a frame's and a save state's time, a driver's palette made at start), the
   stand-in ROM sets (`make_fake_set.py`: every ROM a driver lists, with its name and its CRC, as FBNeo's split
   sets are made), the test programs (`tests/data`: a tiny Z80 program on the Pac-Man board, red screen, green
-  while the joystick or the button is pressed), and the 237 tests: picture, rotation, input and states on a
+  while the joystick or the button is pressed), and the 317 tests: picture, rotation, input and states on a
   vertical and a horizontal game, the library (parents, BIOS sets, incomplete sets, the check's cache), a set with
-  a ROM missing, DIP switches, button layouts, sound latency and pacing by the sound, 720p, install (packed
-  files), covers (flyer, parent's flyer, screenshot, 404), tabs and clones, the CRT shaders (each one, both
+  a ROM missing, DIP switches, button layouts (a layout per game, a clone using its parent's, Auto's Fighting (R1 R2) for 6-button games), sound latency and pacing by the sound, 720p, install (packed
+  files), covers (flyer, parent's flyer, screenshot, 404, the no-cover card's arcade panel with a long title below it), tabs and clones, the CRT shaders (each one, both
   orientations, under ASan/UBSan), settings, no fast forward or rewind, the pause menu's Service, the pad, the helper and sandbox request
   (unknown titles refused, slow clients, links), covers downloaded by the helper while the shelf runs (and the
   prefetch with an older helper), debug logs, 26 boards started under ASan with a state round trip, Cabal's
