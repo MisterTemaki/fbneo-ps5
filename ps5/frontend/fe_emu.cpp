@@ -247,17 +247,24 @@ struct State
 	emu::ButtonLayout game_layout;
 	// game_layout.players are the game's own (its file has controller_N keys, or they were changed in the game and differ
 	// from the general setting's); else the game follows the general setting's players
+	// the game's own players (game_pl: its file's controller_N keys, or its parent's, or changed in the game and different
+	// from the general setting's); else (game_players false) the general setting's. Kept apart from the buttons: a file
+	// can say "layout=general" (the buttons follow the general layout) and still have players of its own.
 	bool game_players = false;
+	int game_pl[emu::kPads] = {0, 1, 2, 3};
+	bool players_parent = false; // game_pl came from the parent set's file
 	bool players_from_file = false; // game_players as the game started (its file, or its parent's, had them)
+	bool players_changed = false; // changed in the pause menu: the message again when the game resumes
 	// the controllers connected (bit per slot) when the players message was last made, and a change seen since (frames
 	// it has lasted: a user signing out moves the later users' pads up a slot, onto that slot's player)
 	unsigned pads_shown = 0, pads_seen = 0;
 	int pads_stable = 0;
 	std::string parent, parent_title;
-	// controller 1 (the foreground user's pad, whatever player it plays): the pause menu's combination, and nothing of
-	// it reaches the game while the buttons that closed a menu (or opened it) are held
+	// controller 1 (the foreground user's pad, whatever player it plays): the pause menu's combination
 	uint32_t prev_p1 = 0;
-	bool wait_release = true;
+	// the controllers (bit per slot) whose buttons that closed a menu (or opened it, or joined on Choose players) are
+	// still held: nothing of them reaches the game until they are let go
+	unsigned wait_release = 0xf;
 	bool service = false, test = false;
 
 	// the pause menu's Service / Test: frames left to hold the machine's button
@@ -316,9 +323,10 @@ enum class BtnFile
 	General,
 };
 
-// *players (when given): whether the file has the controllers' players (controller_N keys, 2.1); a file without them
-// (2.0's, or a game whose players were never changed) follows the general setting's players.
-BtnFile ReadBtn(const std::string& path, emu::ButtonLayout* out, bool* players = nullptr)
+// players (when given): the controllers' players the file has (controller_N keys, 2.1), and *has_players whether it has
+// any; a file without them (2.0's, or a game whose players were never changed) follows the general setting's players.
+// A "layout=general" file can have them too (the buttons follow the general layout, the players are the game's).
+BtnFile ReadBtn(const std::string& path, emu::ButtonLayout* out, int* players = nullptr, bool* has_players = nullptr)
 {
 	FILE* f = fopen(path.c_str(), "r");
 	if (!f)
@@ -364,8 +372,10 @@ BtnFile ReadBtn(const std::string& path, emu::ButtonLayout* out, bool* players =
 	}
 	fclose(f);
 	fe::FixPadPlayers(l.players, named, base.players, path.substr(path.find_last_of('/') + 1).c_str());
+	if (has_players)
+		*has_players = named != 0 && has_layout;
 	if (players)
-		*players = named != 0 && !general;
+		std::copy(l.players, l.players + emu::kPads, players);
 	// an empty or damaged file (no valid layout= line) is ignored: the game follows its parent or the general layout
 	if (!has_layout)
 	{
@@ -379,8 +389,8 @@ BtnFile ReadBtn(const std::string& path, emu::ButtonLayout* out, bool* players =
 	return BtnFile::Layout;
 }
 
-// l = nullptr: "layout=general"; players: write the controllers' players too (the game has players of its own)
-bool WriteBtn(const std::string& path, const emu::ButtonLayout* l, bool players)
+// l = nullptr: "layout=general"; players (when given): the controllers' players too (the game has players of its own)
+bool WriteBtn(const std::string& path, const emu::ButtonLayout* l, const int* players)
 {
 	fe::PrepareFolders();
 	const std::string tmp = path + ".tmp";
@@ -395,10 +405,10 @@ bool WriteBtn(const std::string& path, const emu::ButtonLayout* l, bool players)
 		fprintf(f, "layout=%d\n", l->layout);
 		for (int i = 0; i < emu::kArcadeButtonCount; i++)
 			fprintf(f, "%s=%d\n", emu::kArcadeButtons[i].key, l->buttons[i]);
-		// 2.1: the player each controller plays (0: none), only when this game has its own
-		for (int i = 0; players && i < emu::kPads; i++)
-			fprintf(f, "controller_%d=%d\n", i + 1, l->players[i] + 1);
 	}
+	// 2.1: the player each controller plays (0: none), only when this game has its own
+	for (int i = 0; players && i < emu::kPads; i++)
+		fprintf(f, "controller_%d=%d\n", i + 1, players[i] + 1);
 	bool ok = fflush(f) == 0 && ferror(f) == 0;
 	ok = fsync(fileno(f)) == 0 && ok;
 	ok = fclose(f) == 0 && ok;
@@ -410,13 +420,15 @@ bool WriteBtn(const std::string& path, const emu::ButtonLayout* l, bool players)
 	return true;
 }
 
-// The layout the game starts with: its own file, else its parent's, else the general one.
+// The layout the game starts with: its own file, else its parent's, else the general one. The players the same way: its
+// own file's (a file without them: the general setting's), else its parent's file's, else the general setting's.
 void FindGameLayout()
 {
 	g.owner = emu::LayoutOwner::General;
-	g.game_players = false;
+	g.game_players = g.players_parent = false;
 	const std::string own = BtnPath(g.set);
-	switch (ReadBtn(own, &g.game_layout, &g.game_players))
+	const BtnFile mine = ReadBtn(own, &g.game_layout, g.game_pl, &g.game_players);
+	switch (mine)
 	{
 		case BtnFile::Layout:
 			g.owner = emu::LayoutOwner::Game;
@@ -427,13 +439,38 @@ void FindGameLayout()
 			return;
 		case BtnFile::None: break;
 	}
-	if (!g.parent.empty() && ReadBtn(BtnPath(g.parent), &g.game_layout, &g.game_players) == BtnFile::Layout)
+	if (!g.parent.empty())
 	{
-		g.owner = emu::LayoutOwner::Parent;
-		OrbisLog("[emu] button layout of the parent set: %s", BtnPath(g.parent).c_str());
-		return;
+		emu::ButtonLayout l;
+		const BtnFile theirs = ReadBtn(BtnPath(g.parent), &l, g.game_pl, &g.game_players);
+		g.players_parent = g.game_players;
+		if (theirs == BtnFile::Layout)
+		{
+			g.game_layout = l;
+			g.owner = emu::LayoutOwner::Parent;
+			OrbisLog("[emu] button layout of the parent set: %s", BtnPath(g.parent).c_str());
+			return;
+		}
 	}
 	OrbisLog("[emu] button layout: the general one");
+}
+
+// Writes the game's file after a change: its buttons (or "layout=general"), and its players when it has its own; no file
+// when it has neither (and none is needed to keep a clone off its parent's layout).
+bool SaveGameFile()
+{
+	const std::string path = BtnPath(g.set);
+	const int* players = g.game_players ? g.game_pl : nullptr;
+	if (g.owner == emu::LayoutOwner::Parent && players)
+		g.owner = emu::LayoutOwner::Game; // its own file now: the parent's buttons, copied, with its players
+	if (g.owner == emu::LayoutOwner::Game)
+		return WriteBtn(path, &g.game_layout, players);
+	if (g.owner == emu::LayoutOwner::Parent)
+		return true; // nothing of its own
+	const bool parent_layout = !g.parent.empty() && ReadBtn(BtnPath(g.parent), nullptr) == BtnFile::Layout;
+	if (players || parent_layout)
+		return WriteBtn(path, nullptr, players);
+	return !FileExists(path) || remove(path.c_str()) == 0;
 }
 
 // ---- pads -> the core ----------------------------------------------------------------------------------------
@@ -467,7 +504,8 @@ void ApplyLayout()
 	if (players != g.players_logged)
 	{
 		g.players_logged = players;
-		OrbisLog("[emu] players (%s layout):%s", kOwner[int(emu::ControlsOwner())], players.c_str());
+		OrbisLog("[emu] players (%s layout):%s", !g.loaded || !g.game_players ? kOwner[0] : g.players_parent ? kOwner[2] : kOwner[1],
+			players.c_str());
 	}
 }
 
@@ -567,8 +605,8 @@ burn::Input ReadPads()
 		const ps5input::PadState s = ps5input::Snapshot(c);
 		if (!s.connected)
 			continue;
-		// controller 1 while the buttons that closed a menu (or opened it) are held: nothing reaches the game
-		if (c == 0 && g.wait_release)
+		// a controller whose buttons that closed a menu (or opened it, or joined) are held: nothing reaches the game
+		if (g.wait_release & (1u << c))
 			continue;
 		burn::PlayerInput& pi = in.player[p];
 		pi.up = s.buttons & SCE_PAD_BUTTON_UP; // the D-pad, or the left stick
@@ -820,7 +858,8 @@ bool LoadGame(const std::string& path, std::string* error)
 	g.in.clear();
 	g.mute = false;
 	g.loaded = true;
-	g.wait_release = true;
+	g.wait_release = 0xf;
+	g.players_changed = false;
 	g.prev_p1 = 0;
 	g.service = g.test = false;
 	g.service_frames = g.test_frames = 0;
@@ -888,7 +927,12 @@ void Pause() {}
 void Resume()
 {
 	ApplySettings();
-	g.wait_release = true;
+	g.wait_release = 0xf;
+	if (g.players_changed)
+	{
+		g.players_changed = false;
+		ShowPlayers(true); // the players changed in the pause menu: who plays whom now
+	}
 	ps5video::InvalidateFrame();
 	g.new_frame = true;
 }
@@ -999,14 +1043,35 @@ std::string ParentTitle()
 
 ButtonLayout Controls()
 {
-	if (ControlsOwner() == LayoutOwner::General)
-		return GeneralLayout();
-	ButtonLayout l = g.game_layout;
-	if (!g.game_players)
-		for (int i = 0; i < kPads; i++)
-			l.players[i] = fe::Config().pad_player[i];
+	ButtonLayout l = ControlsOwner() == LayoutOwner::General ? GeneralLayout() : g.game_layout;
+	for (int i = 0; i < kPads; i++)
+		l.players[i] = g.loaded && g.game_players ? g.game_pl[i] : fe::Config().pad_player[i];
 	return l;
 }
+
+namespace
+{
+// The game's players become `players`: kept for this game when they already were (its file, or its parent's, had them)
+// or now differ from the general setting's; else it follows the general setting's.
+void TakePlayers(const int* players)
+{
+	int p[kPads];
+	std::copy(players, players + kPads, p);
+	fe::FixPadPlayers(p);
+	bool differ = false, changed = false;
+	const ButtonLayout before = Controls();
+	for (int i = 0; i < kPads; i++)
+	{
+		differ = differ || p[i] != fe::Config().pad_player[i];
+		changed = changed || p[i] != before.players[i];
+	}
+	g.game_players = g.players_from_file || differ;
+	if (changed)
+		g.players_parent = false;
+	std::copy(p, p + kPads, g.game_pl);
+	g.players_changed = g.players_changed || changed;
+}
+} // namespace
 
 void SetControls(const ButtonLayout& l)
 {
@@ -1022,17 +1087,26 @@ void SetControls(const ButtonLayout& l)
 		return;
 	}
 	g.game_layout = l;
-	fe::FixPadPlayers(g.game_layout.players);
-	// the players are kept for this game when they already were (its file, or its parent's, had them) or now differ from
-	// the general setting's: a button changed in a game leaves it following the general players
-	bool differ = false;
-	for (int i = 0; i < kPads; i++)
-		differ = differ || g.game_layout.players[i] != fe::Config().pad_player[i];
-	g.game_players = g.players_from_file || differ;
+	TakePlayers(l.players);
 	g.owner = LayoutOwner::Game;
-	const std::string path = BtnPath(g.set);
-	const bool ok = WriteBtn(path, &g.game_layout, g.game_players);
-	OrbisLog("[emu] button layout for %s only: %s (%s %s)", g.set.c_str(), kLayouts[l.layout].name, path.c_str(),
+	const bool ok = SaveGameFile();
+	OrbisLog("[emu] button layout for %s only: %s (%s %s)", g.set.c_str(), kLayouts[l.layout].name, BtnPath(g.set).c_str(),
+		ok ? "saved" : "not saved");
+	ApplyLayout();
+}
+
+void SetPlayers(const int* players)
+{
+	if (!g.loaded)
+	{
+		fe::Settings& c = fe::Config();
+		std::copy(players, players + kPads, c.pad_player);
+		fe::FixPadPlayers(c.pad_player);
+		return;
+	}
+	TakePlayers(players);
+	const bool ok = SaveGameFile();
+	OrbisLog("[emu] players for %s only (%s): %s", g.set.c_str(), g.game_players ? "its own" : "the general ones",
 		ok ? "saved" : "not saved");
 	ApplyLayout();
 }
@@ -1050,7 +1124,7 @@ void DefaultControls()
 	// a clone whose parent set has a layout: its file says "general" (without a file it would follow its parent)
 	if (!g.parent.empty() && ReadBtn(BtnPath(g.parent), nullptr) == BtnFile::Layout)
 	{
-		const bool ok = WriteBtn(path, nullptr, false);
+		const bool ok = WriteBtn(path, nullptr, nullptr);
 		OrbisLog("[emu] %s: back to the general button layout (%s %s)", g.set.c_str(), path.c_str(), ok ? "says so" : "not saved");
 	}
 	else
@@ -1061,7 +1135,7 @@ void DefaultControls()
 			!had ? "it had no file" : removed ? (path + " removed").c_str() : (path + " could not be removed").c_str());
 	}
 	g.owner = LayoutOwner::General;
-	g.game_players = g.players_from_file = false;
+	g.game_players = g.players_from_file = g.players_parent = false;
 	ApplyLayout();
 }
 
@@ -1095,11 +1169,14 @@ FrameResult RunFrame()
 	ps5input::Poll();
 	const uint32_t raw = ps5input::Pad(0).raw_buttons;
 	WatchPads();
-	if (g.wait_release)
-	{
-		g.wait_release = (raw & (SCE_PAD_BUTTON_L3 | SCE_PAD_BUTTON_R3 | SCE_PAD_BUTTON_CROSS | SCE_PAD_BUTTON_CIRCLE)) != 0;
+	// each controller is let through once it has let go of the buttons the menus use
+	const uint32_t menu_buttons = SCE_PAD_BUTTON_L3 | SCE_PAD_BUTTON_R3 | SCE_PAD_BUTTON_CROSS | SCE_PAD_BUTTON_CIRCLE |
+		SCE_PAD_BUTTON_SQUARE | SCE_PAD_BUTTON_OPTIONS;
+	if (g.wait_release & 1u)
 		g.prev_p1 = raw;
-	}
+	for (int c = 0; c < emu::kPads; c++)
+		if ((g.wait_release & (1u << c)) && !(ps5input::Pad(c).raw_buttons & menu_buttons))
+			g.wait_release &= ~(1u << c);
 	const uint32_t pressed = raw & ~g.prev_p1;
 	g.prev_p1 = raw;
 	const uint32_t menu_combo = SCE_PAD_BUTTON_L3 | SCE_PAD_BUTTON_R3;

@@ -34,7 +34,7 @@ make (the driver list, Musashi's 68000 core, the CPS, Neo Geo, Cave, Psikyo, Toa
 frontends (`src/burner`) and its libretro port host the core: ROM loading from the sets' zips and 7z archives, inputs, DIP
 switches, states, NVRAM, the picture turned the right way up and the sound.
 
-> **Status (2.1):** builds with the ps5-payload-dev SDK into a signed native app, and passes 498 host tests, which
+> **Status (2.1):** builds with the ps5-payload-dev SDK into a signed native app, and passes 523 host tests, which
 > run the same code (FBNeo's core included) on Linux with the PS5 calls simulated: two arcade boards running a tiny
 > test program each (a vertical and a horizontal game) are played through the whole chain -- the shelf, the pad,
 > the core, the video and sound output -- and 26 more boards start, run, save and load a state under
@@ -76,12 +76,13 @@ Every release carries its version in the file name: `FBNeoPS5-v2.1.elf` (`make d
 old ELF with the new one in your autoload or Payload Manager. In this README, "`FBNeoPS5.elf`" always means the
 current release's ELF.
 
-**2.1:** **Choose which arcade player each controller plays** (thanks to gitloth, fbneo-ps5#3): Settings,
-CONTROLS, CONTROLLERS has a row for each controller (its light bar's colour, and whether it is connected) with the
-player it plays, Player 1 to 4 or none. A 4-player game that ties each character to its cabinet's slot (The
-Simpsons, Sunset Riders) can be played by three people on the slots they want, and a single controller can play
-player 2 (the 2-player editions). Choosing a player another controller has swaps them, so nobody is left without
-one. Like the button layout, a change from a game's pause menu is kept for that game (and its clones), one from the
+**2.1:** **Choose which arcade player each controller plays** (thanks to gitloth, fbneo-ps5#3). The simple way:
+**Choose players** in the pause menu (or at the top of Settings, CONTROLS, CONTROLLERS on the shelf) asks "Player 1:
+press X on your controller", then Player 2, and so on: whoever presses X gets that player, as in many PS5 games. A
+4-player game that ties each character to its cabinet's slot (The Simpsons, Sunset Riders) can be played by three
+people on the slots they want, and a single controller can play player 2 (the 2-player editions). The advanced way:
+a row for each controller (its light bar's colour, and whether it is connected) with the player it plays, Player 1 to
+4 or none; choosing a player another controller has swaps them, so nobody is left without one. Like the button layout, a change from a game's pause menu is kept for that game (and its clones), one from the
 shelf's Settings for every game; **Default controls** (it was Default button layout) puts the buttons and the players
 back. A game that starts with a controller on another player says so for a few seconds ("Controller 1: Player 3").
 The pause menu (L3 + R3) stays on controller 1, whatever player it plays. When a user signs in or out during a game the
@@ -554,7 +555,7 @@ the left stick (and the right stick for a second axis or pedal).
 
 | Combination | Does |
 |---|---|
-| L3 + R3 | pause menu: save / load state, slot, **DIP switches**, the machine's **service** button and **test** switch (its own setup menu, on the boards that have one), settings, reset, power cycle, back to the list, quit |
+| L3 + R3 | pause menu: save / load state, slot, **DIP switches**, **Choose players** (2.1), the machine's **service** button and **test** switch (its own setup menu, on the boards that have one), settings, reset, power cycle, back to the list, quit |
 
 That is the only combination: there is no fast forward, and saving or loading a state goes through the pause menu.
 
@@ -562,8 +563,22 @@ That is the only combination: there is no fast forward, and saving or loading a 
 controllers are the signed-in users' pads: **controller 1** is the user in front (the one who opened FBNeo PS5),
 controllers 2 to 4 are the other signed-in users, in the order the console lists them. Their **light bars** say
 which is which: controller 1 **blue**, 2 **red**, 3 **green**, 4 **pink**. Every controller uses the same button
-layout. By default controller N plays player N; Settings, CONTROLS, **CONTROLLERS** changes that: each controller's
-row (`Controller 2 (red light), connected`) takes **Player 1** to **Player 4** or **No player** (Left / Right).
+layout. By default controller N plays player N.
+
+**Choose players (the simple way):** in the pause menu (L3 + R3, under DIP switches), or from the shelf at the top of
+Settings, CONTROLS, CONTROLLERS (`Choose players (press X on each controller)...`). The screen asks **"Player 1: press
+X on your controller"**, then Player 2, and so on up to the game's number of players (four from the shelf): whichever
+connected controller presses **X** gets that player; a controller that has joined already is passed over. The screen
+lists the players as they fill (`Player 1  Controller 3 (green light)`) and the controllers, connected and free or not.
+It ends by itself once every player of the game has a controller or every connected controller has joined. On
+**controller 1**: **OPTIONS** ends it now (the players left get no controller, the controllers that didn't press X get
+no player; with nobody in yet it changes nothing), **Square** starts again, **Circle** cancels (nothing changes). The
+other controllers can only join. From a game's pause menu the result is kept for that game (only its players: its
+buttons stay as they are) and the game resumes with the message saying who plays whom; from the shelf it is the
+general setting. The X that joined doesn't reach the game.
+
+**The list (the advanced way):** Settings, CONTROLS, **CONTROLLERS**: each controller's row
+(`Controller 2 (red light), connected`) takes **Player 1** to **Player 4** or **No player** (Left / Right).
 Choosing a player another controller already has **swaps** them: that controller gets this one's old player (or, when
 this one had none, the lowest player left free), so each player has one controller at most and nobody silently loses
 control. Each Left / Right on a row is one swap from the players as they were when the cursor came onto that row, so
@@ -622,9 +637,9 @@ Triangle on the shelf, or "Settings" in the pause menu:
 - **Controls:** **button layout** (Auto, Classic, Fighting, Fighting (R1 R2), Custom), then the PS5 button of
   each arcade button (Button 1 to 6, Coin, Start: Cross, Circle, Square, Triangle, L1, R1, L2, R2, OPTIONS, the
   touchpad, or none). In a game the rows show the game's own names for its buttons (`Button 1 (Weak Punch)`).
-  Changing a button makes the layout Custom, starting from the one shown. Then **CONTROLLERS** (2.1): the player each
-  controller plays (Player 1 to 4, or none; choosing a taken player swaps the two controllers; see
-  [Controls](#controls)). **Default controls** goes back to Auto and controller N = player N. L3 and R3 stay for the
+  Changing a button makes the layout Custom, starting from the one shown. Then **CONTROLLERS** (2.1): **Choose
+  players** (each controller presses X in turn), then the player each controller plays (Player 1 to 4, or none;
+  choosing a taken player swaps the two controllers; see [Controls](#controls)). **Default controls** goes back to Auto and controller N = player N. L3 and R3 stay for the
   pause menu.
   Saved in `fbneo-ps5.ini` (`layout`, `btn_1`...`btn_start`, `controller_1`...`controller_4`; L2 is 9 and R2 is 10
   there). From a game's pause menu, the change is for that game only (`config/<set>.btn`, the same keys; see

@@ -250,7 +250,8 @@ enum SettingRow
 	S_BTN_FIRST,
 	S_BTN_LAST = S_BTN_FIRST + emu::kArcadeButtonCount - 1,
 	H_PADS, // 2.1 (fbneo-ps5#3): the arcade player each controller plays
-	S_PAD_FIRST,
+	S_PAD_CHOOSE, // Choose players: each controller presses Cross in turn (the simple way)
+	S_PAD_FIRST, // each controller's player (the advanced way)
 	S_PAD_LAST = S_PAD_FIRST + emu::kPads - 1,
 	S_BTN_DEFAULT, // "Default controls": the buttons and the players
 	H_LIBRARY,
@@ -392,6 +393,12 @@ Row SettingRowFor(int s)
 		}
 		case S_LAYOUT: return {"Button layout", emu::kLayouts[emu::Controls().layout].name};
 		case H_PADS: return {"CONTROLLERS (controller  ->  arcade player)", "", true, true};
+		case S_PAD_CHOOSE:
+		{
+			Row r{Fmt(T("Choose players (press %s on each controller)..."), icon::Cross), ""};
+			r.action = true;
+			return r;
+		}
 		case S_BTN_DEFAULT: return {"Default controls (buttons and players)", ""};
 		case H_LIBRARY: return {"LIBRARY", "", true, true};
 		case S_COVERS: return {"Download covers", OnOff(c.covers_download)};
@@ -531,7 +538,7 @@ void ChangeSetting(int s, int dir)
 				const int next = emu::NextPlayer(l.players[pad], dir);
 				std::copy(g_pad_snap.players, g_pad_snap.players + emu::kPads, l.players);
 				emu::ChoosePlayer(l.players, pad, next);
-				emu::SetControls(l); // in a game, for that game only
+				emu::SetPlayers(l.players); // in a game, for that game only (its buttons stay as they are)
 			}
 			break;
 	}
@@ -566,6 +573,7 @@ void Background(bool over_game)
 }
 
 void BiosScreen(bool over_game);
+bool ChoosePlayersScreen(bool over_game);
 
 void SettingsScreen(bool over_game)
 {
@@ -603,6 +611,14 @@ void SettingsScreen(bool over_game)
 			if (n.ok)
 				BiosScreen(over_game);
 		}
+		else if (sel == S_PAD_CHOOSE)
+		{
+			if (n.ok)
+			{
+				ChoosePlayersScreen(over_game);
+				nav = NavReader();
+			}
+		}
 		else if (sel == S_NETWORK)
 		{
 			if (n.ok && rows[size_t(sel)].enabled)
@@ -619,6 +635,128 @@ void SettingsScreen(bool over_game)
 			return;
 		}
 	}
+}
+
+// ---- Choose players (2.1): "Player 1: press Cross on your controller", then Player 2... -------------------------------
+// Whichever connected controller presses Cross gets the player asked for; one that joined already is passed over. It
+// ends by itself once every player of the game has a controller or every connected controller has joined; on
+// controller 1, OPTIONS ends it now (the players left get no controller, the controllers that didn't join no player),
+// Square starts again and Circle leaves with nothing changed. Only controller 1 can end it or leave. Returns whether
+// the players were changed (saved as the CONTROLLERS rows save them: in a game for that game, else the general setting).
+bool ChoosePlayersScreen(bool over_game)
+{
+	static const char* const kLight[emu::kPads] = {"blue", "red", "green", "pink"};
+	int players = emu::GameLoaded() ? emu::GamePlayers() : emu::kPads;
+	if (players <= 0 || players > emu::kPads)
+		players = emu::kPads;
+	int joined[emu::kPads]; // controller -> player (-1: not yet)
+	int holder[emu::kPads]; // player -> controller (-1: nobody yet)
+	int next = 0; // the player asked for
+	auto restart = [&] {
+		for (int i = 0; i < emu::kPads; i++)
+			joined[i] = holder[i] = -1;
+		next = 0;
+	};
+	restart();
+	uint32_t prev[emu::kPads];
+	ps5input::Poll();
+	for (int c = 0; c < emu::kPads; c++)
+		prev[c] = ps5input::Pad(c).raw_buttons; // buttons held from before don't count
+	OrbisLog("[players] choose players: %d player(s)", players);
+	int done_frames = -1; // counting down once it is over (the list shown a moment)
+	for (;;)
+	{
+		ps5input::Poll();
+		unsigned connected = 0;
+		uint32_t down[emu::kPads];
+		for (int c = 0; c < emu::kPads; c++)
+		{
+			const ps5input::PadState& st = ps5input::Pad(c);
+			connected |= st.connected ? 1u << c : 0;
+			down[c] = st.raw_buttons & ~prev[c];
+			prev[c] = st.raw_buttons;
+		}
+		if (done_frames < 0)
+		{
+			if (down[0] & SCE_PAD_BUTTON_CIRCLE)
+			{
+				OrbisLog("[players] cancelled: nothing changed");
+				return false;
+			}
+			if (down[0] & SCE_PAD_BUTTON_SQUARE)
+			{
+				OrbisLog("[players] start again");
+				restart();
+				continue;
+			}
+			for (int c = 0; c < emu::kPads && next < players; c++)
+				if ((connected & (1u << c)) && (down[c] & SCE_PAD_BUTTON_CROSS) && joined[c] < 0)
+				{
+					joined[c] = next;
+					holder[next] = c;
+					OrbisLog("[players] player %d: controller %d", next + 1, c + 1);
+					next++;
+				}
+			bool all_in = next > 0;
+			for (int c = 0; c < emu::kPads; c++)
+				all_in = all_in && (!(connected & (1u << c)) || joined[c] >= 0);
+			const bool now = (down[0] & SCE_PAD_BUTTON_OPTIONS) != 0;
+			if (now && next == 0)
+			{
+				OrbisLog("[players] OPTIONS with nobody in: cancelled, nothing changed");
+				return false;
+			}
+			if (next == players || all_in || now)
+			{
+				OrbisLog("[players] done (%s)", next == players ? "every player has a controller"
+						: all_in ? "every connected controller joined" : "OPTIONS");
+				done_frames = 45;
+			}
+		}
+		else if (--done_frames <= 0)
+			break;
+
+		// the screen
+		std::vector<Row> rows;
+		Row prompt{done_frames >= 0 ? std::string(T("Players chosen.")) :
+			Fmt(T("Player %d: press %s on your controller"), next + 1, icon::Cross), ""};
+		prompt.action = true;
+		rows.push_back(prompt);
+		rows.push_back({"PLAYERS", "", true, true});
+		for (int p = 0; p < players; p++)
+		{
+			Row r{Fmt(T("Player %d"), p + 1), holder[p] >= 0 ? Fmt(T("Controller %d (%s light)"), holder[p] + 1, T(kLight[holder[p]]))
+														 : std::string(p == next && done_frames < 0 ? "Waiting..." : "-")};
+			r.action = true;
+			r.value_color = holder[p] >= 0 ? Rgb(120, 220, 140) : kDim;
+			rows.push_back(r);
+		}
+		rows.push_back({"CONTROLLERS", "", true, true});
+		for (int c = 0; c < emu::kPads; c++)
+		{
+			const bool on = connected & (1u << c);
+			Row r{Fmt(T("Controller %d (%s light)"), c + 1, T(kLight[c])),
+				joined[c] >= 0 ? Fmt(T("Player %d"), joined[c] + 1) : on ? "Free" : "Not connected", on};
+			r.action = true;
+			r.value_color = joined[c] >= 0 ? Rgb(120, 220, 140) : on ? kAccent : kDim;
+			rows.push_back(r);
+		}
+		Background(over_game);
+		const int bottom = DrawOptionBox("Choose players", rows, 0, over_game);
+		const std::string help = Fmt(T("Controller 1:  %s Done     %s Start again     %s Cancel"), icon::Options, icon::Square,
+			icon::Circle);
+		DrawText((W - TextWidth(help.c_str(), 3)) / 2, std::min(H - 60, bottom + 20), help.c_str(), 3, kText);
+		Present();
+	}
+	int result[emu::kPads];
+	for (int c = 0; c < emu::kPads; c++)
+		result[c] = joined[c] >= 0 ? joined[c] : emu::kNoPlayer;
+	OrbisLog("[players] chosen: controller 1=%d controller 2=%d controller 3=%d controller 4=%d (0: none)", result[0] + 1,
+		result[1] + 1, result[2] + 1, result[3] + 1);
+	emu::SetPlayers(result);
+	if (!emu::GameLoaded())
+		Config().Save();
+	return true;
 }
 
 // The game's DIP switches: Left / Right change one (kept per game), the last rows put the defaults back.
@@ -807,6 +945,7 @@ PauseAction PauseMenu()
 		I_LOAD,
 		I_SLOT,
 		I_DIPS,
+		I_PLAYERS,
 		I_SERVICE,
 		I_TEST,
 		I_SETTINGS,
@@ -832,6 +971,7 @@ PauseAction PauseMenu()
 		snprintf(buf, sizeof(buf), T(emu::StateExists(cfg.state_slot) ? "%d (used)" : "%d (empty)"), cfg.state_slot);
 		rows[I_SLOT] = {"State slot", buf};
 		rows[I_DIPS] = {"DIP switches", "", !emu::Dips().empty()};
+		rows[I_PLAYERS] = {"Choose players", ""};
 		rows[I_SERVICE] = {"Service button", ""};
 		rows[I_TEST] = {"Test switch (the machine's own menu)", ""};
 		rows[I_SETTINGS] = {"Settings", ""};
@@ -889,6 +1029,11 @@ PauseAction PauseMenu()
 						DipScreen();
 						nav = NavReader();
 					}
+					break;
+				case I_PLAYERS:
+					if (ChoosePlayersScreen(true))
+						return PauseAction::Resume; // (the buttons still held don't reach the game: emu::Resume)
+					nav = NavReader();
 					break;
 				case I_SERVICE:
 					emu::PressService();

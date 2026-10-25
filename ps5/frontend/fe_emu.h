@@ -86,6 +86,10 @@ std::string ParentTitle();   // the parent set's title, for LayoutOwner::Parent
 ButtonLayout Controls();     // the layout in use (no game: the general one)
 // Changes the layout: in a game, saved for that game only (config/<set>.btn); with no game, the general one.
 void SetControls(const ButtonLayout& l);
+// Changes only the controllers' players (the buttons stay as they are): in a game, kept for that game (config/<set>.btn,
+// with "layout=general" when its buttons follow the general layout) unless they are the general setting's; with no
+// game, the general setting. The message says who plays whom when the game resumes.
+void SetPlayers(const int* players);
 // "Default controls": in a game, back to the general layout and players (its file removed); with no game, the
 // general layout back to Auto and controller N back to player N.
 void DefaultControls();
