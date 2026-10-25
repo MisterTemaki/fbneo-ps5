@@ -643,39 +643,68 @@ void SettingsScreen(bool over_game)
 // controller 1, OPTIONS ends it now (the players left get no controller, the controllers that didn't join no player),
 // Square starts again and Circle leaves with nothing changed. Only controller 1 can end it or leave. Returns whether
 // the players were changed (saved as the CONTROLLERS rows save them: in a game for that game, else the general setting).
+//
+// Who joined is kept by user, not by slot: a user signing out moves the later users' pads up a slot (ProsperoInput), and
+// their players go with them. "Connected" is the slots' state once it has held for half a second, so a read that fails
+// for a moment doesn't end the screen before that controller has joined. The controllers that aren't connected when it
+// ends get the players left over, in order (a user signing in later plays one), the connected ones that didn't press
+// Cross none.
 bool ChoosePlayersScreen(bool over_game)
 {
 	static const char* const kLight[emu::kPads] = {"blue", "red", "green", "pink"};
 	int players = emu::GameLoaded() ? emu::GamePlayers() : emu::kPads;
 	if (players <= 0 || players > emu::kPads)
 		players = emu::kPads;
-	int joined[emu::kPads]; // controller -> player (-1: not yet)
-	int holder[emu::kPads]; // player -> controller (-1: nobody yet)
-	int next = 0; // the player asked for
+	int32_t holder[emu::kPads]; // player -> the user who has it (-1: nobody yet)
+	int next = 0;               // the player asked for
 	auto restart = [&] {
 		for (int i = 0; i < emu::kPads; i++)
-			joined[i] = holder[i] = -1;
+			holder[i] = -1;
 		next = 0;
 	};
 	restart();
+	auto player_of = [&](int32_t user) {
+		for (int p = 0; p < emu::kPads; p++)
+			if (user != -1 && holder[p] == user)
+				return p;
+		return -1;
+	};
 	uint32_t prev[emu::kPads];
+	int32_t user[emu::kPads];
 	ps5input::Poll();
+	unsigned connected = 0; // (debounced)
 	for (int c = 0; c < emu::kPads; c++)
+	{
 		prev[c] = ps5input::Pad(c).raw_buttons; // buttons held from before don't count
+		user[c] = ps5input::User(c);
+		connected |= ps5input::Pad(c).connected ? 1u << c : 0;
+	}
+	unsigned seen = connected;
+	int stable = 0;
 	OrbisLog("[players] choose players: %d player(s)", players);
 	int done_frames = -1; // counting down once it is over (the list shown a moment)
 	for (;;)
 	{
 		ps5input::Poll();
-		unsigned connected = 0;
+		unsigned now_conn = 0;
 		uint32_t down[emu::kPads];
 		for (int c = 0; c < emu::kPads; c++)
 		{
 			const ps5input::PadState& st = ps5input::Pad(c);
-			connected |= st.connected ? 1u << c : 0;
-			down[c] = st.raw_buttons & ~prev[c];
+			const int32_t u = ps5input::User(c);
+			now_conn |= st.connected ? 1u << c : 0;
+			// another user's pad in this slot now: its buttons held from before don't count either
+			down[c] = u == user[c] ? st.raw_buttons & ~prev[c] : 0;
 			prev[c] = st.raw_buttons;
+			user[c] = u;
 		}
+		if (now_conn != seen)
+		{
+			seen = now_conn;
+			stable = 0;
+		}
+		else if (seen != connected && ++stable >= 30)
+			connected = seen;
 		if (done_frames < 0)
 		{
 			if (down[0] & SCE_PAD_BUTTON_CIRCLE)
@@ -690,16 +719,15 @@ bool ChoosePlayersScreen(bool over_game)
 				continue;
 			}
 			for (int c = 0; c < emu::kPads && next < players; c++)
-				if ((connected & (1u << c)) && (down[c] & SCE_PAD_BUTTON_CROSS) && joined[c] < 0)
+				if ((now_conn & (1u << c)) && (down[c] & SCE_PAD_BUTTON_CROSS) && user[c] != -1 && player_of(user[c]) < 0)
 				{
-					joined[c] = next;
-					holder[next] = c;
-					OrbisLog("[players] player %d: controller %d", next + 1, c + 1);
+					holder[next] = user[c];
+					OrbisLog("[players] player %d: controller %d (user %x)", next + 1, c + 1, unsigned(user[c]));
 					next++;
 				}
 			bool all_in = next > 0;
 			for (int c = 0; c < emu::kPads; c++)
-				all_in = all_in && (!(connected & (1u << c)) || joined[c] >= 0);
+				all_in = all_in && (!(connected & (1u << c)) || player_of(user[c]) >= 0);
 			const bool now = (down[0] & SCE_PAD_BUTTON_OPTIONS) != 0;
 			if (now && next == 0)
 			{
@@ -725,20 +753,25 @@ bool ChoosePlayersScreen(bool over_game)
 		rows.push_back({"PLAYERS", "", true, true});
 		for (int p = 0; p < players; p++)
 		{
-			Row r{Fmt(T("Player %d"), p + 1), holder[p] >= 0 ? Fmt(T("Controller %d (%s light)"), holder[p] + 1, T(kLight[holder[p]]))
-														 : std::string(p == next && done_frames < 0 ? "Waiting..." : "-")};
+			int slot = -1;
+			for (int c = 0; c < emu::kPads; c++)
+				if (holder[p] != -1 && user[c] == holder[p])
+					slot = c;
+			Row r{Fmt(T("Player %d"), p + 1), slot >= 0 ? Fmt(T("Controller %d (%s light)"), slot + 1, T(kLight[slot]))
+												 : std::string(p == next && done_frames < 0 ? "Waiting..." : "-")};
 			r.action = true;
-			r.value_color = holder[p] >= 0 ? Rgb(120, 220, 140) : kDim;
+			r.value_color = slot >= 0 ? Rgb(120, 220, 140) : kDim;
 			rows.push_back(r);
 		}
 		rows.push_back({"CONTROLLERS", "", true, true});
 		for (int c = 0; c < emu::kPads; c++)
 		{
-			const bool on = connected & (1u << c);
+			const bool on = now_conn & (1u << c);
+			const int p = on ? player_of(user[c]) : -1;
 			Row r{Fmt(T("Controller %d (%s light)"), c + 1, T(kLight[c])),
-				joined[c] >= 0 ? Fmt(T("Player %d"), joined[c] + 1) : on ? "Free" : "Not connected", on};
+				p >= 0 ? Fmt(T("Player %d"), p + 1) : on ? "Free" : "Not connected", on};
 			r.action = true;
-			r.value_color = joined[c] >= 0 ? Rgb(120, 220, 140) : on ? kAccent : kDim;
+			r.value_color = p >= 0 ? Rgb(120, 220, 140) : on ? kAccent : kDim;
 			rows.push_back(r);
 		}
 		Background(over_game);
@@ -748,9 +781,25 @@ bool ChoosePlayersScreen(bool over_game)
 		DrawText((W - TextWidth(help.c_str(), 3)) / 2, std::min(H - 60, bottom + 20), help.c_str(), 3, kText);
 		Present();
 	}
+	// each connected controller: the player its user joined as, or none; the others: the players left over, in order
 	int result[emu::kPads];
+	bool taken[emu::kPads] = {};
 	for (int c = 0; c < emu::kPads; c++)
-		result[c] = joined[c] >= 0 ? joined[c] : emu::kNoPlayer;
+	{
+		const int p = (connected & (1u << c)) ? player_of(user[c]) : -1;
+		result[c] = p >= 0 ? p : emu::kNoPlayer;
+		if (p >= 0)
+			taken[p] = true;
+	}
+	for (int c = 0, p = 0; c < emu::kPads; c++)
+		if (!(connected & (1u << c)))
+		{
+			while (p < emu::kPads && taken[p])
+				p++;
+			if (p < emu::kPads)
+				taken[p] = true;
+			result[c] = p < emu::kPads ? p : emu::kNoPlayer;
+		}
 	OrbisLog("[players] chosen: controller 1=%d controller 2=%d controller 3=%d controller 4=%d (0: none)", result[0] + 1,
 		result[1] + 1, result[2] + 1, result[3] + 1);
 	emu::SetPlayers(result);

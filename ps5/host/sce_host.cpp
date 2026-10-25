@@ -5,6 +5,7 @@
 //   FBNEO_HOST_PADS=n                                        signed-in users, each with a pad (1..4, default 1)
 //   FBNEO_HOST_PAD2, _PAD3, _PAD4                            the other users' pads' scripts (as FBNEO_HOST_PAD)
 //   FBNEO_HOST_SIGNOUT="flip:user[;flip:user...]"            user 2..4 signs out from that flip on
+//   FBNEO_HOST_PAD_DROP="user:from:to"                        that user's pad reads fail from flip `from` to `to`
 //   FBNEO_HOST_DUMP="frame[,frame...]"                       flips to save as PPM (de-tiled)
 //   FBNEO_HOST_DUMP_DIR=dir                                  where (default .)
 //   FBNEO_HOST_MAX_FLIPS=n                                   abort after n flips (a hang guard)
@@ -395,6 +396,21 @@ int scePadReadState(int handle, ScePadData* data)
 		pad = handle - 0x100;
 	if (pad < 0)
 		return (int)0x80920003; // invalid handle
+	static int drop_user = -1;
+	static uint64_t drop_from = 0, drop_to = 0;
+	if (const char* d = getenv("FBNEO_HOST_PAD_DROP"))
+	{
+		unsigned long long a = 0, b = 0;
+		int u = 0;
+		if (sscanf(d, "%d:%llu:%llu", &u, &a, &b) == 3)
+		{
+			drop_user = u - 1;
+			drop_from = a;
+			drop_to = b;
+		}
+	}
+	if (pad == drop_user && g_flips.load() >= drop_from && g_flips.load() < drop_to)
+		return (int)0x80920007; // a read that fails (a pad out of range for a moment)
 	memset(data, 0, sizeof(*data));
 	data->connected = 1;
 	data->leftStick.x = data->leftStick.y = 128;

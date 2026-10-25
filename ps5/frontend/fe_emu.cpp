@@ -455,6 +455,17 @@ void FindGameLayout()
 	OrbisLog("[emu] button layout: the general one");
 }
 
+// Whether the parent set's file would give this clone something of its own (a button layout, or players): then the
+// clone needs a file saying "layout=general" to follow the general ones.
+bool ParentHasControls()
+{
+	if (g.parent.empty())
+		return false;
+	bool players = false;
+	const BtnFile f = ReadBtn(BtnPath(g.parent), nullptr, nullptr, &players);
+	return f == BtnFile::Layout || players;
+}
+
 // Writes the game's file after a change: its buttons (or "layout=general"), and its players when it has its own; no file
 // when it has neither (and none is needed to keep a clone off its parent's layout).
 bool SaveGameFile()
@@ -467,8 +478,7 @@ bool SaveGameFile()
 		return WriteBtn(path, &g.game_layout, players);
 	if (g.owner == emu::LayoutOwner::Parent)
 		return true; // nothing of its own
-	const bool parent_layout = !g.parent.empty() && ReadBtn(BtnPath(g.parent), nullptr) == BtnFile::Layout;
-	if (players || parent_layout)
+	if (players || ParentHasControls())
 		return WriteBtn(path, nullptr, players);
 	return !FileExists(path) || remove(path.c_str()) == 0;
 }
@@ -1122,7 +1132,8 @@ void DefaultControls()
 	}
 	const std::string path = BtnPath(g.set);
 	// a clone whose parent set has a layout: its file says "general" (without a file it would follow its parent)
-	if (!g.parent.empty() && ReadBtn(BtnPath(g.parent), nullptr) == BtnFile::Layout)
+	// (or players: a "layout=general" file with controller_N keys, as Choose players writes)
+	if (ParentHasControls())
 	{
 		const bool ok = WriteBtn(path, nullptr, nullptr);
 		OrbisLog("[emu] %s: back to the general button layout (%s %s)", g.set.c_str(), path.c_str(), ok ? "says so" : "not saved");

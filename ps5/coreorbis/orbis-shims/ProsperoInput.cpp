@@ -301,6 +301,12 @@ PadState Snapshot(int player)
 	return Pad(player);
 }
 
+int32_t User(int slot)
+{
+	std::lock_guard<std::mutex> lock(s_lock);
+	return slot >= 0 && slot < kMaxPads ? s_slots[slot].user : -1;
+}
+
 int ConnectedCount()
 {
 	int n = 0;

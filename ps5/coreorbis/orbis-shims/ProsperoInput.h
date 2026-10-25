@@ -26,6 +26,9 @@ void Poll();
 const PadState& Pad(int player); // the polling thread's view
 PadState Snapshot(int player); // a copy, safe from any thread (Poll may run on another one)
 int ConnectedCount();
+// The signed-in user whose pad is in that slot (-1: none). A user signing out moves the later users' pads up a slot:
+// the user, not the slot, says whose pad it is.
+int32_t User(int slot);
 
 // Pad 0's (controller 1's) buttons that went down in the last Poll (menus).
 uint32_t Pressed();

@@ -34,7 +34,7 @@ make (the driver list, Musashi's 68000 core, the CPS, Neo Geo, Cave, Psikyo, Toa
 frontends (`src/burner`) and its libretro port host the core: ROM loading from the sets' zips and 7z archives, inputs, DIP
 switches, states, NVRAM, the picture turned the right way up and the sound.
 
-> **Status (2.1):** builds with the ps5-payload-dev SDK into a signed native app, and passes 523 host tests, which
+> **Status (2.1):** builds with the ps5-payload-dev SDK into a signed native app, and passes 530 host tests, which
 > run the same code (FBNeo's core included) on Linux with the PS5 calls simulated: two arcade boards running a tiny
 > test program each (a vertical and a horizontal game) are played through the whole chain -- the shelf, the pad,
 > the core, the video and sound output -- and 26 more boards start, run, save and load a state under
@@ -80,9 +80,9 @@ current release's ELF.
 **Choose players** in the pause menu (or at the top of Settings, CONTROLS, CONTROLLERS on the shelf) asks "Player 1:
 press X on your controller", then Player 2, and so on: whoever presses X gets that player, as in many PS5 games. A
 4-player game that ties each character to its cabinet's slot (The Simpsons, Sunset Riders) can be played by three
-people on the slots they want, and a single controller can play player 2 (the 2-player editions). The advanced way:
-a row for each controller (its light bar's colour, and whether it is connected) with the player it plays, Player 1 to
-4 or none; choosing a player another controller has swaps them, so nobody is left without one. Like the button layout, a change from a game's pause menu is kept for that game (and its clones), one from the
+people on the slots they want. The advanced way: a row for each controller (its light bar's colour, and whether it is
+connected) with the player it plays, Player 1 to 4 or none; choosing a player another controller has swaps them, so
+nobody is left without one. There a single controller can play player 2 (the 2-player editions). Like the button layout, a change from a game's pause menu is kept for that game (and its clones), one from the
 shelf's Settings for every game; **Default controls** (it was Default button layout) puts the buttons and the players
 back. A game that starts with a controller on another player says so for a few seconds ("Controller 1: Player 3").
 The pause menu (L3 + R3) stays on controller 1, whatever player it plays. When a user signs in or out during a game the
@@ -568,11 +568,14 @@ layout. By default controller N plays player N.
 **Choose players (the simple way):** in the pause menu (L3 + R3, under DIP switches), or from the shelf at the top of
 Settings, CONTROLS, CONTROLLERS (`Choose players (press X on each controller)...`). The screen asks **"Player 1: press
 X on your controller"**, then Player 2, and so on up to the game's number of players (four from the shelf): whichever
-connected controller presses **X** gets that player; a controller that has joined already is passed over. The screen
+connected controller presses **X** gets that player; a controller that has joined already is passed over (who
+joined is kept by user, so someone signing out while the screen is open doesn't move the others' players). The screen
 lists the players as they fill (`Player 1  Controller 3 (green light)`) and the controllers, connected and free or not.
 It ends by itself once every player of the game has a controller or every connected controller has joined. On
-**controller 1**: **OPTIONS** ends it now (the players left get no controller, the controllers that didn't press X get
-no player; with nobody in yet it changes nothing), **Square** starts again, **Circle** cancels (nothing changes). The
+**controller 1**: **OPTIONS** ends it now (the players left get no controller; with nobody in yet it changes nothing),
+**Square** starts again, **Circle** cancels (nothing changes). When it ends, the connected controllers that didn't press
+X get no player, and the controllers not connected get the players left over, in order (so someone who signs in later
+still plays). The
 other controllers can only join. From a game's pause menu the result is kept for that game (only its players: its
 buttons stay as they are) and the game resumes with the message saying who plays whom; from the shelf it is the
 general setting. The X that joined doesn't reach the game.

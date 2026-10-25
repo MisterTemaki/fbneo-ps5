@@ -1829,27 +1829,27 @@ P3="0:0;100:$CROSS;102:0;250:$UP;280:0"
 rc=$(FBNEO_HOST_PADS=3 FBNEO_HOST_PAD2="$P2" FBNEO_HOST_PAD3="$P3" run "$T" "$P1" "115" "$T/root/roms/ssriders.zip")
 expect "[ $rc = 0 ] && grep -q '\[players\] player 1: controller 3' $T/root/logs/boot.log && grep -q '\[players\] player 2: controller 1' $T/root/logs/boot.log && grep -q '\[players\] player 3: controller 2' $T/root/logs/boot.log && grep -q 'done (every connected controller joined)' $T/root/logs/boot.log" "joined in the order 3, 1, 2; it ended by itself"
 expect "! grep -q '\[players\] cancelled' $T/root/logs/boot.log" "controller 2's Circle didn't cancel it"
-expect "grep -q '^layout=general\$' $T/root/config/ssriders.btn && ! grep -q '^btn_' $T/root/config/ssriders.btn && grep -q '^controller_1=2\$' $T/root/config/ssriders.btn && grep -q '^controller_2=3\$' $T/root/config/ssriders.btn && grep -q '^controller_3=1\$' $T/root/config/ssriders.btn && grep -q '^controller_4=0\$' $T/root/config/ssriders.btn" "ssriders.btn: the players only, the buttons left on the general layout"
-expect "grep -q \"players (this game's layout): controller 1=player 2 controller 2=player 3 controller 3=player 1 controller 4=none\" $T/root/logs/boot.log && grep -q 'message: Controller 1: Player 2,  Controller 2: Player 3,  Controller 3: Player 1\$' $T/root/logs/boot.log" "in use at once, and the message says so as the game resumes"
+expect "grep -q '^layout=general\$' $T/root/config/ssriders.btn && ! grep -q '^btn_' $T/root/config/ssriders.btn && grep -q '^controller_1=2\$' $T/root/config/ssriders.btn && grep -q '^controller_2=3\$' $T/root/config/ssriders.btn && grep -q '^controller_3=1\$' $T/root/config/ssriders.btn && grep -q '^controller_4=4\$' $T/root/config/ssriders.btn" "ssriders.btn: the players only, the buttons left on the general layout (controller 4, not connected: the player left, 4)"
+expect "grep -q \"players (this game's layout): controller 1=player 2 controller 2=player 3 controller 3=player 1 controller 4=player 4\" $T/root/logs/boot.log && grep -q 'message: Controller 1: Player 2,  Controller 2: Player 3,  Controller 3: Player 1\$' $T/root/logs/boot.log" "in use at once, and the message says so as the game resumes"
 expect "grep -q 'inputs the game got: player 1 up, player 2 left, player 3 fire2, player 4 nothing\$' $T/root/logs/boot.log" "controller 3's Up reached player 1, 1's Left player 2, 2's Circle player 3; 2's Cross, held from the screen, nothing"
 expect "[ -f $T/dump/flip00115.ppm ]" "(the screen drawn)"
 nosan "$T"
 rc=$(FBNEO_HOST_PADS=3 MAXFLIPS=200 run "$T" "0:0;$(QUITAT 60)" "" "$T/root/roms/ssriders.zip")
-expect "[ $rc = 0 ] && grep -q \"players (this game's layout): controller 1=player 2 controller 2=player 3 controller 3=player 1 controller 4=none\" $T/root/logs/boot.log && grep -q 'buttons (general layout)' $T/root/logs/boot.log" "the next start: its players, the general buttons"
+expect "[ $rc = 0 ] && grep -q \"players (this game's layout): controller 1=player 2 controller 2=player 3 controller 3=player 1 controller 4=player 4\" $T/root/logs/boot.log && grep -q 'buttons (general layout)' $T/root/logs/boot.log" "the next start: its players, the general buttons"
 # b. a controller pressing Cross twice is passed over; OPTIONS on controller 1 ends it now (controller 3 gets no player)
 T=$(newroot t38b)
 addset ssriders "$T/root/roms"
 P1="0:0;$(CHOOSE_AT 30);100:$CROSS;102:0;110:$CROSS;112:0;140:$OPTIONS;142:0;$(QUITAT 260)"
 rc=$(FBNEO_HOST_PADS=3 FBNEO_HOST_PAD2="0:0;120:$CROSS;122:0" run "$T" "$P1" "" "$T/root/roms/ssriders.zip")
 expect "[ $rc = 0 ] && [ \$(grep -c '\[players\] player [0-9]: controller 1' $T/root/logs/boot.log) = 1 ] && grep -q '\[players\] player 2: controller 2' $T/root/logs/boot.log && grep -q 'done (OPTIONS)' $T/root/logs/boot.log" "Cross twice on controller 1: one player; OPTIONS ends it"
-expect "grep -q 'chosen: controller 1=1 controller 2=2 controller 3=0 controller 4=0' $T/root/logs/boot.log" "the controllers that didn't join get no player"
+expect "grep -q 'chosen: controller 1=1 controller 2=2 controller 3=0 controller 4=3' $T/root/logs/boot.log" "controller 3 (connected) didn't join: no player; controller 4 (not connected) gets the player left over"
 nosan "$T"
 # c. Square on controller 1 starts again
 T=$(newroot t38c)
 addset ssriders "$T/root/roms"
 P1="0:0;$(CHOOSE_AT 30);110:$SQUARE;112:0;130:$CROSS;132:0;$(QUITAT 260)"
 rc=$(FBNEO_HOST_PADS=2 FBNEO_HOST_PAD2="0:0;100:$CROSS;102:0;140:$CROSS;142:0" run "$T" "$P1" "" "$T/root/roms/ssriders.zip")
-expect "[ $rc = 0 ] && grep -q '\[players\] start again' $T/root/logs/boot.log && grep -q 'chosen: controller 1=1 controller 2=2 controller 3=0 controller 4=0' $T/root/logs/boot.log" "Square: start again (controller 2, first in, is player 2 after it)"
+expect "[ $rc = 0 ] && grep -q '\[players\] start again' $T/root/logs/boot.log && grep -q 'chosen: controller 1=1 controller 2=2 controller 3=3 controller 4=4' $T/root/logs/boot.log" "Square: start again (controller 2, first in, is player 2 after it)"
 nosan "$T"
 # d. Circle on controller 1 cancels: nothing changes, no file
 T=$(newroot t38d)
@@ -1863,7 +1863,7 @@ nosan "$T"
 T=$(newroot t38e)
 addset ponpoko "$T/root/roms"
 rc=$(FBNEO_HOST_PADS=3 FBNEO_HOST_PAD2="0:0;100:$CROSS;102:0" FBNEO_HOST_PAD3="0:0;110:$CROSS;112:0" run "$T" "0:0;$(CHOOSE_AT 30);$(QUITAT 240)" "" "$T/root/roms/ponpoko.zip")
-expect "[ $rc = 0 ] && grep -q 'choose players: 2 player(s)' $T/root/logs/boot.log && grep -q 'done (every player has a controller)' $T/root/logs/boot.log && grep -q 'chosen: controller 1=0 controller 2=1 controller 3=2 controller 4=0' $T/root/logs/boot.log" "a 2-player game: it ends once players 1 and 2 have controllers"
+expect "[ $rc = 0 ] && grep -q 'choose players: 2 player(s)' $T/root/logs/boot.log && grep -q 'done (every player has a controller)' $T/root/logs/boot.log && grep -q 'chosen: controller 1=0 controller 2=1 controller 3=2 controller 4=3' $T/root/logs/boot.log" "a 2-player game: it ends once players 1 and 2 have controllers"
 expect "grep -q 'message: Controller 1: no player,  Controller 2: Player 1,  Controller 3: Player 2\$' $T/root/logs/boot.log" "the message: controller 1 on no player"
 nosan "$T"
 # f. from the shelf's Settings (Choose players, Down x18): four players, the general setting (fbneo-ps5.ini)
@@ -1873,8 +1873,32 @@ for i in $(seq 1 18); do P="$P;$t:$DOWN;$((t + 2)):0"; t=$((t + 6)); done
 P="$P;$t:$CROSS;$((t + 2)):0"; D=$((t + 20)); P="$P;$((t + 40)):$CROSS;$((t + 42)):0"; t=$((t + 120))
 P="$P;$t:$CIRCLE;$((t + 2)):0;$(SHELFQUIT_AT $((t + 30)))"
 rc=$(FBNEO_HOST_PADS=2 FBNEO_HOST_PAD2="0:0;$((t - 100)):$CROSS;$((t - 98)):0" run "$T" "$P" "$D")
-expect "[ $rc = 0 ] && grep -q 'choose players: 4 player(s)' $T/root/logs/boot.log && grep -q '^controller_1=2\$' $T/root/fbneo-ps5.ini && grep -q '^controller_2=1\$' $T/root/fbneo-ps5.ini && grep -q '^controller_3=0\$' $T/root/fbneo-ps5.ini && grep -q '^controller_4=0\$' $T/root/fbneo-ps5.ini" "from the shelf: fbneo-ps5.ini (controller 2 first: player 1)"
+expect "[ $rc = 0 ] && grep -q 'choose players: 4 player(s)' $T/root/logs/boot.log && grep -q '^controller_1=2\$' $T/root/fbneo-ps5.ini && grep -q '^controller_2=1\$' $T/root/fbneo-ps5.ini && grep -q '^controller_3=3\$' $T/root/fbneo-ps5.ini && grep -q '^controller_4=4\$' $T/root/fbneo-ps5.ini" "from the shelf: fbneo-ps5.ini (controller 2 first: player 1); controllers 3 and 4, not connected, the players left (a user signing in later plays)"
 expect "[ -z \"\$(ls $T/root/config/*.btn 2>/dev/null)\" ]" "no game's file"
+# h. a user signs out during the screen (three signed in: controller 3 joins as player 1, controller 2 as player 2, then
+# user 2 leaves and user 3's pad moves up to slot 2): user 3 keeps player 1; controller 1 joins as player 3
+T=$(newroot t38h)
+addset ssriders "$T/root/roms"
+rc=$(FBNEO_HOST_REALTIME=1 FBNEO_HOST_PADS=3 FBNEO_HOST_SIGNOUT="130:2" FBNEO_HOST_PAD2="0:0;110:$CROSS;112:0" FBNEO_HOST_PAD3="0:0;100:$CROSS;102:0" MAXFLIPS=1200 run "$T" "0:0;$(CHOOSE_AT 30);400:$CROSS;402:0;$(QUITAT 600)" "" "$T/root/roms/ssriders.zip")
+expect "[ $rc = 0 ] && grep -q 'user 10000003: its pad (handle 102) moves from slot 3 to slot 2' $T/root/logs/boot.log && grep -q 'chosen: controller 1=3 controller 2=1 controller 3=2 controller 4=4' $T/root/logs/boot.log" "user 3's pad moved to controller 2 keeps player 1; controller 1 is player 3"
+nosan "$T"
+# i. a read that fails for a moment (controller 2) doesn't end the screen before controller 2 joins
+T=$(newroot t38i)
+addset ssriders "$T/root/roms"
+rc=$(FBNEO_HOST_PADS=2 FBNEO_HOST_PAD_DROP="2:105:112" FBNEO_HOST_PAD2="0:0;150:$CROSS;152:0" run "$T" "0:0;$(CHOOSE_AT 30);100:$CROSS;102:0;$(QUITAT 300)" "" "$T/root/roms/ssriders.zip")
+expect "[ $rc = 0 ] && grep -q '\[players\] player 2: controller 2' $T/root/logs/boot.log && grep -q 'chosen: controller 1=1 controller 2=2 ' $T/root/logs/boot.log" "controller 2's reads failing a moment: the screen waits, controller 2 joins"
+nosan "$T"
+# j. a clone's Default controls when its parent's file has players only (layout=general + controller_N, as Choose players
+# writes): the clone's file says layout=general, and it keeps the general players at the next start
+T=$(newroot t38j)
+addset ssriders "$T/root/roms"
+cp "$SETS/ssridersebd/ssridersebd.zip" "$T/root/roms/" 2>/dev/null || { mkset ssridersebd; cp "$SETS/ssridersebd/ssridersebd.zip" "$T/root/roms/"; }
+mkdir -p "$T/root/config" && printf 'layout=general\ncontroller_1=2\ncontroller_2=1\n' >"$T/root/config/ssriders.btn"
+rc=$(MAXFLIPS=400 run "$T" "0:0;$(PAUSE_SETTINGS 30 23 $CROSS);$(QUITAT 300)" "" "$T/root/roms/ssridersebd.zip")
+expect "[ $rc = 0 ] && grep -q \"players (the parent set's layout): controller 1=player 2\" $T/root/logs/boot.log && grep -q '^layout=general\$' $T/root/config/ssridersebd.btn" "the clone's Default controls: ssridersebd.btn says layout=general"
+rc=$(MAXFLIPS=200 run "$T" "0:0;$(QUITAT 60)" "" "$T/root/roms/ssridersebd.zip")
+expect "[ $rc = 0 ] && grep -q 'players (general layout): controller 1=player 1 controller 2=player 2' $T/root/logs/boot.log" "and at the next start: the general players, not the parent's"
+nosan "$T"
 # g. the screen in every language, four controllers, one joined: drawn (dumps for a look), every text translated
 for L in 0 1 2 3 4; do
 	T=$(newroot t38g_$L)
