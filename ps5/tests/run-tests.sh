@@ -31,6 +31,18 @@ L2UP=$(printf %x $((0x$L2 | 0x$UP))); L2DOWN=$(printf %x $((0x$L2 | 0x$DOWN))); 
 # pause menu: L3+R3, then Up from "Resume" wraps to "Quit FBNeo PS5"
 QUITAT() { echo "$1:$L3R3;$(($1 + 2)):0;$(($1 + 10)):$UP;$(($1 + 12)):0;$(($1 + 20)):$CROSS;$(($1 + 22)):0"; }
 SHELFQUIT_AT() { echo "$1:$OPTIONS;$(($1 + 2)):0;$(($1 + 10)):$CROSS;$(($1 + 12)):0"; }
+# the pause menu (L3 + R3) from frame $1: Down x7 to Settings, Cross; then Down x$2 from Shader, then $3 (Right or Cross);
+# Circle (settings), Circle (resume)
+PAUSE_SETTINGS() {
+	local t=$1 p="$1:$L3R3;$(($1 + 2)):0"
+	t=$((t + 10))
+	for i in $(seq 1 7); do p="$p;$t:$DOWN;$((t + 2)):0"; t=$((t + 6)); done
+	p="$p;$t:$CROSS;$((t + 2)):0"; t=$((t + 12))
+	for i in $(seq 1 $2); do p="$p;$t:$DOWN;$((t + 2)):0"; t=$((t + 6)); done
+	p="$p;$t:$3;$((t + 2)):0;$((t + 10)):$CIRCLE;$((t + 12)):0;$((t + 20)):$CIRCLE;$((t + 22)):0"
+	echo "$p"
+}
+# Settings rows, Down from Shader (2.1): Button 1 is 10 down, Controller 1 18, Default controls 22
 
 ok() { echo "  ok: $*"; PASS=$((PASS + 1)); }
 bad() { echo "  FAIL: $*"; FAIL=$((FAIL + 1)); }
@@ -232,17 +244,6 @@ if [ ! -d "$SETS/v-ponpokov" ]; then
 	ASAN_OPTIONS=detect_leaks=0 $FAKE ponpokov "$SETS/v-ponpokov" --put ppoko1.bin=tests/data/pacman-test.6e >/dev/null 2>&1
 fi
 cp "$SETS/v-ponpokov/ponpokov.zip" "$T/root/roms/" # its own ROMs: the shared ones (and the colours) come from ponpoko.zip
-# the pause menu (L3 + R3) from frame $1: Down x7 to Settings, Cross; then Down x$2 from Shader, then $3 (Right or Cross);
-# Circle (settings), Circle (resume)
-PAUSE_SETTINGS() {
-	local t=$1 p="$1:$L3R3;$(($1 + 2)):0"
-	t=$((t + 10))
-	for i in $(seq 1 7); do p="$p;$t:$DOWN;$((t + 2)):0"; t=$((t + 6)); done
-	p="$p;$t:$CROSS;$((t + 2)):0"; t=$((t + 12))
-	for i in $(seq 1 $2); do p="$p;$t:$DOWN;$((t + 2)):0"; t=$((t + 6)); done
-	p="$p;$t:$3;$((t + 2)):0;$((t + 10)):$CIRCLE;$((t + 12)):0;$((t + 20)):$CIRCLE;$((t + 22)):0"
-	echo "$p"
-}
 # Ponpoko: before the change (Settings, Down x10: Button 1, Right), Cross presses button 1; after it, Circle does
 rc=$(run "$T" "0:0;30:$CROSS;50:0;$(PAUSE_SETTINGS 60 10 $RIGHT);300:$CIRCLE;340:0;360:$CROSS;400:0;$(QUITAT 420)" "45,330,390" "$T/root/roms/ponpoko.zip")
 expect "[ $rc = 0 ]" "exit code 0 (got $rc)"
@@ -262,14 +263,15 @@ expect "$CHECK $T/dump/flip00130.ppm 960 540 red >/dev/null && $CHECK $T/dump/fl
 rc=$(run "$T" "0:0;100:$CROSS;140:0;160:$CIRCLE;200:0;$(QUITAT 220)" "130,190" "$T/root/roms/ponpokov.zip")
 expect "grep -q 'running ponpokov' $T/root/logs/boot.log && grep -q 'button layout of the parent set: .*/config/ponpoko.btn' $T/root/logs/boot.log" "the clone (Ponpoko (Venture Line)) uses its parent's file"
 expect "$CHECK $T/dump/flip00130.ppm 960 540 red >/dev/null && $CHECK $T/dump/flip00190.ppm 960 540 green >/dev/null" "the clone: Circle presses button 1"
-# the clone's "Default button layout" (Settings, Down x18): the general layout for it, though its parent has one
-rc=$(run "$T" "0:0;$(PAUSE_SETTINGS 30 18 $CROSS);300:$CROSS;340:0;$(QUITAT 360)" "330" "$T/root/roms/ponpokov.zip")
+# the clone's "Default controls" (Default button layout up to 2.0; Settings, Down x22): the general layout for it,
+# though its parent has one
+rc=$(run "$T" "0:0;$(PAUSE_SETTINGS 30 22 $CROSS);300:$CROSS;340:0;$(QUITAT 360)" "330" "$T/root/roms/ponpokov.zip")
 expect "grep -q '^layout=general$' $T/root/config/ponpokov.btn && grep -q 'ponpokov: back to the general button layout' $T/root/logs/boot.log" "the clone's Default button layout: config/ponpokov.btn says general"
 expect "$CHECK $T/dump/flip00330.ppm 960 540 green >/dev/null" "the clone: Cross presses button 1 again"
 rc=$(MAXFLIPS=200 run "$T" "0:0;$(QUITAT 60)" "" "$T/root/roms/ponpokov.zip")
 expect "grep -q 'button layout: the general one (.*ponpokov.btn says so)' $T/root/logs/boot.log" "and keeps it at the next start"
-# Ponpoko's "Default button layout": its file removed, the general layout back
-rc=$(run "$T" "0:0;$(PAUSE_SETTINGS 30 18 $CROSS);300:$CROSS;340:0;$(QUITAT 360)" "330" "$T/root/roms/ponpoko.zip")
+# Ponpoko's "Default controls": its file removed, the general layout back
+rc=$(run "$T" "0:0;$(PAUSE_SETTINGS 30 22 $CROSS);300:$CROSS;340:0;$(QUITAT 360)" "330" "$T/root/roms/ponpoko.zip")
 expect "[ ! -f $T/root/config/ponpoko.btn ] && grep -q 'ponpoko: back to the general button layout (.*ponpoko.btn removed)' $T/root/logs/boot.log" "Default button layout in Ponpoko: config/ponpoko.btn removed"
 expect "$CHECK $T/dump/flip00330.ppm 960 540 green >/dev/null" "Ponpoko: Cross presses button 1 again (the general layout)"
 rc=$(MAXFLIPS=200 run "$T" "0:0;$(QUITAT 60)" "" "$T/root/roms/ponpoko.zip")
@@ -1069,11 +1071,12 @@ mkset mslug
 for L in 1 2 3 4; do
 	T=$(newroot t29_$L)
 	echo "language=$L" >>"$T/root/fbneo-ps5.ini"
+	echo "controller_1=2" >>"$T/root/fbneo-ps5.ini" # (2.1) the game starts with the message "Controller 1: Player 2"
 	addset ponpoko "$T/root/roms"
 	cp "$SETS/mslug/mslug.zip" "$T/root/roms/" # Metal Slug without neogeo.zip: a BIOS set needed and missing
-	# the settings screen: every row (Down x28 back to Shader), then Up x6 to BIOS sets, its screen, back out
+	# the settings screen: every row (Down x32 back to Shader), then Up x6 to BIOS sets, its screen, back out
 	pad="0:0;20:$TRIANGLE;22:0"; f=30
-	for i in $(seq 1 28); do pad="$pad;$f:$DOWN;$((f + 2)):0"; f=$((f + 6)); done
+	for i in $(seq 1 32); do pad="$pad;$f:$DOWN;$((f + 2)):0"; f=$((f + 6)); done
 	for i in $(seq 1 6); do pad="$pad;$f:$UP;$((f + 2)):0"; f=$((f + 6)); done
 	pad="$pad;$f:$CROSS;$((f + 2)):0"; f=$((f + 10))
 	for i in $(seq 1 6); do pad="$pad;$f:$DOWN;$((f + 2)):0"; f=$((f + 6)); done
@@ -1096,7 +1099,7 @@ for L in 1 2 3 4; do
 	pad="$pad;$f:$CIRCLE;$((f + 2)):0;$((f + 10)):$CIRCLE;$((f + 12)):0;$(QUITAT $((f + 30)))"
 	rm -f $T/missing.txt
 	rc=$(FBNEO_HOST_I18N_MISSING=$T/missing.txt run "$T" "$pad" "")
-	ok1=$([ $rc = 0 ] && grep -q 'load state 1: ok' $T/root/logs/boot.log && grep -q 'save state 1: ok' $T/root/logs/boot.log && grep -q '\[bios\] screen' $T/root/logs/boot.log && echo y)
+	ok1=$([ $rc = 0 ] && grep -q 'load state 1: ok' $T/root/logs/boot.log && grep -q 'save state 1: ok' $T/root/logs/boot.log && grep -q '\[bios\] screen' $T/root/logs/boot.log && grep -q '\[emu\] message: ' $T/root/logs/boot.log && echo y)
 	# a game that won't start (a ROM missing): its message box; then no games on the shelf, and its quit question
 	T2=$(newroot t29b_$L)
 	echo "language=$L" >>"$T2/root/fbneo-ps5.ini"
@@ -1603,6 +1606,96 @@ T=$(newroot t35e)
 cp tests/7z/pacman.7z tests/7z/puckman.7z "$T/root/roms/"
 rc=$(MAXFLIPS=300 run "$T" "0:0;$(QUITAT 120)" "" "$T/root/roms/pacman.7z")
 expect "[ $rc = 0 ] && grep -q 'running pacman' $T/root/logs/boot.log && awk '/pacman.7z: every ROM read from it, its block .* let go/{n++} /\[burn\] running pacman/{exit !(n == 1)}' $T/root/logs/boot.log" "pacman.7z lets go of its block once its ROMs are read, before the driver has started"
+nosan "$T"
+fi
+
+if want 36; then
+echo "== 36. which arcade player each controller plays (2.1, fbneo-ps5#3): general and per game, swaps, the pause menu on controller 1"
+mkset ssriders     # Sunset Riders (4 Players ver EAC): four players, each with a coin
+mkset ssridersebd  # its clone, the 2 Players ver EBD
+# a. one controller on Player 2 (the 2-player editions): Ponpoko, controller_1=2 in fbneo-ps5.ini; a second signed-in user
+# (FBNEO_HOST_PADS=2) whose L3 + R3 opens nothing; controller 1's Up, coin (touchpad), start (OPTIONS) and Cross reach
+# player 2 (the test program, player 1's joystick, stays red); its L3 + R3 still opens the pause menu (quit)
+T=$(newroot t36a)
+addset ponpoko "$T/root/roms"
+echo "controller_1=2" >>"$T/root/fbneo-ps5.ini"
+rc=$(FBNEO_HOST_PADS=2 FBNEO_HOST_PAD2="0:0;60:$L3R3;62:0" run "$T" "0:0;100:$UP;140:0;160:$TOUCH;170:0;180:$OPTIONS;190:0;200:$CROSS;210:0;$(QUITAT 240)" "30,90,130" "$T/root/roms/ponpoko.zip")
+expect "[ $rc = 0 ] && grep -q '\[emu\] game closed' $T/root/logs/boot.log" "exit code 0: the pause menu opened from controller 1, which plays player 2 (got $rc)"
+expect "grep -q 'players (general layout): controller 1=player 2 controller 2=player 1 controller 3=player 3 controller 4=player 4' $T/root/logs/boot.log" "controller 1 on player 2; controller 2 got player 1 (a swap)"
+expect "grep -q 'inputs the game got: player 1 nothing, player 2 up coin start\$' $T/root/logs/boot.log" "controller 1's stick, coin and start reached player 2, nothing player 1"
+expect "$CHECK $T/dump/flip00130.ppm 960 540 red >/dev/null" "Up on controller 1 is not player 1's joystick (red)"
+expect "$CHECK $T/dump/flip00090.ppm 960 540 red >/dev/null" "controller 2's L3 + R3 opened no pause menu (the game, red)"
+expect "grep -q '\[emu\] message: Controller 1: Player 2,  Controller 2: Player 1' $T/root/logs/boot.log" "the message at start says who plays whom"
+# the message, bottom left (white text in a box from x 40, y 980): white pixels there
+white=$(python3 - $T/dump/flip00030.ppm <<'PY'
+import sys
+d = open(sys.argv[1], 'rb').read().split(b'\n', 3)
+w = int(d[1].split()[0]); px = d[3]
+print(sum(1 for y in range(985, 1035) for x in range(50, 700)
+          if min(px[(y * w + x) * 3:(y * w + x) * 3 + 3]) > 200))
+PY
+)
+expect "[ \"\${white:-0}\" -gt 500 ]" "the message is on the screen, bottom left (${white:-0} white pixels)"
+nosan "$T"
+# b. Sunset Riders, two controllers swapped from the pause menu's Settings (Controller 1, Right: Player 2; controller 2
+# gets Player 1): kept for this game (config/ssriders.btn); fbneo-ps5.ini keeps controller N = player N
+T=$(newroot t36b)
+addset ssriders "$T/root/roms"
+P2="0:0;300:$LEFT;340:0;350:$CIRCLE;360:0"
+rc=$(FBNEO_HOST_PADS=2 FBNEO_HOST_PAD2="$P2" run "$T" "0:0;$(PAUSE_SETTINGS 30 18 $RIGHT);300:$UP;340:0;$(QUITAT 400)" "" "$T/root/roms/ssriders.zip")
+expect "[ $rc = 0 ] && grep -q '^controller_1=2\$' $T/root/config/ssriders.btn && grep -q '^controller_2=1\$' $T/root/config/ssriders.btn && grep -q '^controller_3=3\$' $T/root/config/ssriders.btn && grep -q '^controller_4=4\$' $T/root/config/ssriders.btn" "changed in the game: config/ssriders.btn has controller 1 on player 2, controller 2 on player 1"
+expect "grep -q '^controller_1=1\$' $T/root/fbneo-ps5.ini && grep -q '^controller_2=2\$' $T/root/fbneo-ps5.ini" "the general setting (fbneo-ps5.ini) is unchanged"
+expect "grep -q \"players (this game's layout): controller 1=player 2 controller 2=player 1 controller 3=player 3\" $T/root/logs/boot.log" "at once (logged)"
+expect "grep -q 'inputs the game got: player 1 left fire2, player 2 up, player 3 nothing, player 4 nothing\$' $T/root/logs/boot.log" "controller 2's Left and Circle reached player 1, controller 1's Up player 2"
+nosan "$T"
+# c. the next start: its own file, the message
+rc=$(FBNEO_HOST_PADS=2 MAXFLIPS=300 run "$T" "0:0;100:$UP;120:0;$(QUITAT 140)" "" "$T/root/roms/ssriders.zip")
+expect "[ $rc = 0 ] && grep -q \"players (this game's layout): controller 1=player 2 controller 2=player 1\" $T/root/logs/boot.log && grep -q 'message: Controller 1: Player 2,  Controller 2: Player 1' $T/root/logs/boot.log" "the next start: this game's players, and the message"
+# d. its clone (the 2-player edition) without a file of its own: the parent's players
+cp "$SETS/ssridersebd/ssridersebd.zip" "$T/root/roms/"
+rc=$(MAXFLIPS=300 run "$T" "0:0;100:$UP;120:0;$(QUITAT 140)" "" "$T/root/roms/ssridersebd.zip")
+expect "[ $rc = 0 ] && grep -q 'running ssridersebd' $T/root/logs/boot.log && grep -q \"players (the parent set's layout): controller 1=player 2 controller 2=player 1\" $T/root/logs/boot.log" "the clone uses its parent's file: controller 1 on player 2"
+expect "grep -q 'inputs the game got: player 1 nothing, player 2 up\$' $T/root/logs/boot.log" "the clone: controller 1's Up reached player 2"
+expect "grep -q 'message: Controller 1: Player 2\$' $T/root/logs/boot.log" "one controller connected: the message names it alone"
+# e. Default controls in the game (Settings, Down x22, Cross): the file removed, the general players back
+rc=$(MAXFLIPS=400 run "$T" "0:0;$(PAUSE_SETTINGS 30 22 $CROSS);$(QUITAT 300)" "" "$T/root/roms/ssriders.zip")
+expect "[ $rc = 0 ] && [ ! -f $T/root/config/ssriders.btn ] && grep -q 'players (general layout): controller 1=player 1 controller 2=player 2' $T/root/logs/boot.log" "Default controls: ssriders.btn removed, controller N plays player N again"
+# f. a .btn from 2.0 (no controller_ keys): the general setting's players -- the default, then controller_1=3; controller 1
+# set to player 3: its stick, button and coin reach player 3 alone
+printf 'layout=1\n' >"$T/root/config/ssriders.btn"
+rc=$(MAXFLIPS=300 run "$T" "0:0;$(QUITAT 140)" "" "$T/root/roms/ssriders.zip")
+expect "[ $rc = 0 ] && grep -q \"players (this game's layout): controller 1=player 1 controller 2=player 2 controller 3=player 3 controller 4=player 4\" $T/root/logs/boot.log && ! grep -q 'message:' $T/root/logs/boot.log" "a 2.0 .btn without the keys: controller N = player N, no message"
+echo "controller_1=3" >>"$T/root/fbneo-ps5.ini"
+rc=$(MAXFLIPS=400 run "$T" "0:0;100:$UP;120:0;140:$TOUCH;150:0;160:$CROSS;170:0;$(QUITAT 200)" "" "$T/root/roms/ssriders.zip")
+expect "[ $rc = 0 ] && grep -q \"players (this game's layout): controller 1=player 3 controller 2=player 2 controller 3=player 1 controller 4=player 4\" $T/root/logs/boot.log" "a 2.0 .btn follows the general setting (controller 1 on player 3; controller 3, which had it, on player 1)"
+expect "grep -q 'inputs the game got: player 1 nothing, player 2 nothing, player 3 up coin fire1, player 4 nothing\$' $T/root/logs/boot.log" "controller 1 on player 3: Up, coin and button 1 reached player 3, not player 1"
+nosan "$T"
+# g. from the shelf's Settings (the general setting): Controller 1 Right (Player 2: controller 2 gets Player 1), Left
+# (Player 1 back: controller 2 gets Player 2), Left (no player), Left (Player 4: controller 4, which had it, gets the
+# lowest free one, Player 1); no game's file
+T=$(newroot t36g)
+P="0:0;30:$TRIANGLE;32:0"; t=40
+for i in $(seq 1 18); do P="$P;$t:$DOWN;$((t + 2)):0"; t=$((t + 6)); done
+P="$P;$t:$RIGHT;$((t + 2)):0"; t=$((t + 8)); D1=$((t - 3))
+for i in 1 2 3; do P="$P;$t:$LEFT;$((t + 2)):0"; t=$((t + 8)); done
+D2=$((t - 3))
+P="$P;$t:$CIRCLE;$((t + 2)):0;$(SHELFQUIT_AT $((t + 30)))"
+rc=$(FBNEO_HOST_PADS=2 run "$T" "$P" "$D1,$D2")
+expect "[ $rc = 0 ] && grep -q '^controller_1=4\$' $T/root/fbneo-ps5.ini && grep -q '^controller_2=2\$' $T/root/fbneo-ps5.ini && grep -q '^controller_3=3\$' $T/root/fbneo-ps5.ini && grep -q '^controller_4=1\$' $T/root/fbneo-ps5.ini" "the shelf's Settings: swaps, no player, then a player taken from a controller (it gets the free one)"
+expect "[ -z \"\$(ls $T/root/config/*.btn 2>/dev/null)\" ]" "from the shelf: the general setting, no game's file"
+expect "[ -f $T/dump/flip$(printf %05d $D1).ppm ] && [ -f $T/dump/flip$(printf %05d $D2).ppm ]" "the CONTROLLERS rows drawn (dumps $D1, $D2)"
+# "Default controls" from the shelf: controller N = player N again
+P="0:0;30:$TRIANGLE;32:0"; t=40
+for i in $(seq 1 22); do P="$P;$t:$DOWN;$((t + 2)):0"; t=$((t + 6)); done
+P="$P;$t:$CROSS;$((t + 2)):0;$((t + 10)):$CIRCLE;$((t + 12)):0;$(SHELFQUIT_AT $((t + 40)))"
+rc=$(run "$T" "$P" "")
+expect "[ $rc = 0 ] && grep -q '^controller_1=1\$' $T/root/fbneo-ps5.ini && grep -q '^controller_4=4\$' $T/root/fbneo-ps5.ini && grep -q '^layout=0\$' $T/root/fbneo-ps5.ini" "Default controls from the shelf: controller N = player N, Auto"
+# h. a hand-edited fbneo-ps5.ini with a player twice: the second controller gets the lowest free one
+T=$(newroot t36h)
+addset ponpoko "$T/root/roms"
+printf 'controller_1=2\ncontroller_2=2\ncontroller_3=0\n' >>"$T/root/fbneo-ps5.ini"
+rc=$(MAXFLIPS=200 run "$T" "0:0;$(QUITAT 60)" "" "$T/root/roms/ponpoko.zip")
+expect "[ $rc = 0 ] && grep -q 'players (general layout): controller 1=player 2 controller 2=player 1 controller 3=none controller 4=player 4' $T/root/logs/boot.log" "a player twice in fbneo-ps5.ini: fixed (controller 2 on player 1); 0 = no player"
 nosan "$T"
 fi
 

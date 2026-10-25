@@ -34,12 +34,13 @@ make (the driver list, Musashi's 68000 core, the CPS, Neo Geo, Cave, Psikyo, Toa
 frontends (`src/burner`) and its libretro port host the core: ROM loading from the sets' zips and 7z archives, inputs, DIP
 switches, states, NVRAM, the picture turned the right way up and the sound.
 
-> **Status (2.0):** builds with the ps5-payload-dev SDK into a signed native app, and passes 443 host tests, which
+> **Status (2.1):** builds with the ps5-payload-dev SDK into a signed native app, and passes 471 host tests, which
 > run the same code (FBNeo's core included) on Linux with the PS5 calls simulated: two arcade boards running a tiny
 > test program each (a vertical and a horizontal game) are played through the whole chain -- the shelf, the pad,
 > the core, the video and sound output -- and 26 more boards start, run, save and load a state under
 > AddressSanitizer. The network shares and the `.7z` sets have run only in those tests (a local folder standing in
-> for the share), not yet on a PS5. If something fails, the logs in `/data/fbneo/logs/` say where.
+> for the share), not yet on a PS5; 2.1's choice of player per controller has run with up to four simulated pads,
+> not yet with several real controllers. If something fails, the logs in `/data/fbneo/logs/` say where.
 
 ## How it works
 
@@ -71,9 +72,19 @@ next to Snes9x PS5 (PPSA99922, helper port 9089), Mesen2 PS5 (PPSA99923, port 90
 
 ## Versions
 
-Every release carries its version in the file name: `FBNeoPS5-v2.0.elf` (`make dist`). When updating, replace the
+Every release carries its version in the file name: `FBNeoPS5-v2.1.elf` (`make dist`). When updating, replace the
 old ELF with the new one in your autoload or Payload Manager. In this README, "`FBNeoPS5.elf`" always means the
 current release's ELF.
+
+**2.1:** **Choose which arcade player each controller plays** (thanks to gitloth, fbneo-ps5#3): Settings,
+CONTROLS, CONTROLLERS has a row for each controller (its light bar's colour, and whether it is connected) with the
+player it plays, Player 1 to 4 or none. A 4-player game that ties each character to its cabinet's slot (The
+Simpsons, Sunset Riders) can be played by three people on the slots they want, and a single controller can play
+player 2 (the 2-player editions). Choosing a player another controller has swaps them, so nobody is left without
+one. Like the button layout, a change from a game's pause menu is kept for that game (and its clones), one from the
+shelf's Settings for every game; **Default controls** (it was Default button layout) puts the buttons and the players
+back. A game that starts with a controller on another player says so for a few seconds ("Controller 1: Player 3").
+The pause menu (L3 + R3) stays on controller 1, whatever player it plays. See [Controls](#controls).
 
 **2.0:** **A button layout per game** (thanks to yuri310258, fbneo-ps5#2): change the buttons in Settings,
 CONTROLS from a game's pause menu and the change is kept for that game only (`/data/fbneo/config/<set>.btn`); a
@@ -309,7 +320,7 @@ every set found (`[games] ... -> "<name>"`) and the ROMs a set is missing (`[gam
 | `/data/fbneo/shares.txt` | the network shares (Settings, Network shares; written with examples on the first start) |
 | `/data/fbneo/saves` | NVRAM (`<set>.nvram`, written within 5 seconds of a change and when the game closes) and EEPROMs (`<set>.nv`) |
 | `/data/fbneo/states` | save states, `<set>.state1` to `.state10` |
-| `/data/fbneo/config` | the DIP switches you changed, per game (`<set>.dip`), the button layouts set in a game (`<set>.btn`), and `romcheck.txt` (the ROM check, of the console's sets and the shares') |
+| `/data/fbneo/config` | the DIP switches you changed, per game (`<set>.dip`), the button layouts and players set in a game (`<set>.btn`), and `romcheck.txt` (the ROM check, of the console's sets and the shares') |
 | `/data/fbneo/samples` | sample sets |
 | `/data/fbneo/hiscore` | `hiscore.dat` and the high scores (`<set>.hi`) |
 | `/data/fbneo/blend` | FBNeo's blend tables (`<set>.bld`, optional) |
@@ -545,14 +556,37 @@ the left stick (and the right stick for a second axis or pedal).
 
 That is the only combination: there is no fast forward, and saving or loading a state goes through the pause menu.
 
-Up to four players: players 2 to 4 are the other signed-in users' controllers, with the same layout.
+**Up to four players, and which one each controller plays (2.1, thanks to gitloth, fbneo-ps5#3).** The
+controllers are the signed-in users' pads: **controller 1** is the user in front (the one who opened FBNeo PS5),
+controllers 2 to 4 are the other signed-in users, in the order the console lists them. Their **light bars** say
+which is which: controller 1 **blue**, 2 **red**, 3 **green**, 4 **pink**. Every controller uses the same button
+layout. By default controller N plays player N; Settings, CONTROLS, **CONTROLLERS** changes that: each controller's
+row (`Controller 2 (red light), connected`) takes **Player 1** to **Player 4** or **No player** (Left / Right).
+Choosing a player another controller already has **swaps** them: that controller gets this one's old player (or, when
+this one had none, the lowest player left free), so each player has one controller at most and nobody silently loses
+control. In a game with fewer players, a player it doesn't have is shown dimmed. Examples:
+
+- three people on a 4-player Sunset Riders who want the slots 1, 3 and 4: controller 3 on Player 4 (one step right;
+  controller 4 gets Player 3), then controller 2 on Player 3 (one step right; controller 4 gets Player 2);
+- one person on a 2-player edition who wants player 2's character: controller 1 on Player 2 (controller 2 gets
+  Player 1). Controller 1's stick, buttons, coin (touchpad) and start (OPTIONS) are then player 2's.
+
+The players are kept with the button layout: changed from the shelf's Settings, for every game (`fbneo-ps5.ini`,
+`controller_1`...`controller_4` = the player's number, 0 for none); changed from a game's pause menu, for that game
+only (its `.btn`, the same keys), and a clone without its own file uses its parent's (see below). A `.btn` from 2.0,
+without these keys, uses the general setting's players (controller N = player N unless you changed them). When a game
+starts with a controller on another player, a message says so for a few seconds (`Controller 1: Player 3`).
+**The pause menu stays on controller 1** (L3 + R3 on controller 1, whatever player it plays; the other controllers'
+L3 + R3 do nothing), and the menus are driven by controller 1.
 
 **A layout per game (2.0):** Settings, CONTROLS from the shelf sets the **general layout**, the one every game uses
 unless it has its own. Opened from a game's pause menu, it says whose layout it shows ("For this game: ..." or "This
 game uses the general layout"), and a change there is kept for **that game only**, in
 `/data/fbneo/config/<set>.btn` (next to its `.dip`): set King of Fighters' buttons without touching Street
-Fighter's. A clone without its own file uses its parent set's. **Default button layout** in a game puts it back on
-the general layout (its file is removed; a clone whose parent has a layout gets a file saying `layout=general`).
+Fighter's. A clone without its own file uses its parent set's. Since 2.1 the file also keeps which player each
+controller plays (see above). **Default controls** (Default button layout up to 2.0) in a game puts it back on the
+general layout and players (its file is removed; a clone whose parent has a layout gets a file saying
+`layout=general`).
 
 **DIP switches:** the pause menu's **DIP switches** shows the game's switches (difficulty, lives, coinage, cabinet,
 the Neo Geo's BIOS and region...) with their current setting; **Left / Right** change one (`*` marks a setting
@@ -572,11 +606,13 @@ Triangle on the shelf, or "Settings" in the pause menu:
 - **Controls:** **button layout** (Auto, Classic, Fighting, Fighting (R1 R2), Custom), then the PS5 button of
   each arcade button (Button 1 to 6, Coin, Start: Cross, Circle, Square, Triangle, L1, R1, L2, R2, OPTIONS, the
   touchpad, or none). In a game the rows show the game's own names for its buttons (`Button 1 (Weak Punch)`).
-  Changing a button makes the layout Custom, starting from the one shown; **Default button layout** goes back to
-  Auto. L3 and R3 stay for the pause menu.
-  Saved in `fbneo-ps5.ini` (`layout`, `btn_1`...`btn_start`; L2 is 9 and R2 is 10 there). From a game's pause
-  menu, the change is for that game only (`config/<set>.btn`, the same keys; see [Controls](#controls)), and
-  Default button layout puts the game back on the general layout.
+  Changing a button makes the layout Custom, starting from the one shown. Then **CONTROLLERS** (2.1): the player each
+  controller plays (Player 1 to 4, or none; choosing a taken player swaps the two controllers; see
+  [Controls](#controls)). **Default controls** goes back to Auto and controller N = player N. L3 and R3 stay for the
+  pause menu.
+  Saved in `fbneo-ps5.ini` (`layout`, `btn_1`...`btn_start`, `controller_1`...`controller_4`; L2 is 9 and R2 is 10
+  there). From a game's pause menu, the change is for that game only (`config/<set>.btn`, the same keys; see
+  [Controls](#controls)), and Default controls puts the game back on the general layout and players.
 - **Library:** download covers, show clones, show incomplete sets, **BIOS sets** (Cross: which BIOS sets your
   games need and whether each is there; see [ROM sets](#rom-sets)), **Network shares** (see
   [Network shares](#network-shares-smb-and-nfs); not from a game's pause menu).

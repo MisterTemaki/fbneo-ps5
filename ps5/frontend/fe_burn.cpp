@@ -120,6 +120,10 @@ struct G
 	int buttons = 0;
 	bool analog = false;
 	int reset_frames = 0;
+	// what each player's inputs got while the game ran (InputReport): bit Kind of the digital ones that were on,
+	// and the fire buttons
+	uint32_t seen[burn::kMaxPlayers] = {};
+	uint32_t seen_fire[burn::kMaxPlayers] = {};
 
 	// the NVRAM areas as last written (or read)
 	std::vector<uint8_t> nvram_last;
@@ -674,6 +678,8 @@ void ScanInputs()
 	g.inputs.clear();
 	g.buttons = 0;
 	g.analog = false;
+	for (int p = 0; p < burn::kMaxPlayers; p++)
+		g.seen[p] = g.seen_fire[p] = 0;
 	for (UINT32 i = 0; i < 1024; i++)
 	{
 		struct BurnInputInfo bii = {};
@@ -761,6 +767,12 @@ void ApplyInputs(const burn::Input& in)
 		}
 		else
 			*x.val = on ? 1 : 0;
+		if (on)
+		{
+			g.seen[x.player] |= 1u << int(x.kind);
+			if (x.kind == Kind::Button)
+				g.seen_fire[x.player] |= 1u << x.button;
+		}
 	}
 }
 
@@ -1598,6 +1610,33 @@ std::string ButtonName(int i)
 bool HasAnalog()
 {
 	return g.analog;
+}
+
+std::string InputReport()
+{
+	int players = 0;
+	for (const In& x : g.inputs)
+		if (x.kind != Kind::Dip && x.kind != Kind::None)
+			players = std::max(players, x.player + 1);
+	std::string r;
+	for (int p = 0; p < players; p++)
+	{
+		std::string got;
+		static const struct
+		{
+			Kind kind;
+			const char* name;
+		} kNames[] = {{Kind::Up, "up"}, {Kind::Down, "down"}, {Kind::Left, "left"}, {Kind::Right, "right"},
+			{Kind::Coin, "coin"}, {Kind::Start, "start"}};
+		for (const auto& k : kNames)
+			if (g.seen[p] & (1u << int(k.kind)))
+				got += std::string(" ") + k.name;
+		for (int b = 0; b < burn::kButtons; b++)
+			if (g.seen_fire[p] & (1u << b))
+				got += " fire" + std::to_string(b + 1);
+		r += (r.empty() ? "" : ", ") + ("player " + std::to_string(p + 1)) + (got.empty() ? std::string(" nothing") : got);
+	}
+	return r.empty() ? "no inputs" : r;
 }
 
 std::vector<DipGroup> Dips()

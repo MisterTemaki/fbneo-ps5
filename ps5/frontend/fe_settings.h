@@ -28,6 +28,12 @@ struct Settings
 	static constexpr int kDefaultButtons[kButtons] = {0, 1, 2, 3, 4, 5, 7, 6}; // Cross Circle Square Triangle L1 R1, touchpad, OPTIONS
 	int buttons[kButtons] = {0, 1, 2, 3, 4, 5, 7, 6};
 	void DefaultButtons();
+	// which arcade player each controller plays (2.1, fbneo-ps5#3): controller slot (ps5input: the foreground user's
+	// pad first, then the other signed-in users') -> player 0..3, or -1 for none. Each player has at most one
+	// controller (FixPadPlayers). Kept as controller_1..controller_4 = the player's number (0: none).
+	static constexpr int kPads = 4;
+	int pad_player[kPads] = {0, 1, 2, 3};
+	void DefaultPadPlayers();
 	// library
 	bool covers_download = true; // fetch flyers from libretro-thumbnails
 	bool show_clones = true; // the clones (other versions) of a game
@@ -44,4 +50,8 @@ struct Settings
 };
 
 Settings& Config();
+
+// Makes `players` (Settings::pad_player's form, kPads of them) valid: each one -1..3, and each player at most once (a
+// controller whose player an earlier controller already has gets the lowest free one).
+void FixPadPlayers(int* players);
 } // namespace fe

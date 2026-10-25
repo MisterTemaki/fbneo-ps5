@@ -249,7 +249,10 @@ enum SettingRow
 	S_LAYOUT,
 	S_BTN_FIRST,
 	S_BTN_LAST = S_BTN_FIRST + emu::kArcadeButtonCount - 1,
-	S_BTN_DEFAULT,
+	H_PADS, // 2.1 (fbneo-ps5#3): the arcade player each controller plays
+	S_PAD_FIRST,
+	S_PAD_LAST = S_PAD_FIRST + emu::kPads - 1,
+	S_BTN_DEFAULT, // "Default controls": the buttons and the players
 	H_LIBRARY,
 	S_COVERS,
 	S_CLONES,
@@ -388,7 +391,8 @@ Row SettingRowFor(int s)
 			return r;
 		}
 		case S_LAYOUT: return {"Button layout", emu::kLayouts[emu::Controls().layout].name};
-		case S_BTN_DEFAULT: return {"Default button layout", ""};
+		case H_PADS: return {"CONTROLLERS (controller  ->  arcade player)", "", true, true};
+		case S_BTN_DEFAULT: return {"Default controls (buttons and players)", ""};
 		case H_LIBRARY: return {"LIBRARY", "", true, true};
 		case S_COVERS: return {"Download covers", OnOff(c.covers_download)};
 		case S_CLONES: return {"Show clones (other versions)", OnOff(c.show_clones)};
@@ -430,6 +434,22 @@ Row SettingRowFor(int s)
 					label += "  (" + game + ")";
 				return {label, emu::kPs5Buttons[b].name};
 			}
+			if (s >= S_PAD_FIRST && s <= S_PAD_LAST)
+			{
+				// the controller (its light bar's colour: ProsperoInput.cpp's), whether it is connected, its player
+				const int pad = s - S_PAD_FIRST;
+				static const char* const kLight[emu::kPads] = {"blue", "red", "green", "pink"};
+				const bool connected = ps5input::Snapshot(pad).connected;
+				Row r;
+				r.label = Fmt(T(connected ? "Controller %d (%s light), connected" : "Controller %d (%s light)"), pad + 1,
+					T(kLight[pad]));
+				const int p = emu::Controls().players[pad];
+				r.value = p == emu::kNoPlayer ? "No player" : Fmt(T("Player %d"), p + 1);
+				// in a game with fewer players: shown dimmed (that controller plays nobody in this game)
+				if (p == emu::kNoPlayer || (emu::GamePlayers() > 0 && p >= emu::GamePlayers()))
+					r.value_color = kDim;
+				return r;
+			}
 			return {"", ""};
 	}
 }
@@ -469,7 +489,8 @@ void ChangeSetting(int s, int dir)
 			OrbisLogSetEnabled(c.debug_logs); // at once: the line saying so is the last (or first) one written
 			break;
 		case S_BTN_DEFAULT:
-			emu::DefaultControls(); // in a game: back to the general layout; else the general one back to Auto
+			// in a game: back to the general layout and players; else the general ones back to Auto and Player N
+			emu::DefaultControls();
 			break;
 		default:
 			if (s >= S_BTN_FIRST && s <= S_BTN_LAST)
@@ -485,6 +506,14 @@ void ChangeSetting(int s, int dir)
 				int& b = l.buttons[s - S_BTN_FIRST];
 				b = emu::NextPs5Button(b, dir);
 				emu::SetControls(l);
+			}
+			else if (s >= S_PAD_FIRST && s <= S_PAD_LAST)
+			{
+				// another player for this controller: the controller that had it gets this one's (a swap)
+				emu::ButtonLayout l = emu::Controls();
+				const int pad = s - S_PAD_FIRST;
+				emu::ChoosePlayer(l.players, pad, emu::NextPlayer(l.players[pad], dir));
+				emu::SetControls(l); // in a game, for that game only
 			}
 			break;
 	}

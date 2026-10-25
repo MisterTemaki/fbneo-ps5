@@ -2,6 +2,8 @@
 // whole port (main-boot, shims, frontend, core) runs unchanged in the tests.
 //
 //   FBNEO_HOST_PAD="frame:hexbuttons[;frame:hexbuttons...]"  pad 1 script (by flip count)
+//   FBNEO_HOST_PADS=n                                        signed-in users, each with a pad (1..4, default 1)
+//   FBNEO_HOST_PAD2, _PAD3, _PAD4                            the other users' pads' scripts (as FBNEO_HOST_PAD)
 //   FBNEO_HOST_DUMP="frame[,frame...]"                       flips to save as PPM (de-tiled)
 //   FBNEO_HOST_DUMP_DIR=dir                                  where (default .)
 //   FBNEO_HOST_MAX_FLIPS=n                                   abort after n flips (a hang guard)
@@ -31,7 +33,7 @@ SceVideoOutBuffers g_bufs[2];
 int g_w = 0, g_h = 0;
 std::atomic<uint64_t> g_flips{0};
 std::atomic<uint64_t> g_audio_frames{0};
-std::map<uint64_t, uint32_t> g_script;
+std::map<uint64_t, uint32_t> g_script[4]; // pad 1..4 (FBNEO_HOST_PAD, FBNEO_HOST_PAD2...)
 std::set<uint64_t> g_dumps;
 bool g_inited = false;
 
@@ -40,23 +42,25 @@ void InitEnv()
 	if (g_inited)
 		return;
 	g_inited = true;
-	if (const char* s = getenv("FBNEO_HOST_PAD"))
-	{
-		std::string str = s;
-		size_t pos = 0;
-		while (pos < str.size())
+	static const char* const kPadVars[4] = {"FBNEO_HOST_PAD", "FBNEO_HOST_PAD2", "FBNEO_HOST_PAD3", "FBNEO_HOST_PAD4"};
+	for (int pad = 0; pad < 4; pad++)
+		if (const char* s = getenv(kPadVars[pad]))
 		{
-			size_t end = str.find(';', pos);
-			if (end == std::string::npos)
-				end = str.size();
-			const std::string item = str.substr(pos, end - pos);
-			const size_t colon = item.find(':');
-			if (colon != std::string::npos)
-				g_script[strtoull(item.substr(0, colon).c_str(), nullptr, 10)] =
-					uint32_t(strtoul(item.substr(colon + 1).c_str(), nullptr, 16));
-			pos = end + 1;
+			std::string str = s;
+			size_t pos = 0;
+			while (pos < str.size())
+			{
+				size_t end = str.find(';', pos);
+				if (end == std::string::npos)
+					end = str.size();
+				const std::string item = str.substr(pos, end - pos);
+				const size_t colon = item.find(':');
+				if (colon != std::string::npos)
+					g_script[pad][strtoull(item.substr(0, colon).c_str(), nullptr, 10)] =
+						uint32_t(strtoul(item.substr(colon + 1).c_str(), nullptr, 16));
+				pos = end + 1;
+			}
 		}
-	}
 	if (const char* s = getenv("FBNEO_HOST_DUMP"))
 	{
 		std::string str = s;
@@ -319,26 +323,50 @@ static bool PadShared()
 	const char* e = getenv("FBNEO_HOST_PAD_SHARED");
 	return e && *e && strcmp(e, "0") != 0;
 }
-int scePadOpen(int, int, int, void*)
+// the signed-in users (FBNEO_HOST_PADS): 0x10000001.. ; user n's pad is handle 0x100 + n - 1 (the first one's
+// 0x809b0081 when shared)
+static int HostPads()
 {
-	return PadShared() ? SCE_PAD_ERROR_ALREADY_OPENED : 0x100;
+	const char* e = getenv("FBNEO_HOST_PADS");
+	const int n = e ? atoi(e) : 1;
+	return n < 1 ? 1 : n > 4 ? 4 : n;
 }
-int scePadGetHandle(int, int, int)
+static int UserIndex(int user)
 {
-	return PadShared() ? (int)0x809b0081 : 0x100;
+	const int i = user - 0x10000001;
+	return i >= 0 && i < HostPads() ? i : -1;
+}
+int scePadOpen(int user, int, int, void*)
+{
+	const int i = UserIndex(user);
+	if (i < 0)
+		return (int)0x80920001; // (no such user)
+	return i == 0 && PadShared() ? SCE_PAD_ERROR_ALREADY_OPENED : 0x100 + i;
+}
+int scePadGetHandle(int user, int, int)
+{
+	const int i = UserIndex(user);
+	if (i < 0)
+		return (int)0x80920001;
+	return i == 0 && PadShared() ? (int)0x809b0081 : 0x100 + i;
 }
 int scePadReadState(int handle, ScePadData* data)
 {
 	InitEnv();
-	if (handle != (PadShared() ? (int)0x809b0081 : 0x100))
+	int pad = -1;
+	if (handle == (PadShared() ? (int)0x809b0081 : 0x100))
+		pad = 0;
+	else if (handle > 0x100 && handle < 0x100 + HostPads())
+		pad = handle - 0x100;
+	if (pad < 0)
 		return (int)0x80920003; // invalid handle
 	memset(data, 0, sizeof(*data));
 	data->connected = 1;
 	data->leftStick.x = data->leftStick.y = 128;
 	data->rightStick.x = data->rightStick.y = 128;
 	const uint64_t now = g_flips.load();
-	auto it = g_script.upper_bound(now);
-	if (it != g_script.begin())
+	auto it = g_script[pad].upper_bound(now);
+	if (it != g_script[pad].begin())
 		data->buttons = std::prev(it)->second;
 	return 0;
 }
@@ -362,8 +390,8 @@ int sceUserServiceGetForegroundUser(int32_t* user)
 }
 int sceUserServiceGetLoginUserIdList(int32_t users[4])
 {
-	users[0] = 0x10000001;
-	users[1] = users[2] = users[3] = -1;
+	for (int i = 0; i < 4; i++)
+		users[i] = i < HostPads() ? 0x10000001 + i : -1;
 	return 0;
 }
 

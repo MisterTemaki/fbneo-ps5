@@ -19,13 +19,14 @@ struct PadState
 bool Init();
 void Shutdown();
 
-// Reads every pad (thread-safe). Player 1 is the foreground user; the other logged-in users follow in the system's
-// order. Who is logged in is checked again every couple of seconds.
+// Reads every pad (thread-safe). Pad 0 (controller 1, the light bar blue) is the foreground user's; the other
+// logged-in users' follow in the system's order (red, green, pink). Who is logged in is checked again every couple of
+// seconds. Which arcade player each pad plays is the frontend's choice (fe_emu.h: emu::ButtonLayout::players, 2.1).
 void Poll();
 const PadState& Pad(int player); // the polling thread's view
 PadState Snapshot(int player); // a copy, safe from any thread (Poll may run on another one)
 int ConnectedCount();
 
-// Player 1's buttons that went down in the last Poll (menus).
+// Pad 0's (controller 1's) buttons that went down in the last Poll (menus).
 uint32_t Pressed();
 } // namespace ps5input

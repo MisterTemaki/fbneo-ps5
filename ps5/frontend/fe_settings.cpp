@@ -39,6 +39,28 @@ void Settings::DefaultButtons()
 		buttons[i] = kDefaultButtons[i];
 }
 
+void Settings::DefaultPadPlayers()
+{
+	for (int i = 0; i < kPads; i++)
+		pad_player[i] = i;
+}
+
+void FixPadPlayers(int* players)
+{
+	bool taken[Settings::kPads] = {};
+	for (int i = 0; i < Settings::kPads; i++)
+	{
+		int& p = players[i];
+		if (p < -1 || p >= Settings::kPads)
+			p = i;
+		if (p >= 0 && taken[p])
+			for (p = 0; p < Settings::kPads && taken[p]; p++)
+				;
+		if (p >= 0) // (always free here: four controllers, four players)
+			taken[p] = true;
+	}
+}
+
 Settings& Config()
 {
 	static Settings s;
@@ -90,6 +112,8 @@ void Settings::Load()
 				if (key == kButtonKeys[i])
 					buttons[i] = Clamp(n, 0, kPs5ButtonChoices - 1);
 		}
+		else if (key.compare(0, 11, "controller_") == 0 && key.size() == 12 && key[11] >= '1' && key[11] < '1' + kPads)
+			pad_player[key[11] - '1'] = Clamp(n, 0, kPads) - 1;
 		else if (key == "state_slot")
 			state_slot = Clamp(n, 1, 10);
 		else if (key == "covers_download")
@@ -112,6 +136,7 @@ void Settings::Load()
 			last_rom = val;
 	}
 	fclose(f);
+	FixPadPlayers(pad_player);
 	OrbisLog("[settings] loaded %s", IniPath().c_str());
 }
 
@@ -137,6 +162,8 @@ void Settings::Save() const
 	fprintf(f, "layout=%d\n", layout);
 	for (int i = 0; i < kButtons; i++)
 		fprintf(f, "%s=%d\n", kButtonKeys[i], buttons[i]);
+	for (int i = 0; i < kPads; i++)
+		fprintf(f, "controller_%d=%d\n", i + 1, pad_player[i] + 1);
 	fprintf(f, "state_slot=%d\n", state_slot);
 	fprintf(f, "covers_download=%d\n", covers_download ? 1 : 0);
 	fprintf(f, "show_clones=%d\n", show_clones ? 1 : 0);

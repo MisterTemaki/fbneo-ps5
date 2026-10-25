@@ -105,6 +105,8 @@ struct Input
 int ButtonCount();
 std::string ButtonName(int i);
 bool HasAnalog();
+// What each player's digital inputs got since the game started, for the log: "player 1 nothing, player 2 up fire1 coin".
+std::string InputReport();
 
 // ---- DIP switches -------------------------------------------------------------------------------------------------
 struct DipGroup

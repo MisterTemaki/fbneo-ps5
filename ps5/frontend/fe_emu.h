@@ -1,7 +1,7 @@
 // FBNeo PS5 frontend: the running game -- FBNeo's core (fe_burn.h) with the PS5's picture, sound and pads.
 //
 // One RunFrame() is one frame of the arcade machine, called from the frontend's thread. The pads go to the
-// game through the button layout (Settings, CONTROLS); the picture (turned the right way up for vertical games)
+// game through the button layout (Settings, CONTROLS), each to the arcade player it plays (2.1); the picture (turned the right way up for vertical games)
 // goes through the CRT shaders to the screen; the sound (48 kHz) to the audio ring.
 //
 // SPDX-License-Identifier: MIT
@@ -54,11 +54,23 @@ extern const ArcadeButton kArcadeButtons[kArcadeButtonCount];
 // buttons (Settings::buttons' order).
 int LayoutButton(int layout, int i, int game_buttons, const int* custom);
 
-// A button layout: one of kLayouts, and the custom one's buttons.
+// The controllers (ps5input's slots: the foreground user's pad first, then the other signed-in users'; their light
+// bars blue, red, green, pink) and the arcade player each one plays (2.1, fbneo-ps5#3).
+constexpr int kPads = 4;
+constexpr int kNoPlayer = -1;
+// The players in the order the settings screen steps through them: Player 1..4, then none.
+int NextPlayer(int player, int dir);
+// Controller `pad` plays `player` (0..3 or kNoPlayer). The controller that had that player gets `pad`'s old one (a
+// swap: nobody loses control); when `pad` had none, it gets the lowest player left free.
+void ChoosePlayer(int* players, int pad, int player);
+
+// A game's controls (2.0's button layout, and since 2.1 which player each controller plays): one of kLayouts, the
+// custom one's buttons, the controllers' players.
 struct ButtonLayout
 {
 	int layout = 0;
 	int buttons[kArcadeButtonCount] = {0, 1, 2, 3, 4, 5, 7, 6};
+	int players[kPads] = {0, 1, 2, 3};
 	int Button(int i, int game_buttons) const { return LayoutButton(layout, i, game_buttons, buttons); }
 };
 // Whose layout the running game uses (and Settings, CONTROLS edits): the general one (fbneo-ps5.ini), the game's
@@ -74,8 +86,8 @@ std::string ParentTitle();   // the parent set's title, for LayoutOwner::Parent
 ButtonLayout Controls();     // the layout in use (no game: the general one)
 // Changes the layout: in a game, saved for that game only (config/<set>.btn); with no game, the general one.
 void SetControls(const ButtonLayout& l);
-// "Default button layout": in a game, back to the general layout (its file removed); with no game, the general
-// layout back to Auto.
+// "Default controls": in a game, back to the general layout and players (its file removed); with no game, the
+// general layout back to Auto and controller N back to player N.
 void DefaultControls();
 
 bool InitCore();
@@ -125,6 +137,7 @@ void ResetDips();
 // The names the driver gives player 1's buttons ("Weak Punch"), "" past its last button.
 std::string GameButtonName(int i);
 int GameButtonCount();
+int GamePlayers(); // how many players the running game has (0: no game)
 
 // Redraws the last frame into the surface (the pause menu draws over it).
 void RedrawLastFrame();

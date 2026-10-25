@@ -42,6 +42,8 @@
 #include <ctime>
 #include <vector>
 
+static_assert(emu::kPads == fe::Settings::kPads && emu::kPads == ps5input::kMaxPads, "one setting per controller");
+
 namespace emu
 {
 const Choice kAspects[] = {
@@ -128,6 +130,42 @@ int NextPs5Button(int button, int dir)
 	static const int kOrder[] = {0, 1, 2, 3, 4, 5, 9, 10, 6, 7, kNoButton};
 	return Next(kOrder, int(sizeof(kOrder) / sizeof(kOrder[0])), button, dir);
 }
+
+int NextPlayer(int player, int dir)
+{
+	static const int kOrder[] = {0, 1, 2, 3, kNoPlayer};
+	return Next(kOrder, int(sizeof(kOrder) / sizeof(kOrder[0])), player, dir);
+}
+
+void ChoosePlayer(int* players, int pad, int player)
+{
+	if (pad < 0 || pad >= kPads)
+		return;
+	const int old = players[pad];
+	players[pad] = player;
+	if (player == kNoPlayer || player == old)
+		return;
+	for (int o = 0; o < kPads; o++)
+	{
+		if (o == pad || players[o] != player)
+			continue;
+		players[o] = old;
+		if (old == kNoPlayer)
+		{
+			// the lowest player nobody else has (there is one: `pad` had none)
+			bool taken[kPads] = {};
+			for (int i = 0; i < kPads; i++)
+				if (i != o && players[i] >= 0 && players[i] < kPads)
+					taken[players[i]] = true;
+			for (int p = 0; p < kPads; p++)
+				if (!taken[p])
+				{
+					players[o] = p;
+					break;
+				}
+		}
+	}
+}
 } // namespace emu
 
 namespace
@@ -200,10 +238,15 @@ struct State
 	// pads: the layout in use (PS5 button bit of each arcade button)
 	unsigned map[emu::kArcadeButtonCount] = {};
 	std::string map_logged; // the layout last written to the log
+	// the arcade player each controller plays (emu::kNoPlayer: none)
+	int pad_player[emu::kPads] = {0, 1, 2, 3};
+	std::string players_logged;
 	// the game's own button layout (config/<set>.btn), or its parent set's; else the general one (fbneo-ps5.ini)
 	emu::LayoutOwner owner = emu::LayoutOwner::General;
 	emu::ButtonLayout game_layout;
 	std::string parent, parent_title;
+	// controller 1 (the foreground user's pad, whatever player it plays): the pause menu's combination, and nothing of
+	// it reaches the game while the buttons that closed a menu (or opened it) are held
 	uint32_t prev_p1 = 0;
 	bool wait_release = true;
 	bool service = false, test = false;
@@ -250,11 +293,13 @@ emu::ButtonLayout GeneralLayout()
 	l.layout = ((c.layout % emu::kLayoutCount) + emu::kLayoutCount) % emu::kLayoutCount;
 	for (int i = 0; i < emu::kArcadeButtonCount; i++)
 		l.buttons[i] = c.buttons[i];
+	for (int i = 0; i < emu::kPads; i++)
+		l.players[i] = c.pad_player[i];
 	return l;
 }
 
 // What a .btn file holds: nothing (no file), a layout, or "layout=general" (the game follows the general layout
-// even though its parent set has a layout of its own: "Default button layout" in a clone).
+// even though its parent set has a layout of its own: "Default controls" in a clone).
 enum class BtnFile
 {
 	None,
@@ -268,6 +313,9 @@ BtnFile ReadBtn(const std::string& path, emu::ButtonLayout* out)
 	if (!f)
 		return BtnFile::None;
 	emu::ButtonLayout l;
+	// the controllers' players: a file without them (2.0's) keeps the general setting's
+	for (int i = 0; i < emu::kPads; i++)
+		l.players[i] = fe::Config().pad_player[i];
 	bool general = false, has_layout = false;
 	// spaces around the key and the value are allowed (a file edited by hand)
 	auto trim = [](std::string t) {
@@ -294,8 +342,11 @@ BtnFile ReadBtn(const std::string& path, emu::ButtonLayout* out)
 		for (int i = 0; i < emu::kArcadeButtonCount; i++)
 			if (key == emu::kArcadeButtons[i].key)
 				l.buttons[i] = std::max(0, std::min(emu::kPs5ButtonCount - 1, n));
+		if (key.size() == 12 && key.compare(0, 11, "controller_") == 0 && key[11] >= '1' && key[11] < '1' + emu::kPads)
+			l.players[key[11] - '1'] = std::max(0, std::min(emu::kPads, n)) - 1; // 0: none
 	}
 	fclose(f);
+	fe::FixPadPlayers(l.players);
 	// an empty or damaged file (no valid layout= line) is ignored: the game follows its parent or the general layout
 	if (!has_layout)
 	{
@@ -325,6 +376,9 @@ bool WriteBtn(const std::string& path, const emu::ButtonLayout* l)
 		fprintf(f, "layout=%d\n", l->layout);
 		for (int i = 0; i < emu::kArcadeButtonCount; i++)
 			fprintf(f, "%s=%d\n", emu::kArcadeButtons[i].key, l->buttons[i]);
+		// 2.1: the player each controller plays (0: none)
+		for (int i = 0; i < emu::kPads; i++)
+			fprintf(f, "controller_%d=%d\n", i + 1, l->players[i] + 1);
 	}
 	bool ok = fflush(f) == 0 && ferror(f) == 0;
 	ok = fsync(fileno(f)) == 0 && ok;
@@ -377,12 +431,46 @@ void ApplyLayout()
 		g.map[i] = emu::kPs5Buttons[b].bit;
 		desc += std::string(" ") + (i < 6 ? std::to_string(i + 1) : i == 6 ? "coin" : "start") + "=" + emu::kPs5Buttons[b].name;
 	}
+	static const char* const kOwner[] = {"general", "this game's", "the parent set's"};
 	if (desc != g.map_logged)
 	{
 		g.map_logged = desc;
-		static const char* const kOwner[] = {"general", "this game's", "the parent set's"};
 		OrbisLog("[emu] buttons (%s layout) %s", kOwner[int(emu::ControlsOwner())], desc.c_str());
 	}
+	std::string players;
+	for (int c = 0; c < emu::kPads; c++)
+	{
+		g.pad_player[c] = l.players[c];
+		players += " controller " + std::to_string(c + 1) + "=" +
+			(l.players[c] == emu::kNoPlayer ? std::string("none") : "player " + std::to_string(l.players[c] + 1));
+	}
+	if (players != g.players_logged)
+	{
+		g.players_logged = players;
+		OrbisLog("[emu] players (%s layout):%s", kOwner[int(emu::ControlsOwner())], players.c_str());
+	}
+}
+
+// When a game starts with controllers on other players than their own, a message says so ("Controller 1: Player 3"):
+// controller 1 and the other connected ones.
+void ShowPlayers()
+{
+	std::string text;
+	bool moved = false;
+	for (int c = 0; c < emu::kPads; c++)
+	{
+		if (c > 0 && !ps5input::Snapshot(c).connected)
+			continue;
+		const int p = g.pad_player[c];
+		moved = moved || p != c;
+		text += (text.empty() ? "" : ",  ") +
+			(p == emu::kNoPlayer ? Fmt(T("Controller %d: no player"), c + 1) : Fmt(T("Controller %d: Player %d"), c + 1, p + 1));
+	}
+	if (!moved)
+		return;
+	g.osd = text;
+	g.osd_until = Now() + 4.0;
+	OrbisLog("[emu] message: %s", text.c_str());
 }
 
 int8_t Axis(uint8_t v)
@@ -394,13 +482,18 @@ burn::Input ReadPads()
 {
 	burn::Input in;
 	ps5input::Poll();
-	for (int p = 0; p < burn::kMaxPlayers && p < ps5input::kMaxPads; p++)
+	// each controller to the player it plays (Settings, CONTROLS; 2.1): a controller on Player 2 is player 2's stick,
+	// buttons, coin and start. Each player has one controller at most (fe::FixPadPlayers).
+	for (int c = 0; c < ps5input::kMaxPads && c < emu::kPads; c++)
 	{
-		const ps5input::PadState s = ps5input::Snapshot(p);
+		const int p = g.pad_player[c];
+		if (p < 0 || p >= burn::kMaxPlayers)
+			continue;
+		const ps5input::PadState s = ps5input::Snapshot(c);
 		if (!s.connected)
 			continue;
-		// player 1 while the buttons that closed a menu (or opened it) are held: nothing reaches the game
-		if (p == 0 && g.wait_release)
+		// controller 1 while the buttons that closed a menu (or opened it) are held: nothing reaches the game
+		if (c == 0 && g.wait_release)
 			continue;
 		burn::PlayerInput& pi = in.player[p];
 		pi.up = s.buttons & SCE_PAD_BUTTON_UP; // the D-pad, or the left stick
@@ -654,8 +747,12 @@ bool LoadGame(const std::string& path, std::string* error)
 	g.next_nvram_check = Now() + 5.0;
 	g.overlay_was_drawn = false;
 	g.map_logged.clear();
+	g.players_logged.clear();
+	g.osd.clear();
 	FindGameLayout();
 	ApplyLayout();
+	ps5input::Poll();
+	ShowPlayers();
 	ps5video::InvalidateFrame();
 	// realtime from here: the set was read as the driver started (from a share too); the shelf's check pass is stopped,
 	// and nothing in netfs waits on the network for the game's thread unless the driver reads a ROM again (a reset)
@@ -670,6 +767,7 @@ void CloseGame()
 	if (!g.loaded)
 		return;
 	FBNEO_STAGE(Emu, "close game");
+	OrbisLog("[emu] inputs the game got: %s", burn::InputReport().c_str());
 	burn::Unload(); // writes the NVRAM (and the core its EEPROM and high scores)
 	g.loaded = false;
 	g.frame.clear();
@@ -824,12 +922,16 @@ void SetControls(const ButtonLayout& l)
 		c.layout = l.layout;
 		for (int i = 0; i < kArcadeButtonCount; i++)
 			c.buttons[i] = l.buttons[i];
+		for (int i = 0; i < kPads; i++)
+			c.pad_player[i] = l.players[i];
+		fe::FixPadPlayers(c.pad_player);
 		return;
 	}
 	g.game_layout = l;
+	fe::FixPadPlayers(g.game_layout.players);
 	g.owner = LayoutOwner::Game;
 	const std::string path = BtnPath(g.set);
-	const bool ok = WriteBtn(path, &l);
+	const bool ok = WriteBtn(path, &g.game_layout);
 	OrbisLog("[emu] button layout for %s only: %s (%s %s)", g.set.c_str(), kLayouts[l.layout].name, path.c_str(),
 		ok ? "saved" : "not saved");
 	ApplyLayout();
@@ -840,6 +942,7 @@ void DefaultControls()
 	if (!g.loaded)
 	{
 		fe::Config().DefaultButtons();
+		fe::Config().DefaultPadPlayers();
 		fe::Config().layout = 0;
 		return;
 	}
@@ -871,6 +974,11 @@ int GameButtonCount()
 	return g.loaded ? burn::ButtonCount() : 0;
 }
 
+int GamePlayers()
+{
+	return g.loaded ? burn::Current().players : 0;
+}
+
 void RedrawLastFrame()
 {
 	DrawLast();
@@ -882,7 +990,7 @@ FrameResult RunFrame()
 		return FrameResult::Stopped;
 	fe::Settings& cfg = fe::Config();
 
-	// -- the pause menu's combination (player 1)
+	// -- the pause menu's combination (controller 1, whatever player it plays)
 	ps5input::Poll();
 	const uint32_t raw = ps5input::Pad(0).raw_buttons;
 	if (g.wait_release)
