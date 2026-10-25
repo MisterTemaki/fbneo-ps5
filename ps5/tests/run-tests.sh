@@ -1723,7 +1723,7 @@ T=$(newroot t37b)
 addset ponpoko "$T/root/roms"
 echo "controller_1=4" >>"$T/root/fbneo-ps5.ini"
 rc=$(MAXFLIPS=200 run "$T" "0:0;$(QUITAT 60)" "" "$T/root/roms/ponpoko.zip")
-expect "[ $rc = 0 ] && grep -q 'message: Controller 1: Player 4 (this game has 2 players)\$' $T/root/logs/boot.log" "controller 1 on player 4 in a 2-player game: the message says the game has 2 players"
+expect "[ $rc = 0 ] && grep -q 'message: Controller 1: Player 4 (not in this game).  This game has 2 players.\$' $T/root/logs/boot.log" "controller 1 on player 4 in a 2-player game: the message says so, and that the game has 2 players"
 echo "controller_1=0" >>"$T/root/fbneo-ps5.ini"
 rc=$(MAXFLIPS=200 run "$T" "0:0;$(QUITAT 60)" "" "$T/root/roms/ponpoko.zip")
 expect "[ $rc = 0 ] && grep -q 'message: Controller 1: no player\$' $T/root/logs/boot.log" "controller 1 on no player: the message says so"
@@ -1761,6 +1761,49 @@ expect "[ $rc = 0 ] && grep -q 'players (general layout): controller 1=player 1 
 printf 'layout=0\ncontroller_1=x\ncontroller_2=1\n' >"$T/root/config/ponpoko.btn"
 rc=$(MAXFLIPS=200 run "$T" "0:0;$(QUITAT 60)" "" "$T/root/roms/ponpoko.zip")
 expect "[ $rc = 0 ] && grep -q \"players (this game's layout): controller 1=player 2 controller 2=player 1 controller 3=none\" $T/root/logs/boot.log" "a .btn's 'x' is ignored; the player it names (controller 2 on 1) goes first, controller 1 gets the free one"
+nosan "$T"
+# f. four controllers in a 2-player game, two of them on players it lacks: the message is wrapped onto lines, each
+# controller whole, the player count said once, and it fits the screen in every language
+mkset quizo  # Quiz Olympic: one player
+T=$(newroot t37f)
+addset ponpoko "$T/root/roms"
+for L in 0 1 2 3 4; do
+	printf 'shader=0\nlanguage=%s\ncontroller_1=3\ncontroller_2=4\ncontroller_3=1\ncontroller_4=2\n' $L >"$T/root/fbneo-ps5.ini"
+	rm -f $T/dump/*.ppm
+	rc=$(FBNEO_HOST_PADS=4 MAXFLIPS=200 run "$T" "0:0;$(QUITAT 60)" "30" "$T/root/roms/ponpoko.zip")
+	cp $T/dump/flip00030.ppm $T/osd$L.ppm 2>/dev/null
+	fit=$(python3 - $T/dump/flip00030.ppm <<'PY'
+import sys
+d = open(sys.argv[1], 'rb').read().split(b'\n', 3)
+w, h = map(int, d[1].split()); px = d[3]
+def white(x, y):
+    o = (y * w + x) * 3
+    return min(px[o:o + 3]) > 200
+rows = [y for y in range(800, h) if any(white(x, y) for x in range(40, w, 2))]
+right = max((x for y in rows for x in range(40, w) if white(x, y)), default=0)
+bands = sum(1 for i, y in enumerate(rows) if i == 0 or y - rows[i - 1] > 8)
+print(bands, right)
+PY
+)
+	expect "[ $rc = 0 ] && [ \"\${fit%% *}\" -ge 2 ] && [ \"\${fit##* }\" -lt $((1920 - 40)) ] && grep -q 'message: ' $T/root/logs/boot.log && { [ $L != 0 ] || grep -q 'message: Controller 1: Player 3 (not in this game),  Controller 2: Player 4 (not in this game),  Controller 3: Player 1,  Controller 4: Player 2.  This game has 2 players.\$' $T/root/logs/boot.log; }" "language $L: the message on $(echo ${fit%% *}) lines, its widest $(echo ${fit##* }) px wide: it fits"
+done
+# a 1-player game: "This game has 1 player."
+addset quizo "$T/root/roms"
+printf 'shader=0\ncontroller_1=2\n' >"$T/root/fbneo-ps5.ini"
+rc=$(MAXFLIPS=200 run "$T" "0:0;$(QUITAT 60)" "" "$T/root/roms/quizo.zip")
+expect "[ $rc = 0 ] && grep -q 'message: Controller 1: Player 2 (not in this game).  This game has 1 player.\$' $T/root/logs/boot.log" "a 1-player game: 'This game has 1 player.'"
+nosan "$T"
+# g. a saved file edited by hand on one line (controller_4=1, every controller named): that line wins, and the controller
+# that had player 1 gets the free one, player 4 (a swap), logged; the same in a .btn, over the general players
+T=$(newroot t37g)
+addset ponpoko "$T/root/roms"
+printf 'controller_1=1\ncontroller_2=2\ncontroller_3=3\ncontroller_4=1\n' >>"$T/root/fbneo-ps5.ini"
+rc=$(MAXFLIPS=200 run "$T" "0:0;$(QUITAT 60)" "" "$T/root/roms/ponpoko.zip")
+expect "[ $rc = 0 ] && grep -q 'players (general layout): controller 1=player 4 controller 2=player 2 controller 3=player 3 controller 4=player 1' $T/root/logs/boot.log && grep -q 'fbneo-ps5.ini: player 1 named twice: controller 1 plays player 4 instead' $T/root/logs/boot.log" "fbneo-ps5.ini with controller_4=1 edited in: controller 4 on player 1, controller 1 on player 4 (logged)"
+printf 'shader=0\n' >"$T/root/fbneo-ps5.ini"
+printf 'layout=0\ncontroller_1=1\ncontroller_2=1\ncontroller_3=3\ncontroller_4=4\n' >"$T/root/config/ponpoko.btn"
+rc=$(MAXFLIPS=200 run "$T" "0:0;$(QUITAT 60)" "" "$T/root/roms/ponpoko.zip")
+expect "[ $rc = 0 ] && grep -q \"players (this game's layout): controller 1=player 2 controller 2=player 1 controller 3=player 3\" $T/root/logs/boot.log && grep -q 'ponpoko.btn: player 1 named twice: controller 1 plays player 2 instead' $T/root/logs/boot.log" "a .btn with controller_2=1 edited in: controller 2 on player 1, controller 1 on player 2 (logged)"
 nosan "$T"
 fi
 

@@ -52,7 +52,10 @@ struct Settings
 Settings& Config();
 
 // Makes `players` (Settings::pad_player's form, kPads of them) valid: each one -1..3, and each player at most once (a
-// controller whose player another one already has gets the lowest free one). The controllers in `keep` (bit per
-// controller: those a file names) have their players first, then the others in order.
-void FixPadPlayers(int* players, unsigned keep = 0);
+// controller whose player another one already has gets the lowest free one). For a file (`file`: its name, for the log;
+// `named`: bit per controller it gives a player): the players a file names twice go first to the controller whose line
+// differs from `base` (the arrangement the file is read over: controller N = player N, or the general setting's), so a
+// line edited by hand wins over the line it conflicts with, which gets the free player (a swap); then the other named
+// controllers, then the rest, each in order. Every controller moved is logged.
+void FixPadPlayers(int* players, unsigned named = 0, const int* base = nullptr, const char* file = nullptr);
 } // namespace fe

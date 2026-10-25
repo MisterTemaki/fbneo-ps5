@@ -34,7 +34,7 @@ make (the driver list, Musashi's 68000 core, the CPS, Neo Geo, Cave, Psikyo, Toa
 frontends (`src/burner`) and its libretro port host the core: ROM loading from the sets' zips and 7z archives, inputs, DIP
 switches, states, NVRAM, the picture turned the right way up and the sound.
 
-> **Status (2.1):** builds with the ps5-payload-dev SDK into a signed native app, and passes 488 host tests, which
+> **Status (2.1):** builds with the ps5-payload-dev SDK into a signed native app, and passes 498 host tests, which
 > run the same code (FBNeo's core included) on Linux with the PS5 calls simulated: two arcade boards running a tiny
 > test program each (a vertical and a horizontal game) are played through the whole chain -- the shelf, the pad,
 > the core, the video and sound output -- and 26 more boards start, run, save and load a state under
@@ -580,10 +580,13 @@ The players are kept with the button layout: changed from the shelf's Settings, 
 only (its `.btn`, the same keys), and a clone without its own file uses its parent's (see below). A game keeps players
 of its own only when you change them there (to something other than the general setting): changing a button in a
 game keeps it on the general players. A `.btn` without these keys (2.0's, or a game whose players you never changed)
-uses the general setting's players. A value that isn't a number (a file edited by hand) leaves controller N on player
-N; `0` is no player. When a game starts with a controller on another player, or with controller 1 on no player of
-that game, a message says so for a few seconds (`Controller 1: Player 3`, `Controller 1: Player 4 (this game has 2
-players)`).
+uses the general setting's players. Editing the files by hand: `0` is no player; a value that isn't a number is
+ignored (in `fbneo-ps5.ini` that controller plays its own number, in a `.btn` it keeps the general setting's player).
+A player named twice goes to the controller whose line you changed (the one that differs from controller N = player N
+in `fbneo-ps5.ini`, from the general setting in a `.btn`), and the other controller gets the player left free: setting
+`controller_4=1` swaps controllers 1 and 4. The log says so. When a game starts with a controller on another player,
+or with controller 1 on no player of that game, a message says so for a few seconds (`Controller 1: Player 3`;
+`Controller 1: Player 4 (not in this game). This game has 2 players.`).
 
 **When someone signs in or out during a game,** the controllers after them move up or down a slot (the slots follow
 the console's list of signed-in users) and so play that slot's player; the light bars change colour with them. A

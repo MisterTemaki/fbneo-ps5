@@ -194,6 +194,7 @@ std::string WhyShown(const std::string& why)
 }
 
 constexpr int kTargetQueued = ps5audio::kRate * 60 / 1000; // 60 ms of sound
+constexpr int kOsdWidth = ps5video::kWidth - 160; // the widest line of a message over the game
 double Now()
 {
 	timespec ts = {};
@@ -325,6 +326,7 @@ BtnFile ReadBtn(const std::string& path, emu::ButtonLayout* out, bool* players =
 	emu::ButtonLayout l;
 	for (int i = 0; i < emu::kPads; i++)
 		l.players[i] = fe::Config().pad_player[i];
+	const emu::ButtonLayout base = l; // the general setting's players: what the file's lines are read over
 	bool general = false, has_layout = false;
 	unsigned named = 0; // the controllers the file gives a player
 	// spaces around the key and the value are allowed (a file edited by hand)
@@ -361,7 +363,7 @@ BtnFile ReadBtn(const std::string& path, emu::ButtonLayout* out, bool* players =
 		}
 	}
 	fclose(f);
-	fe::FixPadPlayers(l.players, named);
+	fe::FixPadPlayers(l.players, named, base.players, path.substr(path.find_last_of('/') + 1).c_str());
 	if (players)
 		*players = named != 0 && !general;
 	// an empty or damaged file (no valid layout= line) is ignored: the game follows its parent or the general layout
@@ -480,32 +482,53 @@ unsigned ConnectedPads()
 
 // Who plays whom, for a few seconds over the game ("Controller 1: Player 3"): controller 1 and the other connected
 // ones. Shown when a game starts with a controller on another player than its own, or with controller 1 on no player
-// of this game (none, or one the game doesn't have: "Player 4 (this game has 2 players)"); and (always = true) when the
+// of this game (none, or one the game doesn't have: "Player 4 (not in this game)", and once "This game has 2 players.");
+// and (always = true) when the
 // connected controllers change during the game.
 void ShowPlayers(bool always)
 {
 	const int players = emu::GamePlayers();
 	g.pads_shown = g.pads_seen = ConnectedPads();
 	g.pads_stable = 0;
-	std::string text;
-	bool show = always;
+	std::vector<std::string> parts;
+	bool show = always, beyond = false;
 	for (int c = 0; c < emu::kPads; c++)
 	{
 		if (c > 0 && !(g.pads_shown & (1u << c)))
 			continue;
 		const int p = g.pad_player[c];
-		const bool missing = p == emu::kNoPlayer || (players > 0 && p >= players);
-		show = show || p != c || (c == 0 && missing);
-		std::string one = p == emu::kNoPlayer ? Fmt(T("Controller %d: no player"), c + 1)
-			: missing ? Fmt(T("Controller %d: Player %d (this game has %d players)"), c + 1, p + 1, players)
-					  : Fmt(T("Controller %d: Player %d"), c + 1, p + 1);
-		text += (text.empty() ? "" : ",  ") + one;
+		const bool past = p != emu::kNoPlayer && players > 0 && p >= players;
+		beyond = beyond || past;
+		show = show || p != c || (c == 0 && (past || p == emu::kNoPlayer));
+		parts.push_back(p == emu::kNoPlayer ? Fmt(T("Controller %d: no player"), c + 1)
+			: past ? Fmt(T("Controller %d: Player %d (not in this game)"), c + 1, p + 1)
+				   : Fmt(T("Controller %d: Player %d"), c + 1, p + 1));
 	}
 	if (!show)
 		return;
+	const size_t controllers = parts.size();
+	if (beyond)
+		parts.push_back(players == 1 ? std::string(T("This game has 1 player.")) : Fmt(T("This game has %d players."), players));
+	// as many lines as it takes (ShowOverlays draws one per '\n'), each part whole on its line; the controllers
+	// separated by commas, the player count a sentence of its own
+	std::string text, line, log;
+	for (size_t i = 0; i < parts.size(); i++)
+	{
+		const std::string sep = i < controllers ? "," : ".";
+		const std::string longer = line.empty() ? parts[i] : line + sep + "  " + parts[i];
+		if (!line.empty() && fe::TextWidth(longer.c_str(), 3) > kOsdWidth)
+		{
+			text += (text.empty() ? "" : "\n") + line + sep;
+			line = parts[i];
+		}
+		else
+			line = longer;
+		log += (log.empty() ? "" : sep + "  ") + parts[i];
+	}
+	text += (text.empty() ? "" : "\n") + line;
 	g.osd = text;
 	g.osd_until = Now() + 4.0;
-	OrbisLog("[emu] message: %s", text.c_str());
+	OrbisLog("[emu] message: %s", log.c_str());
 }
 
 // Each frame: the connected controllers changed, and stayed so for half a second (not a read that failed once): who
@@ -638,10 +661,22 @@ void ShowOverlays(ps5video::Rect* damage)
 	}
 	if (!g.osd.empty() && now < g.osd_until)
 	{
-		const std::string text = fe::FitText(g.osd, 3, ps5video::kWidth - 160);
-		const int w = fe::TextWidth(text.c_str(), 3);
-		ps5video::DarkenRect(40, ps5video::kHeight - 100, w + 40, 60);
-		fe::DrawText(60, ps5video::kHeight - 90, text.c_str(), 3, ps5video::Rgb(255, 255, 255));
+		// one line per '\n' (the players message), the last one where a single line goes
+		std::vector<std::string> lines;
+		int w = 0;
+		for (size_t a = 0; a <= g.osd.size();)
+		{
+			size_t b = g.osd.find('\n', a);
+			if (b == std::string::npos)
+				b = g.osd.size();
+			lines.push_back(fe::FitText(g.osd.substr(a, b - a), 3, kOsdWidth));
+			w = std::max(w, fe::TextWidth(lines.back().c_str(), 3));
+			a = b + 1;
+		}
+		const int n = int(lines.size()), top = ps5video::kHeight - 100 - (n - 1) * 50;
+		ps5video::DarkenRect(40, top, w + 40, 60 + (n - 1) * 50);
+		for (int i = 0; i < n; i++)
+			fe::DrawText(60, top + 10 + i * 50, lines[size_t(i)].c_str(), 3, ps5video::Rgb(255, 255, 255));
 		drawn = true;
 	}
 	if (drawn || g.overlay_was_drawn)

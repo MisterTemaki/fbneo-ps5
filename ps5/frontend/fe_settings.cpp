@@ -45,22 +45,44 @@ void Settings::DefaultPadPlayers()
 		pad_player[i] = i;
 }
 
-void FixPadPlayers(int* players, unsigned keep)
+void FixPadPlayers(int* players, unsigned named, const int* base, const char* file)
 {
 	bool taken[Settings::kPads] = {};
-	for (int pass = 0; pass < 2; pass++)
+	// pass 0: the named controllers whose line differs from the base (edited); 1: the other named ones; 2: the rest
+	auto pass_of = [&](int i) {
+		if (!((named >> i) & 1))
+			return 2;
+		return players[i] != (base ? base[i] : i) ? 0 : 1;
+	};
+	int pass_at[Settings::kPads];
+	bool later[Settings::kPads] = {};
+	for (int i = 0; i < Settings::kPads; i++)
+		pass_at[i] = pass_of(i);
+	for (int pass = 0; pass < 3; pass++)
 		for (int i = 0; i < Settings::kPads; i++)
 		{
-			if (((keep >> i) & 1) != (pass == 0 ? 1u : 0u))
+			if (pass_at[i] != pass)
 				continue;
 			int& p = players[i];
 			if (p < -1 || p >= Settings::kPads)
 				p = i;
 			if (p >= 0 && taken[p])
-				for (p = 0; p < Settings::kPads && taken[p]; p++)
-					;
-			if (p >= 0) // (always free here: four controllers, four players)
+				later[i] = true; // given a free player once everyone else has theirs
+			else if (p >= 0)
 				taken[p] = true;
+		}
+	for (int i = 0; i < Settings::kPads; i++)
+		if (later[i])
+		{
+			const int was = players[i];
+			int p = 0;
+			while (p < Settings::kPads && taken[p]) // (one is free: four controllers, four players)
+				p++;
+			players[i] = p;
+			taken[p] = true;
+			if (file)
+				OrbisLog("[settings] %s: player %d named twice: controller %d plays player %d instead", file, was + 1, i + 1,
+					p + 1);
 		}
 }
 
@@ -146,7 +168,7 @@ void Settings::Load()
 			last_rom = val;
 	}
 	fclose(f);
-	FixPadPlayers(pad_player, pads_named);
+	FixPadPlayers(pad_player, pads_named, nullptr, "fbneo-ps5.ini");
 	OrbisLog("[settings] loaded %s", IniPath().c_str());
 }
 
