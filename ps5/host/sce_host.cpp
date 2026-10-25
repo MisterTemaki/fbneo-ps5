@@ -4,6 +4,7 @@
 //   FBNEO_HOST_PAD="frame:hexbuttons[;frame:hexbuttons...]"  pad 1 script (by flip count)
 //   FBNEO_HOST_PADS=n                                        signed-in users, each with a pad (1..4, default 1)
 //   FBNEO_HOST_PAD2, _PAD3, _PAD4                            the other users' pads' scripts (as FBNEO_HOST_PAD)
+//   FBNEO_HOST_SIGNOUT="flip:user[;flip:user...]"            user 2..4 signs out from that flip on
 //   FBNEO_HOST_DUMP="frame[,frame...]"                       flips to save as PPM (de-tiled)
 //   FBNEO_HOST_DUMP_DIR=dir                                  where (default .)
 //   FBNEO_HOST_MAX_FLIPS=n                                   abort after n flips (a hang guard)
@@ -35,6 +36,8 @@ std::atomic<uint64_t> g_flips{0};
 std::atomic<uint64_t> g_audio_frames{0};
 std::map<uint64_t, uint32_t> g_script[4]; // pad 1..4 (FBNEO_HOST_PAD, FBNEO_HOST_PAD2...)
 std::set<uint64_t> g_dumps;
+std::map<int, uint64_t> g_signout; // user index (0..3) -> the flip it signs out at
+bool g_pad_open[4] = {};           // the pads opened (scePadOpen) and not closed
 bool g_inited = false;
 
 void InitEnv()
@@ -61,6 +64,23 @@ void InitEnv()
 				pos = end + 1;
 			}
 		}
+	if (const char* s = getenv("FBNEO_HOST_SIGNOUT"))
+	{
+		std::string str = s;
+		size_t pos = 0;
+		while (pos < str.size())
+		{
+			size_t end = str.find(';', pos);
+			if (end == std::string::npos)
+				end = str.size();
+			const std::string item = str.substr(pos, end - pos);
+			const size_t colon = item.find(':');
+			const int user = colon == std::string::npos ? 0 : atoi(item.c_str() + colon + 1);
+			if (user >= 2 && user <= 4)
+				g_signout[user - 1] = strtoull(item.substr(0, colon).c_str(), nullptr, 10);
+			pos = end + 1;
+		}
+	}
 	if (const char* s = getenv("FBNEO_HOST_DUMP"))
 	{
 		std::string str = s;
@@ -331,32 +351,47 @@ static int HostPads()
 	const int n = e ? atoi(e) : 1;
 	return n < 1 ? 1 : n > 4 ? 4 : n;
 }
+static bool SignedIn(int i)
+{
+	InitEnv();
+	const auto it = g_signout.find(i);
+	return i >= 0 && i < HostPads() && (it == g_signout.end() || g_flips.load() < it->second);
+}
 static int UserIndex(int user)
 {
 	const int i = user - 0x10000001;
 	return i >= 0 && i < HostPads() ? i : -1;
 }
+// a pad opened twice fails (already opened) and scePadGetHandle hands out the open one, as on the console; a closed
+// pad's handle reads nothing
 int scePadOpen(int user, int, int, void*)
 {
 	const int i = UserIndex(user);
 	if (i < 0)
 		return (int)0x80920001; // (no such user)
-	return i == 0 && PadShared() ? SCE_PAD_ERROR_ALREADY_OPENED : 0x100 + i;
+	if (i == 0 && PadShared())
+		return SCE_PAD_ERROR_ALREADY_OPENED;
+	if (g_pad_open[i])
+		return SCE_PAD_ERROR_ALREADY_OPENED;
+	g_pad_open[i] = true;
+	return 0x100 + i;
 }
 int scePadGetHandle(int user, int, int)
 {
 	const int i = UserIndex(user);
 	if (i < 0)
 		return (int)0x80920001;
-	return i == 0 && PadShared() ? (int)0x809b0081 : 0x100 + i;
+	if (i == 0 && PadShared())
+		return (int)0x809b0081;
+	return g_pad_open[i] ? 0x100 + i : (int)0x80920001;
 }
 int scePadReadState(int handle, ScePadData* data)
 {
 	InitEnv();
 	int pad = -1;
-	if (handle == (PadShared() ? (int)0x809b0081 : 0x100))
+	if (PadShared() && handle == (int)0x809b0081)
 		pad = 0;
-	else if (handle > 0x100 && handle < 0x100 + HostPads())
+	else if (handle >= (PadShared() ? 0x101 : 0x100) && handle < 0x100 + HostPads() && g_pad_open[handle - 0x100])
 		pad = handle - 0x100;
 	if (pad < 0)
 		return (int)0x80920003; // invalid handle
@@ -374,8 +409,10 @@ int scePadSetLightBar(int, const ScePadColor*)
 {
 	return 0;
 }
-int scePadClose(int)
+int scePadClose(int handle)
 {
+	if (handle >= 0x100 && handle < 0x104)
+		g_pad_open[handle - 0x100] = false;
 	return 0;
 }
 
@@ -390,8 +427,12 @@ int sceUserServiceGetForegroundUser(int32_t* user)
 }
 int sceUserServiceGetLoginUserIdList(int32_t users[4])
 {
+	int n = 0;
 	for (int i = 0; i < 4; i++)
-		users[i] = i < HostPads() ? 0x10000001 + i : -1;
+		users[i] = -1;
+	for (int i = 0; i < 4; i++)
+		if (SignedIn(i))
+			users[n++] = 0x10000001 + i;
 	return 0;
 }
 

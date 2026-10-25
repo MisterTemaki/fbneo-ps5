@@ -34,7 +34,7 @@ make (the driver list, Musashi's 68000 core, the CPS, Neo Geo, Cave, Psikyo, Toa
 frontends (`src/burner`) and its libretro port host the core: ROM loading from the sets' zips and 7z archives, inputs, DIP
 switches, states, NVRAM, the picture turned the right way up and the sound.
 
-> **Status (2.1):** builds with the ps5-payload-dev SDK into a signed native app, and passes 471 host tests, which
+> **Status (2.1):** builds with the ps5-payload-dev SDK into a signed native app, and passes 488 host tests, which
 > run the same code (FBNeo's core included) on Linux with the PS5 calls simulated: two arcade boards running a tiny
 > test program each (a vertical and a horizontal game) are played through the whole chain -- the shelf, the pad,
 > the core, the video and sound output -- and 26 more boards start, run, save and load a state under
@@ -84,7 +84,9 @@ player 2 (the 2-player editions). Choosing a player another controller has swaps
 one. Like the button layout, a change from a game's pause menu is kept for that game (and its clones), one from the
 shelf's Settings for every game; **Default controls** (it was Default button layout) puts the buttons and the players
 back. A game that starts with a controller on another player says so for a few seconds ("Controller 1: Player 3").
-The pause menu (L3 + R3) stays on controller 1, whatever player it plays. See [Controls](#controls).
+The pause menu (L3 + R3) stays on controller 1, whatever player it plays. When a user signs in or out during a game the
+message comes again, and a pad that moves up a slot keeps working (it could stop answering for a few seconds before).
+See [Controls](#controls).
 
 **2.0:** **A button layout per game** (thanks to yuri310258, fbneo-ps5#2): change the buttons in Settings,
 CONTROLS from a game's pause menu and the change is kept for that game only (`/data/fbneo/config/<set>.btn`); a
@@ -564,7 +566,9 @@ layout. By default controller N plays player N; Settings, CONTROLS, **CONTROLLER
 row (`Controller 2 (red light), connected`) takes **Player 1** to **Player 4** or **No player** (Left / Right).
 Choosing a player another controller already has **swaps** them: that controller gets this one's old player (or, when
 this one had none, the lowest player left free), so each player has one controller at most and nobody silently loses
-control. In a game with fewer players, a player it doesn't have is shown dimmed. Examples:
+control. Each Left / Right on a row is one swap from the players as they were when the cursor came onto that row, so
+stepping through the players moves one other controller at most, and stepping back to where you started puts every
+controller back. In a game with fewer players, a player it doesn't have is shown dimmed. Examples:
 
 - three people on a 4-player Sunset Riders who want the slots 1, 3 and 4: controller 3 on Player 4 (one step right;
   controller 4 gets Player 3), then controller 2 on Player 3 (one step right; controller 4 gets Player 2);
@@ -573,9 +577,18 @@ control. In a game with fewer players, a player it doesn't have is shown dimmed.
 
 The players are kept with the button layout: changed from the shelf's Settings, for every game (`fbneo-ps5.ini`,
 `controller_1`...`controller_4` = the player's number, 0 for none); changed from a game's pause menu, for that game
-only (its `.btn`, the same keys), and a clone without its own file uses its parent's (see below). A `.btn` from 2.0,
-without these keys, uses the general setting's players (controller N = player N unless you changed them). When a game
-starts with a controller on another player, a message says so for a few seconds (`Controller 1: Player 3`).
+only (its `.btn`, the same keys), and a clone without its own file uses its parent's (see below). A game keeps players
+of its own only when you change them there (to something other than the general setting): changing a button in a
+game keeps it on the general players. A `.btn` without these keys (2.0's, or a game whose players you never changed)
+uses the general setting's players. A value that isn't a number (a file edited by hand) leaves controller N on player
+N; `0` is no player. When a game starts with a controller on another player, or with controller 1 on no player of
+that game, a message says so for a few seconds (`Controller 1: Player 3`, `Controller 1: Player 4 (this game has 2
+players)`).
+
+**When someone signs in or out during a game,** the controllers after them move up or down a slot (the slots follow
+the console's list of signed-in users) and so play that slot's player; the light bars change colour with them. A
+message then says again who plays whom (`Controller 1: Player 1, Controller 2: Player 2`). Before 2.1 a pad that moved
+up a slot could also stop answering for a few seconds; its handle now moves with it.
 **The pause menu stays on controller 1** (L3 + R3 on controller 1, whatever player it plays; the other controllers'
 L3 + R3 do nothing), and the menus are driven by controller 1.
 

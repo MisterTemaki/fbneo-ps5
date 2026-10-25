@@ -45,20 +45,23 @@ void Settings::DefaultPadPlayers()
 		pad_player[i] = i;
 }
 
-void FixPadPlayers(int* players)
+void FixPadPlayers(int* players, unsigned keep)
 {
 	bool taken[Settings::kPads] = {};
-	for (int i = 0; i < Settings::kPads; i++)
-	{
-		int& p = players[i];
-		if (p < -1 || p >= Settings::kPads)
-			p = i;
-		if (p >= 0 && taken[p])
-			for (p = 0; p < Settings::kPads && taken[p]; p++)
-				;
-		if (p >= 0) // (always free here: four controllers, four players)
-			taken[p] = true;
-	}
+	for (int pass = 0; pass < 2; pass++)
+		for (int i = 0; i < Settings::kPads; i++)
+		{
+			if (((keep >> i) & 1) != (pass == 0 ? 1u : 0u))
+				continue;
+			int& p = players[i];
+			if (p < -1 || p >= Settings::kPads)
+				p = i;
+			if (p >= 0 && taken[p])
+				for (p = 0; p < Settings::kPads && taken[p]; p++)
+					;
+			if (p >= 0) // (always free here: four controllers, four players)
+				taken[p] = true;
+		}
 }
 
 Settings& Config()
@@ -76,6 +79,7 @@ void Settings::Load()
 	if (!f)
 		return;
 	char line[1024];
+	unsigned pads_named = 0; // the controllers the file gives a player
 	while (fgets(line, sizeof(line), f))
 	{
 		line[strcspn(line, "\r\n")] = 0;
@@ -113,7 +117,13 @@ void Settings::Load()
 					buttons[i] = Clamp(n, 0, kPs5ButtonChoices - 1);
 		}
 		else if (key.compare(0, 11, "controller_") == 0 && key.size() == 12 && key[11] >= '1' && key[11] < '1' + kPads)
-			pad_player[key[11] - '1'] = Clamp(n, 0, kPads) - 1;
+		{
+			// the player's number, 0 for none; anything else (empty, damaged): controller N plays player N
+			const bool number = *val && strspn(val, "0123456789") == strlen(val);
+			pad_player[key[11] - '1'] = number ? Clamp(n, 0, kPads) - 1 : key[11] - '1';
+			if (number)
+				pads_named |= 1u << (key[11] - '1');
+		}
 		else if (key == "state_slot")
 			state_slot = Clamp(n, 1, 10);
 		else if (key == "covers_download")
@@ -136,7 +146,7 @@ void Settings::Load()
 			last_rom = val;
 	}
 	fclose(f);
-	FixPadPlayers(pad_player);
+	FixPadPlayers(pad_player, pads_named);
 	OrbisLog("[settings] loaded %s", IniPath().c_str());
 }
 

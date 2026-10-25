@@ -69,6 +69,9 @@ const Entry kTable[] = {
 	{"No player", "Ningún jugador", "Nenhum jogador", "Aucun joueur", "Kein Spieler"},
 	{"Controller %d: Player %d", "Mando %d: jugador %d", "Controle %d: jogador %d", "Manette %d : joueur %d",
 		"Controller %d: Spieler %d"},
+	{"Controller %d: Player %d (this game has %d players)", "Mando %d: jugador %d (este juego tiene %d jugadores)",
+		"Controle %d: jogador %d (este jogo tem %d jogadores)", "Manette %d : joueur %d (ce jeu a %d joueurs)",
+		"Controller %d: Spieler %d (dieses Spiel hat %d Spieler)"},
 	{"Controller %d: no player", "Mando %d: ningún jugador", "Controle %d: nenhum jogador", "Manette %d : aucun joueur",
 		"Controller %d: kein Spieler"},
 	// whose button layout the CONTROLS rows are (2.0: a layout per game)

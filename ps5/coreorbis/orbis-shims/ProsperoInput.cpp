@@ -134,29 +134,52 @@ void Detect()
 		if (list[i] != -1 && list[i] != fg)
 			wanted[n++] = list[i];
 
+	// Each slot takes its user's pad from the slot that already has it open (a user who signed out moves the later
+	// users up a slot): the handle moves with it. Opening it again would fail (scePadOpen: already opened), borrow the
+	// same handle with scePadGetHandle, and the old slot would then close it under the new one (up to 2.1 the pad
+	// then read nothing for a few seconds).
+	Slot old[kMaxPads];
+	bool taken[kMaxPads] = {};
+	for (int i = 0; i < kMaxPads; i++)
+		old[i] = s_slots[i];
 	for (int i = 0; i < kMaxPads; i++)
 	{
-		if (s_slots[i].user == wanted[i] && (wanted[i] == -1 || s_slots[i].valid))
+		Slot& s = s_slots[i];
+		s = Slot();
+		s.user = wanted[i];
+		if (wanted[i] == -1)
 			continue;
-		if (s_slots[i].valid && s_slots[i].owned)
-			scePadClose(s_slots[i].handle); // handles the system UI owns stay open
-		if (s_slots[i].user != wanted[i])
-			s_slots[i].last_log = 0;
-		s_slots[i].handle = -1;
-		s_slots[i].valid = false;
-		s_slots[i].user = wanted[i];
-		s_slots[i].state = PadState();
-		if (wanted[i] != -1)
+		int from = -1;
+		for (int k = 0; k < kMaxPads && from < 0; k++)
+			if (!taken[k] && old[k].user == wanted[i] && old[k].valid)
+				from = k;
+		if (from >= 0)
 		{
-			if (OpenPad(s_slots[i], wanted[i]))
-			{
-				// Player colours on the light bar: blue, red, green, pink.
-				static const ScePadColor colors[kMaxPads] = {
-					{0, 0, 255, 255}, {255, 0, 0, 255}, {0, 255, 0, 255}, {255, 0, 255, 255}};
-				scePadSetLightBar(s_slots[i].handle, &colors[i]);
-			}
+			taken[from] = true;
+			s = old[from];
+			if (from == i)
+				continue;
+			OrbisLog("[pad] user %x: its pad (handle %x) moves from slot %d to slot %d", unsigned(wanted[i]),
+				unsigned(s.handle), from + 1, i + 1);
 		}
+		else
+		{
+			if (old[i].user == wanted[i])
+				s.last_log = old[i].last_log; // the same user again: its last failure stays logged once
+			if (!OpenPad(s, wanted[i]))
+				continue;
+		}
+		// Player colours on the light bar: blue, red, green, pink.
+		static const ScePadColor colors[kMaxPads] = {{0, 0, 255, 255}, {255, 0, 0, 255}, {0, 255, 0, 255}, {255, 0, 255, 255}};
+		scePadSetLightBar(s.handle, &colors[i]);
 	}
+	// the pads of the users gone (ours: closed; the system UI's stay open)
+	for (int k = 0; k < kMaxPads; k++)
+		if (!taken[k] && old[k].valid && old[k].owned)
+		{
+			OrbisLog("[pad] user %x signed out: its pad (handle %x) closed", unsigned(old[k].user), unsigned(old[k].handle));
+			scePadClose(old[k].handle);
+		}
 }
 
 uint32_t StickToDpad(uint8_t x, uint8_t y)

@@ -454,6 +454,16 @@ Row SettingRowFor(int s)
 	}
 }
 
+// The players of the four controllers as they were when the cursor came onto a controller's row: each Left / Right on
+// that row is one swap from them, so stepping through the players moves one other controller at most, and stepping
+// back to where it started puts every controller back.
+struct PadSnapshot
+{
+	int pad = -1; // the row's controller; -1: none taken yet
+	int players[emu::kPads] = {};
+};
+PadSnapshot g_pad_snap;
+
 int Cycle(int v, int dir, int n)
 {
 	return ((v + dir) % n + n) % n;
@@ -509,10 +519,18 @@ void ChangeSetting(int s, int dir)
 			}
 			else if (s >= S_PAD_FIRST && s <= S_PAD_LAST)
 			{
-				// another player for this controller: the controller that had it gets this one's (a swap)
+				// another player for this controller: the controller that had it (when the cursor came here) gets this
+				// one's player from then (a swap)
 				emu::ButtonLayout l = emu::Controls();
 				const int pad = s - S_PAD_FIRST;
-				emu::ChoosePlayer(l.players, pad, emu::NextPlayer(l.players[pad], dir));
+				if (g_pad_snap.pad != pad)
+				{
+					g_pad_snap.pad = pad;
+					std::copy(l.players, l.players + emu::kPads, g_pad_snap.players);
+				}
+				const int next = emu::NextPlayer(l.players[pad], dir);
+				std::copy(g_pad_snap.players, g_pad_snap.players + emu::kPads, l.players);
+				emu::ChoosePlayer(l.players, pad, next);
 				emu::SetControls(l); // in a game, for that game only
 			}
 			break;
@@ -553,6 +571,7 @@ void SettingsScreen(bool over_game)
 {
 	NavReader nav;
 	int sel = S_SHADER;
+	g_pad_snap.pad = -1;
 	for (;;)
 	{
 		PollUpdate(false);
@@ -572,6 +591,7 @@ void SettingsScreen(bool over_game)
 			sel = Step(sel, n.up ? -1 : 1, rows);
 			if (sel == S_NETWORK && !rows[size_t(sel)].enabled)
 				sel = Step(sel, n.up ? -1 : 1, rows); // over a game the Network shares row is passed over
+			g_pad_snap.pad = -1; // another row: the next controller row takes the players as they are then
 		}
 		if (sel == S_UPDATES)
 		{

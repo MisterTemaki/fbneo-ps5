@@ -52,6 +52,7 @@ struct Settings
 Settings& Config();
 
 // Makes `players` (Settings::pad_player's form, kPads of them) valid: each one -1..3, and each player at most once (a
-// controller whose player an earlier controller already has gets the lowest free one).
-void FixPadPlayers(int* players);
+// controller whose player another one already has gets the lowest free one). The controllers in `keep` (bit per
+// controller: those a file names) have their players first, then the others in order.
+void FixPadPlayers(int* players, unsigned keep = 0);
 } // namespace fe

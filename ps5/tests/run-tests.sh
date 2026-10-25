@@ -1699,6 +1699,71 @@ expect "[ $rc = 0 ] && grep -q 'players (general layout): controller 1=player 2 
 nosan "$T"
 fi
 
+if want 37; then
+echo "== 37. controllers and players, the review's fixes: one swap per step, players a game lacks, button changes, sign-outs, damaged values"
+mkset ssriders
+# a. Left / Right on a controller's row is one swap from the players as they were when the cursor came there: Right x5 on
+# Controller 1 in Sunset Riders (four controllers): 2134, 3214, 4231, none 234, then 1234 again; nothing of its own kept
+T=$(newroot t37a)
+addset ssriders "$T/root/roms"
+P="0:0;30:$L3R3;32:0"; t=40
+for i in $(seq 1 7); do P="$P;$t:$DOWN;$((t + 2)):0"; t=$((t + 6)); done
+P="$P;$t:$CROSS;$((t + 2)):0"; t=$((t + 12))
+for i in $(seq 1 18); do P="$P;$t:$DOWN;$((t + 2)):0"; t=$((t + 6)); done
+for i in $(seq 1 5); do P="$P;$t:$RIGHT;$((t + 2)):0"; t=$((t + 8)); done
+P="$P;$t:$CIRCLE;$((t + 2)):0;$((t + 10)):$CIRCLE;$((t + 12)):0;$(QUITAT $((t + 40)))"
+rc=$(FBNEO_HOST_PADS=4 run "$T" "$P" "" "$T/root/roms/ssriders.zip")
+seq=$(sed -n 's/.*\[emu\] players ([^)]*):\(.*\)/\1/p' $T/root/logs/boot.log | sed 's/ controller [0-9]=player / /g; s/ controller [0-9]=none/ -/g' | tr -d ' ' | tr '\n' ' ')
+expect "[ $rc = 0 ] && [ \"$seq\" = '1234 2134 3214 4231 -234 1234 ' ]" "Right x5 on Controller 1: one swap a step, and back to where it started ($seq)"
+expect "! grep -q '^controller_' $T/root/config/ssriders.btn" "back to the general players: ssriders.btn keeps no players of its own"
+nosan "$T"
+# b. a controller on a player the game doesn't have: the message says so (Ponpoko has 2 players), and with controller 1 on
+# none it is shown too
+T=$(newroot t37b)
+addset ponpoko "$T/root/roms"
+echo "controller_1=4" >>"$T/root/fbneo-ps5.ini"
+rc=$(MAXFLIPS=200 run "$T" "0:0;$(QUITAT 60)" "" "$T/root/roms/ponpoko.zip")
+expect "[ $rc = 0 ] && grep -q 'message: Controller 1: Player 4 (this game has 2 players)\$' $T/root/logs/boot.log" "controller 1 on player 4 in a 2-player game: the message says the game has 2 players"
+echo "controller_1=0" >>"$T/root/fbneo-ps5.ini"
+rc=$(MAXFLIPS=200 run "$T" "0:0;$(QUITAT 60)" "" "$T/root/roms/ponpoko.zip")
+expect "[ $rc = 0 ] && grep -q 'message: Controller 1: no player\$' $T/root/logs/boot.log" "controller 1 on no player: the message says so"
+# c. a button changed in a game keeps the game on the general players (no controller_ keys in its file); a file that had
+# them keeps them
+T=$(newroot t37c)
+addset ponpoko "$T/root/roms"
+echo "controller_1=2" >>"$T/root/fbneo-ps5.ini"
+rc=$(run "$T" "0:0;$(PAUSE_SETTINGS 30 10 $RIGHT);$(QUITAT 300)" "" "$T/root/roms/ponpoko.zip")
+expect "[ $rc = 0 ] && grep -q '^btn_1=1\$' $T/root/config/ponpoko.btn && ! grep -q '^controller_' $T/root/config/ponpoko.btn" "a button changed in the game: ponpoko.btn has the buttons, not the players"
+echo "controller_1=3" >>"$T/root/fbneo-ps5.ini"
+rc=$(MAXFLIPS=200 run "$T" "0:0;$(QUITAT 60)" "" "$T/root/roms/ponpoko.zip")
+expect "[ $rc = 0 ] && grep -q \"players (this game's layout): controller 1=player 3 controller 2=player 1 controller 3=player 2\" $T/root/logs/boot.log" "so the game follows the general players when they change (controller 1 on player 3)"
+printf 'layout=0\ncontroller_1=2\ncontroller_2=1\n' >"$T/root/config/ponpoko.btn"
+rc=$(run "$T" "0:0;$(PAUSE_SETTINGS 30 10 $RIGHT);$(QUITAT 300)" "" "$T/root/roms/ponpoko.zip")
+expect "[ $rc = 0 ] && grep -q '^layout=3\$' $T/root/config/ponpoko.btn && grep -q '^controller_1=2\$' $T/root/config/ponpoko.btn && grep -q '^controller_2=1\$' $T/root/config/ponpoko.btn" "a file with players of its own keeps them after a button change"
+nosan "$T"
+# d. a user signs out during a game (three signed in, the second leaves): the third user's pad moves up to controller 2
+# with its handle (not opened again and closed under it), the message says who plays whom again, and that pad's Up
+# reaches player 2
+T=$(newroot t37d)
+addset ponpoko "$T/root/roms"
+rc=$(FBNEO_HOST_REALTIME=1 FBNEO_HOST_PADS=3 FBNEO_HOST_SIGNOUT="120:2" FBNEO_HOST_PAD3="0:0;420:$UP;700:0" MAXFLIPS=1200 run "$T" "0:0;$(QUITAT 760)" "" "$T/root/roms/ponpoko.zip")
+expect "[ $rc = 0 ] && grep -q 'user 10000003: its pad (handle 102) moves from slot 3 to slot 2' $T/root/logs/boot.log && grep -q 'user 10000002 signed out: its pad (handle 101) closed' $T/root/logs/boot.log" "the third user's pad moves to slot 2 with its handle; the second's is closed"
+expect "! grep -q 'scePadReadState(102)' $T/root/logs/boot.log && ! grep -q 'scePadOpen 80920004' $T/root/logs/boot.log" "the moved pad is not opened twice, and keeps reading"
+expect "grep -q 'the connected controllers changed (7 -> 3)' $T/root/logs/boot.log && grep -q 'message: Controller 1: Player 1,  Controller 2: Player 2\$' $T/root/logs/boot.log" "the connected controllers changed: the message says who plays whom"
+expect "grep -q 'inputs the game got: player 1 nothing, player 2 up\$' $T/root/logs/boot.log" "the moved pad's Up reaches player 2"
+nosan "$T"
+# e. damaged controller_N values (empty, not a number): controller N plays player N; 0 alone is none
+T=$(newroot t37e)
+addset ponpoko "$T/root/roms"
+printf 'controller_1=abc\ncontroller_2=\ncontroller_3=0\n' >>"$T/root/fbneo-ps5.ini"
+rc=$(MAXFLIPS=200 run "$T" "0:0;$(QUITAT 60)" "" "$T/root/roms/ponpoko.zip")
+expect "[ $rc = 0 ] && grep -q 'players (general layout): controller 1=player 1 controller 2=player 2 controller 3=none controller 4=player 4' $T/root/logs/boot.log" "fbneo-ps5.ini: 'abc' and '' keep controller N on player N, '0' is none"
+printf 'layout=0\ncontroller_1=x\ncontroller_2=1\n' >"$T/root/config/ponpoko.btn"
+rc=$(MAXFLIPS=200 run "$T" "0:0;$(QUITAT 60)" "" "$T/root/roms/ponpoko.zip")
+expect "[ $rc = 0 ] && grep -q \"players (this game's layout): controller 1=player 2 controller 2=player 1 controller 3=none\" $T/root/logs/boot.log" "a .btn's 'x' is ignored; the player it names (controller 2 on 1) goes first, controller 1 gets the free one"
+nosan "$T"
+fi
+
 echo
 echo "passed $PASS, failed $FAIL  (work dir $WORK)"
 [ $FAIL = 0 ]
