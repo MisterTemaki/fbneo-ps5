@@ -5,7 +5,8 @@
 #   make app    -> build/app/$(TITLE_ID)/     the app folder on its own (eboot.bin, sce_module/, sce_sys/)
 #   make host   -> build/host/                Linux builds of the same code (PS5 calls faked by host/sce_host.cpp)
 #   make test   -> host builds + tests/run-tests.sh
-#   make dist   -> build/dist/FBNeoPS5-v$(VERSION).elf (the release name)
+#   make dist   -> build/dist/FBNeoPS5-v$(VERSION).elf (the release name), + the ROM DAT
+#   make dat    -> dat/fbneo-ps5-arcade.dat   the ROM DAT of the drivers built in (FBNeo's own DAT writer, on the host)
 #   make send   -> sends FBNeoPS5.elf to $(PS5_HOST):$(PS5_PORT) with the SDK's prospero-deploy
 #
 # The layout is PS5SX2's (and Snes9x PS5's, Genesis Plus GX PS5's): eboot.bin is the emulator, a native PS5 title
@@ -236,6 +237,7 @@ dist: $(PS5_OUT)/FBNeoPS5.elf $(APP_FILES)
 	@mkdir -p $(DIST)
 	cp $< $(DIST)/FBNeoPS5-v$(VERSION).elf
 	python3 tools/make_release_zip.py $(APP_OUT) $(TITLE_ID) $(DIST)/FBNeoPS5-v$(VERSION)-$(TITLE_ID).zip
+	cp $(DAT) $(DIST)/FBNeoPS5-v$(VERSION)-arcade.dat
 	@ls -l $(DIST)
 
 send: $(PS5_OUT)/FBNeoPS5.elf
@@ -419,11 +421,23 @@ $(HOST_OUT)/fbneo-ps5-host: $(HOST_EMU_OBJ) $(HOST_LIBSMB2_OBJ) $(HOST_LIBNFS_OB
 		$(HOST_CORE_OUT)/libfbneo.a | $(HOST_OUT)/lib7z/names.ok
 	$(HOST_CXX) $(HOST_SAN) -o $@ $^ $(NETFS_WRAP_GCC) -lpthread -lm
 
-# the core and the glue alone (tests: ROM sets, states, DIP switches; .7z sets with the same reader)
+# FBNeo's own DAT writer (src/burner/dat.cpp, and misc.cpp for each set's "Bootleg, Hack..." comment), unchanged, with
+# what FBNeo's frontend headers give them (host/fbneo_dat.h) and host/fbneo_dat.cpp: `fbneo_headless dat`
+HOST_DAT_OBJ := $(HOST_OUT)/dat/fbneo/src/burner/dat.o $(HOST_OUT)/dat/fbneo/src/burner/misc.o $(HOST_OUT)/dat/host/fbneo_dat.o
+HOST_DAT_FLAGS = -O1 -g1 $(HOST_CORE_SAN) $(CORE_CXXFLAGS) $(DEFS) $(CORE_DEFS) $(CORE_INCS) -I$(ROOT)/src/intf \
+	-I$(ROOT)/src/intf/input -include host/fbneo_dat.h
+$(HOST_OUT)/dat/fbneo/%.o: $(ROOT)/%.cpp host/fbneo_dat.h | $(GEN_STAMP)
+	@mkdir -p $(dir $@)
+	$(HOST_CXX) $(HOST_DAT_FLAGS) -c -o $@ $<
+$(HOST_OUT)/dat/host/%.o: host/%.cpp host/fbneo_dat.h | $(GEN_STAMP)
+	@mkdir -p $(dir $@)
+	$(HOST_CXX) $(HOST_DAT_FLAGS) -c -o $@ $<
+
+# the core and the glue alone (tests: ROM sets, states, DIP switches; .7z sets with the same reader; the ROM DAT)
 $(HOST_OUT)/fbneo_headless: $(HOST_OUT)/glue/host/fbneo_headless.o $(HOST_OUT)/glue/frontend/fe_burn.o \
 		$(HOST_OUT)/glue/core/burn_frontend.o $(HOST_OUT)/port/frontend/third_party/unzip.o \
 		$(HOST_OUT)/port/frontend/third_party/ioapi.o $(HOST_OUT)/port/frontend/fe_7z.o $(HOST_LIB7Z_OBJ) \
-		$(HOST_CORE_OUT)/libfbneo.a
+		$(HOST_DAT_OBJ) $(HOST_CORE_OUT)/libfbneo.a
 	$(HOST_CXX) $(HOST_SAN) -o $@ $^ -lm -lpthread
 
 # netfs's own test: the netfs code, the stub backends and an in-memory share, linked with the same --wrap list
@@ -442,6 +456,13 @@ $(HOST_OUT)/test-netfs: $(HOST_NETFS_TEST_OBJ) $(HOST_NETFS_TEST_EXTRA) $(HOST_Z
 
 test: host $(HOST_OUT)/test-netfs
 	bash tests/run-tests.sh
+
+# the ROM DAT (ps5/dat/, and on each release): every set of the drivers built in, as FBNeo writes its DATs. Made again
+# after a core update or a version change (the tests fail while the committed one differs).
+DAT := dat/fbneo-ps5-arcade.dat
+dat: $(HOST_OUT)/fbneo_headless
+	@mkdir -p $(dir $(DAT))
+	sh tools/make_dat.sh $< $(DAT)
 
 # NFS backend unit test: backend_nfs.cpp against an in-memory libnfs (tests/libnfs_mock.cpp), no network
 NFS_TEST := $(HOST_OUT)/nfs-backend-test
@@ -499,5 +520,5 @@ clean:
 # the SMB backend against a real Samba (adds `smb-test`, run before the other tests; skipped without smbd)
 include tests/smb/smb.mk
 
-.PHONY: ps5 core-ps5 core-host host headless test test-nfs test-nfs-server test-tabs test-7z send app dist clean
+.PHONY: ps5 core-ps5 core-host host headless dat test test-nfs test-nfs-server test-tabs test-7z send app dist clean
 .SECONDARY:

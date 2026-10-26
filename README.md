@@ -276,7 +276,20 @@ exits.
 ## ROM sets
 
 FBNeo PS5 plays the same ROM sets as FBNeo 1.0.0.3 (and its libretro core of the same version), with the same
-names. As in every FBNeo build:
+names.
+
+**The list of sets: [`ps5/dat/fbneo-ps5-arcade.dat`](ps5/dat/fbneo-ps5-arcade.dat).** FBNeo PS5 doesn't use RetroArch
+or the libretro core: it builds FBNeo's core itself, the arcade drivers only, from FinalBurn Neo 1.0.0.3 as of
+commit [`658540d`](https://github.com/finalburnneo/FBNeo/commit/658540d46c1c0efce9627667c0f9236e7b2be916)
+(2026-10-08). The DAT lists every set it plays: 8,378 sets for its 8,379 drivers (two are named `neogeo`, the
+BIOS and the cartridge-less system), BIOS and board sets included, each ROM with its name,
+size and CRC, parents and clones, samples. FBNeo's own DAT writer makes it from the same sources the app is built
+from (ClrMamePro / Logiqx XML, like FBNeo's `FBNeo_-_Arcade.dat`; `make dat`). It describes the core of FBNeo PS5 2.1
+exactly, and from now on each release carries it too (`FBNeoPS5-v<version>-arcade.dat`). Load it in ClrMamePro,
+RomVault or RomCenter to check or rebuild your sets; merged, split and non-merged sets all work (below). Thanks to
+JamesWestFR for asking ([fbneo-ps5#4](https://github.com/MisterTemaki/fbneo-ps5/issues/4)).
+
+As in every FBNeo build:
 
 - **One zip per set, named as FBNeo names it:** `sf2ce.zip`, `mslug.zip`, `pacman.zip` (or `sf2ce.7z`: see
   [7-Zip sets](#7-zip-sets)). The name is how the game is recognised; a renamed zip is not.
@@ -298,7 +311,7 @@ names. As in every FBNeo build:
   zip lacks some, named under the list), then the others. Under the list: where the zip is, how many of your games
   need it, and for `neogeo.zip` how many of its optional BIOS versions it has (the BIOS DIP switch picks one). The
   check is the one made when the shelf last read the game list; `boot.log` has it too (`[bios] ...` lines).
-- **The set must match FBNeo 1.0.0.3:** ROMs are found by their CRC, then by their name. A set made for another
+- **The set must match FBNeo 1.0.0.3** (the DAT above): ROMs are found by their CRC, then by their name. A set made for another
   emulator, or for a much older or newer FBNeo, can miss ROMs or have others.
 - **Samples:** the few games that play recorded sounds (Donkey Kong's walk, for example) look for their sample set
   (`dkong.zip`) in `/data/fbneo/samples/`. Without it they play without those sounds.
@@ -760,7 +773,8 @@ export PS5_PAYLOAD_SDK=/opt/ps5-payload-sdk
 cd ps5
 make ps5 -j$(nproc)              # build/ps5/FBNeoPS5.elf (installer + helper, with the app inside)
 make send PS5_HOST=192.168.0.10  # sends it to elfldr (port 9021)
-make dist                        # build/dist/FBNeoPS5-v<version>.elf + the release zip
+make dist                        # build/dist/FBNeoPS5-v<version>.elf + the release zip + the ROM DAT
+make dat                         # ps5/dat/fbneo-ps5-arcade.dat, again (after a core update or a version change)
 make app                         # only build/app/PPSA99924/, to copy by hand
 make test                        # Linux builds (app, installer, helper, headless core) + 443 host tests (ASan/UBSan)
 ```
@@ -828,7 +842,8 @@ The build has three stages:
   PS5_Vulkan (mihawk-99): `ps5-native-tool`, `app_crt.cpp`, `ps5-pie.ld`, `libc_builder.cpp` and its manifests.
 - **`ps5/app/sce_sys/`**: param.json, icon and backgrounds; `ps5/tools/make_art.py` encodes the background.
 - **`ps5/host/`** and **`ps5/tests/`**: the PS5 functions implemented on Linux (`sce_host.cpp`), the core alone
-  on Linux (`fbneo_headless.cpp`: the drivers, a set's ROMs, a run with a state saved and loaded back, NVRAM,
+  on Linux (`fbneo_headless.cpp`: the drivers, a set's ROMs, the ROM DAT (`fbneo_dat.cpp`, with FBNeo's
+  `src/burner/dat.cpp`), a run with a state saved and loaded back, NVRAM,
   DIP switches saved and read back and in place before a driver starts, a frame's and a save state's time, a driver's palette made at start), the
   stand-in ROM sets (`make_fake_set.py`: every ROM a driver lists, with its name and its CRC, as FBNeo's split
   sets are made), the test programs (`tests/data`: a tiny Z80 program on the Pac-Man board, red screen, green

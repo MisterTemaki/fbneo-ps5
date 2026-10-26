@@ -2,6 +2,8 @@
 //
 //   fbneo_headless list [arcade|all]            the drivers: name, parent, board, hardware, flags, title
 //   fbneo_headless roms <set>                   the set's ROMs: index, name, length, CRC, type
+//   fbneo_headless dat <out.dat> <commit> <date>  the ROM DAT of every driver built in, by FBNeo's own DAT writer
+//       (host/fbneo_dat.cpp); <commit> and <date>: the FBNeo commit the core is built from (tools/make_dat.sh)
 //   fbneo_headless nvram <rom dir> <set>          fills the set's NVRAM areas with 0x5a, unloads (fe_burn writes
 //       <saves>/<set>.nvram), loads the set again and checks that the areas hold 0x5a
 //   fbneo_headless dips <rom dir> <set>           moves the DIP switches off their defaults (a group named like an earlier
@@ -36,8 +38,12 @@
 #include <cstring>
 #include <ctime>
 #include <string>
+#include <vector>
 
 #include "burnint.h"
+
+int FbneoPs5WriteDat(const char* path, const char* commit, const char* date,
+	const std::vector<std::string>& leave_out); // fbneo_dat.cpp
 
 namespace
 {
@@ -111,6 +117,18 @@ int main(int argc, char** argv)
 		}
 		fprintf(stderr, "%d drivers\n", shown);
 		return 0;
+	}
+	if (cmd == "dat" && argc > 4)
+	{
+		// the DAT has the sets the shelf can list: not those of the drivers it leaves out (the Neo Geo CDZ's BIOS)
+		std::vector<std::string> leave_out;
+		for (int i = 0; i < burn::DriverCount(); i++)
+		{
+			burn::Driver d;
+			if (burn::GetDriver(i, &d) && !d.arcade)
+				leave_out.push_back(d.name);
+		}
+		return FbneoPs5WriteDat(argv[2], argv[3], argv[4], leave_out);
 	}
 	if (cmd == "roms" && argc > 2)
 	{

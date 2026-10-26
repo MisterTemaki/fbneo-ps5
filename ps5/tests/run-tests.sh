@@ -1927,6 +1927,46 @@ PY
 done
 fi
 
+if want 39; then
+echo "== 39. the ROM DAT (fbneo-ps5#4): made again from the drivers built in, it is the committed dat/fbneo-ps5-arcade.dat"
+DAT=dat/fbneo-ps5-arcade.dat
+sh tools/make_dat.sh "$HEADLESS" "$WORK/dat.dat" 2>"$WORK/dat.err"; rc=$?
+expect "[ $rc = 0 ] && cmp -s $WORK/dat.dat $DAT" "$DAT is up to date ($(cat $WORK/dat.err | tail -1); else: make dat)"
+"$HEADLESS" list >"$WORK/dat-list.txt" 2>/dev/null
+"$HEADLESS" roms sf2 >"$WORK/dat-sf2.txt" 2>/dev/null
+"$HEADLESS" roms mslug >"$WORK/dat-mslug.txt" 2>/dev/null
+o=$(python3 - "$WORK/dat.dat" "$WORK/dat-list.txt" "$VER" "$WORK/dat-sf2.txt" "$WORK/dat-mslug.txt" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+root = ET.parse(sys.argv[1]).getroot()
+games = {g.get('name'): g for g in root.findall('game')}
+# the drivers the shelf lists (two of them are named neogeo: the BIOS set and the cartridge-less system)
+drivers = [l.split('\t')[0] for l in open(sys.argv[2]) if l.strip()]
+bad = []
+if set(games) != set(drivers) or len(drivers) - len(set(drivers)) != 1:
+    bad.append('sets %d, drivers %d (%s)' % (len(games), len(drivers), sorted(set(games) ^ set(drivers))[:5]))
+for g in games.values():
+    for a in ('cloneof', 'romof'):
+        if g.get(a) and g.get(a) not in games:
+            bad.append('%s %s=%s' % (g.get('name'), a, g.get(a)))
+desc = root.find('header/description').text
+if 'FBNeo PS5 ' + sys.argv[3] + ' ' not in desc:
+    bad.append('header: ' + desc)
+# each ROM the driver lists (but the no-dumps) is in the set with its size and CRC
+for f in sys.argv[4:]:
+    rows = [l.rstrip('\n').split('\t') for l in open(f)]
+    want = {(r[1], int(r[2]), r[3]) for r in rows if r[0].isdigit() and int(r[2]) > 0 and int(r[4], 16) & 0x10000000 == 0}
+    name = f.rsplit('-', 1)[1][:-4]
+    have = {(r.get('name'), int(r.get('size')), r.get('crc')) for r in games[name].findall('rom')}
+    if not want or not want <= have:
+        bad.append('%s: %s' % (name, sorted(want - have)[:3]))
+print('%d sets (%d BIOS), %d drivers%s' % (len(games), sum(g.get('isbios') == 'yes' for g in games.values()), len(drivers),
+      ('; ' + '; '.join(bad[:5])) if bad else ''))
+PY
+)
+expect "echo '$o' | grep -qv ';' && [ -n '$o' ]" "the DAT parses as XML: one set per driver the shelf lists, parents and BIOS sets in it, sf2's and mslug's ROMs as the drivers list them ($o)"
+fi
+
 echo
 echo "passed $PASS, failed $FAIL  (work dir $WORK)"
 [ $FAIL = 0 ]
