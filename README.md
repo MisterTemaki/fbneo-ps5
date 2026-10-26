@@ -34,7 +34,7 @@ make (the driver list, Musashi's 68000 core, the CPS, Neo Geo, Cave, Psikyo, Toa
 frontends (`src/burner`) and its libretro port host the core: ROM loading from the sets' zips and 7z archives, inputs, DIP
 switches, states, NVRAM, the picture turned the right way up and the sound.
 
-> **Status (2.1):** builds with the ps5-payload-dev SDK into a signed native app, and passes 530 host tests, which
+> **Status (2.1):** builds with the ps5-payload-dev SDK into a signed native app, and passes 532 host tests, which
 > run the same code (FBNeo's core included) on Linux with the PS5 calls simulated: two arcade boards running a tiny
 > test program each (a vertical and a horizontal game) are played through the whole chain -- the shelf, the pad,
 > the core, the video and sound output -- and 26 more boards start, run, save and load a state under
@@ -275,8 +275,8 @@ exits.
 
 ## ROM sets
 
-FBNeo PS5 plays the same ROM sets as FBNeo 1.0.0.3 (and its libretro core of the same version), with the same
-names.
+FBNeo PS5 plays the ROM sets of FinalBurn Neo at the commit below, with the same names. "1.0.0.3" alone is not
+enough: FBNeo keeps that version number while its sets change almost every day, so check your sets against the DAT.
 
 **The list of sets: [`ps5/dat/fbneo-ps5-arcade.dat`](ps5/dat/fbneo-ps5-arcade.dat).** FBNeo PS5 doesn't use RetroArch
 or the libretro core: it builds FBNeo's core itself, the arcade drivers only, from FinalBurn Neo 1.0.0.3 as of
@@ -293,7 +293,7 @@ As in every FBNeo build:
 
 - **One zip per set, named as FBNeo names it:** `sf2ce.zip`, `mslug.zip`, `pacman.zip` (or `sf2ce.7z`: see
   [7-Zip sets](#7-zip-sets)). The name is how the game is recognised; a renamed zip is not.
-- **Clones need their parent:** `sf2ce.zip` (a clone) loads what it shares with `sf2.zip` from there, so put the
+- **Clones need their parent:** `sf2ceua.zip` (a clone) loads what it shares with `sf2ce.zip` from there, so put the
   parent next to it (anywhere in the ROM folders: the console's, a USB drive's or a share's). Merged sets (the clones inside the parent's zip, as
   ClrMamePro's "merged" option makes them) work too: a clone with no zip of its own is listed when all of its ROMs
   are in its parent's zip with the right CRC (`boot.log`: `<parent>.zip#<clone>`).
@@ -776,7 +776,7 @@ make send PS5_HOST=192.168.0.10  # sends it to elfldr (port 9021)
 make dist                        # build/dist/FBNeoPS5-v<version>.elf + the release zip + the ROM DAT
 make dat                         # ps5/dat/fbneo-ps5-arcade.dat, again (after a core update or a version change)
 make app                         # only build/app/PPSA99924/, to copy by hand
-make test                        # Linux builds (app, installer, helper, headless core) + 443 host tests (ASan/UBSan)
+make test                        # Linux builds (app, installer, helper, headless core) + 532 host tests (ASan/UBSan)
 ```
 
 The first build compiles FBNeo's 1,039 core files (about 15 minutes on 2 cores; `make core-ps5` builds just those).
@@ -847,7 +847,7 @@ The build has three stages:
   DIP switches saved and read back and in place before a driver starts, a frame's and a save state's time, a driver's palette made at start), the
   stand-in ROM sets (`make_fake_set.py`: every ROM a driver lists, with its name and its CRC, as FBNeo's split
   sets are made), the test programs (`tests/data`: a tiny Z80 program on the Pac-Man board, red screen, green
-  while the joystick or the button is pressed), and the 443 tests: picture, rotation, input and states on a
+  while the joystick or the button is pressed), and the 532 tests: picture, rotation, input and states on a
   vertical and a horizontal game, the library (parents, BIOS sets, incomplete sets, the check's cache), a set with
   a ROM missing, DIP switches, button layouts (a layout per game, a clone using its parent's, Auto's Fighting (R1 R2) for 6-button games), sound latency and pacing by the sound, 720p, install (packed
   files), covers (flyer, parent's flyer, screenshot, 404, the no-cover card's arcade panel with a long title below it), tabs and clones, the CRT shaders (each one, both
