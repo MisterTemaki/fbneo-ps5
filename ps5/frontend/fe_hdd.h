@@ -12,6 +12,7 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -32,15 +33,19 @@ struct Lookup
 {
 	Find result = Find::Missing;
 	std::string path;      // Found: the image
-	std::string folder;    // Found: the folder it is in; Missing / TooLong: where it is expected (the set's own, beside its archive)
+	std::string folder;    // Found: the folder it is in; Missing / TooLong: where it is expected: the folder named after
+	                       // the set that owns the disk (the parent for a clone: kinst14 -> kinst) in the first folder
+	                       // looked in (the set's archive's), e.g. /data/fbneo/roms/kinst
 	std::string need;      // "kinst/kinst.chd": what to put next to the ROM zip (the parent's folder for a clone)
+	std::string file;      // "kinst.chd": the image's file name MAME gives it
 	bool on_network = false; // the image is on a network share
 };
 
 // set "kinst14", parent "kinst" ("" for a parent set), disk "kinst" (the driver's name for it); folders: the ROM
-// folders in the order above (duplicates are skipped).
+// folders in the order above (duplicates are skipped). skip (may be empty): a folder it returns true for is not looked
+// in (it still names where the image is expected when it is the first one).
 Lookup FindImage(const std::string& set, const std::string& parent, const std::string& disk,
-	const std::vector<std::string>& folders);
+	const std::vector<std::string>& folders, const std::function<bool(const std::string&)>& skip = nullptr);
 
 // "<dir>" of "<dir>/<file>" ("" for "")
 std::string DirOf(const std::string& path);

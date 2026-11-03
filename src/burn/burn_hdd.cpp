@@ -12,7 +12,9 @@
 //   <set>.diff (the newest by mtime if several), the current one going aside under its own id;
 // - "missing" is stat()'s ENOENT only: any other error checking an existing .diff or set-aside, any rename that fails,
 //   a put-back that can't be read back, turns saving off for that disk this session (nothing is written over);
-//   renames don't replace (link + unlink where links work, else a rename after stat said ENOENT);
+//   renames don't replace: the new name is reserved first (open with O_CREAT | O_EXCL: taken -> EEXIST, the next
+//   "-N" name for a set-aside), then the file is renamed over that empty file of ours. Only libkernel's calls: no
+//   link() (the SDK's libc.a has it as a raw syscall, not something a title may run; tools/check_syscalls.py);
 // - writes are atomic: <set>.diff.tmp, fsync'ed (its result checked), renamed over <set>.diff.
 
 #include "burnint.h"
@@ -27,6 +29,7 @@
 #include <strings.h>
 #include <sys/stat.h>
 #include <dirent.h>
+#include <fcntl.h>
 #include <unistd.h>
 
 #ifdef __LIBRETRO__
@@ -58,6 +61,24 @@
 
 INT32 (*BurnHDDFindImageHook)(INT32 nIndex, const char* szName, char* szPath, INT32 nPathLen) = NULL;
 INT32 (*BurnHDDRenameHook)(const char* szFrom, const char* szTo) = NULL;
+INT32 (*BurnHDDSyncHook)(INT32 nFd) = NULL;
+
+// the last image found but not opened (BurnHDDOpenFailure), until BurnHDDReportClear
+static INT32 nOpenFailure = 0;
+static char szOpenFailure[MAX_PATH];
+
+// a FILE* / DIR* closed however the block is left (std::bad_alloc too)
+struct HddFileGuard {
+	FILE* fp;
+	explicit HddFileGuard(FILE* f = NULL) : fp(f) {}
+	~HddFileGuard() { if (fp) fclose(fp); }
+	void Close() { if (fp) fclose(fp); fp = NULL; }
+};
+struct HddDirGuard {
+	DIR* d;
+	explicit HddDirGuard(DIR* p) : d(p) {}
+	~HddDirGuard() { if (d) closedir(d); }
+};
 
 struct BurnHDD {
 	FILE* pFile;
@@ -230,6 +251,8 @@ static void SaveOff(BurnHDD* pDisk, const char* szWhy)
 void BurnHDDReportClear()
 {
 	Reports.clear();
+	nOpenFailure = 0;
+	szOpenFailure[0] = 0;
 	for (size_t i = 0; i < OpenDisks.size(); i++) OpenDisks[i]->nReport = -1;
 }
 
@@ -253,24 +276,24 @@ static INT32 StatErrno(const char* szPath, struct stat* st)
 	return errno ? errno : EIO;
 }
 
-// Renames without replacing: link + unlink where the file system has links, else a rename once stat said the new
-// name is missing. 0 on success; on failure errno says why (EEXIST: the new name is taken).
+// Renames without replacing: the new name is reserved with open(O_CREAT | O_EXCL) -- it fails with EEXIST when the
+// name is taken -- then the file is renamed over that empty file of ours (removed again if the rename fails). Only
+// calls libkernel exports (no link(): see the top). 0 on success; on failure errno says why (EEXIST: the name is taken).
 static INT32 RenameNoReplace(const char* szFrom, const char* szTo)
 {
 	if (BurnHDDRenameHook && BurnHDDRenameHook(szFrom, szTo)) return 1;
-	if (link(szFrom, szTo) == 0) {
-		if (unlink(szFrom) == 0) return 0;
-		INT32 e = errno;
-		unlink(szTo);	// the old name stays the only one
-		errno = e;
+	errno = 0;
+	int fd = open(szTo, O_CREAT | O_EXCL | O_WRONLY, 0644);
+	if (fd < 0) {
+		if (errno == 0) errno = EIO;
 		return 1;
 	}
-	if (errno == EEXIST) return 1;
-	// no links here (exFAT, FAT...): a rename, once the new name is surely missing
-	INT32 e = StatErrno(szTo, NULL);
-	if (e == 0) { errno = EEXIST; return 1; }
-	if (e != ENOENT) { errno = e; return 1; }
-	return rename(szFrom, szTo) == 0 ? 0 : 1;
+	close(fd);
+	if (rename(szFrom, szTo) == 0) return 0;
+	INT32 e = errno ? errno : EIO;
+	unlink(szTo);	// our empty reservation; the old name is still the file's
+	errno = e;
+	return 1;
 }
 
 INT32 BurnHDDWriteDiffData(const char* szPath, const UINT8* pData, size_t nLen)
@@ -281,7 +304,7 @@ INT32 BurnHDDWriteDiffData(const char* szPath, const UINT8* pData, size_t nLen)
 	if (fp == NULL) return 1;
 	INT32 bOk = (nLen == 0 || fwrite(pData, nLen, 1, fp) == 1);
 	bOk = (fflush(fp) == 0) && bOk;
-	bOk = (fsync(fileno(fp)) == 0) && bOk;
+	bOk = ((BurnHDDSyncHook ? BurnHDDSyncHook(fileno(fp)) : fsync(fileno(fp))) == 0) && bOk;
 	bOk = (fclose(fp) == 0) && bOk;
 	if (!bOk || rename(szTmp, szPath) != 0) {
 		unlink(szTmp);
@@ -353,13 +376,14 @@ static bool DiffIsMine(BurnHDD* pDisk, const DiffHeader* h)
 		return h->bHasId && memcmp(h->Id, pDisk->Id, HDD_ID_SIZE) == 0 && h->nSectorSize == pDisk->nSectorSize &&
 			h->nSectorCount == pDisk->nSectorCount;
 	if (h->nVersion == 1)
-		return h->nSectorSize == pDisk->nSectorSize;	// no id: taken for this disk, as up to 2.1
+		return h->nSectorSize == pDisk->nSectorSize;	// no id (upstream FBNeo's v1 file): taken for this disk
 	return false;
 }
 
-// "<dir>/<name>.diff.<8 hex>" (and -2, -3... when taken), or ".unknown" for a .diff without an id. Returns 0 with the
-// free name; otherwise errno (a name that can't be checked).
-static INT32 FreeAsideName(BurnHDD* pDisk, const DiffHeader* h, char* szOut, INT32 nLen)
+// Sets <set>.diff aside as "<dir>/<name>.diff.<8 hex of its id>" (-2, -3... when taken; ".unknown" for a .diff
+// without an id). A name taken between the check and the rename (EEXIST from the reservation) moves on to the next
+// one. Returns 0 with the new name in szOut; otherwise errno (a name that can't be checked, a rename that failed).
+static INT32 SetAside(BurnHDD* pDisk, const DiffHeader* h, char* szOut, INT32 nLen)
 {
 	char tag[24];
 	if (h->nVersion == 2 && h->bHasId) {
@@ -373,8 +397,11 @@ static INT32 FreeAsideName(BurnHDD* pDisk, const DiffHeader* h, char* szOut, INT
 		if (n == 1) snprintf(szOut, nLen, "%s.%s", pDisk->szDiffPath, tag);
 		else snprintf(szOut, nLen, "%s.%s-%d", pDisk->szDiffPath, tag, n);
 		INT32 e = StatErrno(szOut, NULL);
-		if (e == ENOENT) return 0;
-		if (e != 0) return e;
+		if (e == 0) continue;
+		if (e != ENOENT) return e;
+		if (RenameNoReplace(pDisk->szDiffPath, szOut) == 0) return 0;
+		e = errno ? errno : EIO;
+		if (e != EEXIST) return e;
 	}
 	return EEXIST;
 }
@@ -389,19 +416,18 @@ static void OpenDiff(BurnHDD* pDisk)
 
 	struct stat st;
 	INT32 e = StatErrno(pDisk->szDiffPath, &st);
-	bool bHaveDiff = false;
 	if (e == 0) {
 		DiffHeader h;
-		FILE* fp = NULL;
-		e = ReadDiffHeader(pDisk->szDiffPath, &h, &fp);
+		HddFileGuard f;
+		e = ReadDiffHeader(pDisk->szDiffPath, &h, &f.fp);
 		if (e) {
 			snprintf(szWhy, sizeof(szWhy), "%s could not be read (%s)", pDisk->szDiffName, strerror(e));
 			SaveOff(pDisk, szWhy);
 			return;
 		}
 		if (DiffIsMine(pDisk, &h)) {
-			e = ReadDiffEntries(pDisk, fp, &h);
-			fclose(fp);
+			e = ReadDiffEntries(pDisk, f.fp, &h);	// may throw std::bad_alloc: the guard closes the file
+			f.Close();
 			if (e) {
 				pDisk->Diff.clear();
 				snprintf(szWhy, sizeof(szWhy), "%s could not be read (%s)", pDisk->szDiffName, strerror(e));
@@ -413,26 +439,23 @@ static void OpenDiff(BurnHDD* pDisk)
 			pDisk->bDiffReady = true;
 			return;
 		}
-		if (fp) fclose(fp);
+		f.Close();
 		// another image's (or not a .diff at all): set aside under its own id
 		char szAside[MAX_PATH + 32];
-		e = FreeAsideName(pDisk, &h, szAside, sizeof(szAside));
-		if (e || RenameNoReplace(pDisk->szDiffPath, szAside)) {
-			INT32 err = e ? e : errno;
-			snprintf(szWhy, sizeof(szWhy), "an old %s (made for another disk image) could not be set aside (%s)", pDisk->szDiffName, strerror(err));
+		e = SetAside(pDisk, &h, szAside, sizeof(szAside));
+		if (e) {
+			snprintf(szWhy, sizeof(szWhy), "an old %s (made for another disk image) could not be set aside (%s)", pDisk->szDiffName, strerror(e));
 			if (r) r->bSetAsideFailed = 1;
 			SaveOff(pDisk, szWhy);
 			return;
 		}
 		bprintf(PRINT_IMPORTANT, _T("HDD: %s was made for another disk image: set aside as %s\n"), pDisk->szDiffName, szAside);
 		if (r) { r->bSetAside = 1; snprintf(r->szSetAside, sizeof(r->szSetAside), "%s", szAside); }
-		bHaveDiff = false;
 	} else if (e != ENOENT) {
 		snprintf(szWhy, sizeof(szWhy), "%s could not be checked (%s)", pDisk->szDiffName, strerror(e));
 		SaveOff(pDisk, szWhy);
 		return;
 	}
-	(void)bHaveDiff;
 
 	// <set>.diff is missing now: a set-aside of this image's goes back (its name AND its full id must match)
 	char szPrefix[MAX_PATH + 16];
@@ -442,8 +465,8 @@ static void OpenDiff(BurnHDD* pDisk)
 	snprintf(szPrefix, sizeof(szPrefix), "%s.%s", pDisk->szDiffName, hex8);
 	const size_t nPrefix = strlen(szPrefix);
 	errno = 0;
-	DIR* d = opendir(pDisk->szDiffDir);
-	if (d == NULL) {
+	HddDirGuard d(opendir(pDisk->szDiffDir));	// closed however this ends (std::bad_alloc in the list too)
+	if (d.d == NULL) {
 		e = errno ? errno : EIO;
 		if (e == ENOENT) { pDisk->bDiffReady = true; return; }	// no saves folder yet: nothing to put back
 		snprintf(szWhy, sizeof(szWhy), "the saves folder could not be read (%s)", strerror(e));
@@ -451,7 +474,7 @@ static void OpenDiff(BurnHDD* pDisk)
 		return;
 	}
 	std::vector<std::string> names;
-	while (struct dirent* de = readdir(d)) {
+	while (struct dirent* de = readdir(d.d)) {
 		const char* n = de->d_name;
 		if (strncmp(n, szPrefix, nPrefix) != 0) continue;
 		const char* rest = n + nPrefix;
@@ -462,7 +485,8 @@ static void OpenDiff(BurnHDD* pDisk)
 		}
 		if (ok) names.push_back(n);
 	}
-	closedir(d);
+	closedir(d.d);
+	d.d = NULL;
 	std::sort(names.begin(), names.end());
 
 	std::string best;
@@ -481,7 +505,10 @@ static void OpenDiff(BurnHDD* pDisk)
 			SaveOff(pDisk, szWhy);
 			return;
 		}
-		if (h.nVersion != 2 || !h.bHasId || memcmp(h.Id, pDisk->Id, HDD_ID_SIZE) != 0 || h.nSectorSize != pDisk->nSectorSize) continue;
+		// a set-aside of this image: a v2 header with its full id and its size (a file that would be refused once back
+		// is left where it is: never put back, refused, set aside again at every start)
+		if (h.nVersion != 2 || !h.bHasId || memcmp(h.Id, pDisk->Id, HDD_ID_SIZE) != 0 || h.nSectorSize != pDisk->nSectorSize ||
+			h.nSectorCount != pDisk->nSectorCount) continue;
 		nMatches++;
 		if (best.empty() || ast.st_mtime > best_mtime) {
 			best = path;
@@ -502,11 +529,11 @@ static void OpenDiff(BurnHDD* pDisk)
 		return;
 	}
 	DiffHeader h;
-	FILE* fp = NULL;
-	e = ReadDiffHeader(pDisk->szDiffPath, &h, &fp);
+	HddFileGuard f;
+	e = ReadDiffHeader(pDisk->szDiffPath, &h, &f.fp);
 	if (e == 0 && !DiffIsMine(pDisk, &h)) e = EINVAL;
-	if (e == 0) e = ReadDiffEntries(pDisk, fp, &h);
-	if (fp) fclose(fp);
+	if (e == 0) e = ReadDiffEntries(pDisk, f.fp, &h);	// may throw: the guard closes the file
+	f.Close();
 	if (e) {
 		pDisk->Diff.clear();
 		snprintf(szWhy, sizeof(szWhy), "%s was put back but could not be read (%s)", pDisk->szDiffName, strerror(e));
@@ -625,7 +652,12 @@ BurnHDD* BurnHDDOpen(INT32 nIndex)
 		INT32 rc = BurnHDDFindImageHook(nIndex, szName, szPath, MAX_PATH);
 		if (rc == 0) {
 			fp = _tfopen(szPath, _T("rb"));		// read only, always
-			if (fp == NULL) bprintf(PRINT_ERROR, _T("HDD: can't open %s (%s)\n"), szPath, strerror(errno));
+			if (fp == NULL) {
+				bprintf(PRINT_ERROR, _T("HDD: can't open %s (%s)\n"), szPath, strerror(errno));
+				nOpenFailure = 1;
+				snprintf(szOpenFailure, sizeof(szOpenFailure), "%s", szPath);
+				return NULL;
+			}
 		}
 		if (fp == NULL) {
 			if (rc == 2) bprintf(PRINT_ERROR, _T("HDD: ") HDD_NARROW_FMT _T(": the image's path is too long\n"), szName);
@@ -689,6 +721,8 @@ BurnHDD* BurnHDDOpen(INT32 nIndex)
 
 	if (bChd ? OpenChd(pDisk) : OpenRaw(pDisk)) {
 		bprintf(PRINT_ERROR, _T("HDD: can't use %s\n"), szPath);
+		nOpenFailure = 2;
+		snprintf(szOpenFailure, sizeof(szOpenFailure), "%s", szPath);
 		FreeDisk(pDisk);
 		return NULL;
 	}
@@ -797,6 +831,12 @@ INT32 BurnHDDFlushAll()
 void BurnHDDCloseAll()
 {
 	while (!OpenDisks.empty()) BurnHDDClose(OpenDisks.back());
+}
+
+INT32 BurnHDDOpenFailure(const char** pszPath)
+{
+	if (pszPath) *pszPath = szOpenFailure;
+	return nOpenFailure;
 }
 
 INT32 BurnHDDOpenCount()

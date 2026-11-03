@@ -7,7 +7,9 @@
 //   - the IDE controller on it: IDENTIFY, CHS and LBA reads, the IRQ / DRQ order of reads and writes;
 //   - the game's writes: only in <saves>/<set>.diff (the image never changes), read back after a reload, the v2 header
 //     with the image's id, atomic writes, a .diff of another image set aside and put back (A -> B -> A), "-2" names,
-//     the newest of several, renames that fail, errors other than ENOENT, a v1 .diff;
+//     the newest of several, renames that fail, errors other than ENOENT, a v1 .diff; (the final review) a name taken
+//     just before a rename never replaced, a failed fsync, the put-back's header check (id and size), .unknown names,
+//     the sampled id of a raw image, an image found but not usable;
 //   - an allocation that fails while a raw image is being opened: the half-open disk is closed (no descriptor left).
 //
 //   test-kinst-hdd <dir with A.chd B.chd Z.chd R.img>
@@ -266,6 +268,9 @@ BurnHDD* Disk() { return BurnHDDGetOpen(0); }
 const BurnHDDReport* Rep() { return BurnHDDReportCount() > 0 ? BurnHDDGetReport(BurnHDDReportCount() - 1) : nullptr; }
 
 int g_rename_fail = 0; // which rename fails: 1 the set-aside, 2 the put-back (to <set>.diff)
+// a file that appears at the new name just before the rename (another writer, between the module's check and its
+// rename): 1 at the set-aside's name, 2 at <set>.diff for the put-back; once
+int g_race = 0;
 INT32 RenameHook(const char* from, const char* to)
 {
 	const bool to_diff = strlen(to) > 5 && strcmp(to + strlen(to) - 5, ".diff") == 0;
@@ -274,9 +279,17 @@ INT32 RenameHook(const char* from, const char* to)
 		errno = EIO;
 		return 1;
 	}
+	if ((g_race == 1 && !to_diff) || (g_race == 2 && to_diff))
+	{
+		g_race = 0;
+		WriteFile(to, "another writer's file");
+	}
 	(void)from;
 	return 0;
 }
+int g_sync_fail = 0;
+INT32 SyncHook(INT32 fd) { return g_sync_fail ? -1 : fsync(fd); }
+std::string DiffId(const std::string& path) { return ReadFile(path).substr(24, 20); }
 } // namespace
 
 int main(int argc, char** argv)
@@ -330,6 +343,11 @@ int main(int argc, char** argv)
 		Check(l.result == Find::TooLong, "a path over 259 characters: refused as too long");
 		l = fe::hdd::FindImage("kinst210", "kinst2", "kinst2", fe::hdd::Folders(usb + "/kinst210.zip", "", {usb}));
 		Check(l.result == Find::Missing && l.need == "kinst2/kinst2.chd" && l.folder == usb + "/kinst2", "missing: kinst2/kinst2.chd, expected beside the set's archive");
+		int looked = 0;
+		l = fe::hdd::FindImage("kinst", "", "kinst", {usb, roms}, [&](const std::string& f) { looked++; return f == usb; });
+		Check(l.result == Find::Found && l.path == roms + "/kinst/kinst.chd" && looked == 2, "a folder skipped (a share that isn't connected): not looked in, the next one is");
+		l = fe::hdd::FindImage("kinst2", "", "kinst2", {usb, roms}, [&](const std::string& f) { return f == usb; });
+		Check(l.result == Find::Missing && l.folder == usb + "/kinst2" && l.file == "kinst2.chd", "... still where it is expected when it is the first folder; the file: kinst2.chd");
 		const int drv = burn::FindDriver("kinst14");
 		l = burn::FindDisk(drv, [&](const std::string& set) { return set == "kinst" ? roms + "/kinst.zip" : std::string(); });
 		Check(drv >= 0 && l.result == Find::Found && l.path == roms + "/kinst/kinst.chd" && l.need == "kinst/kinst.chd", "burn::FindDisk: the driver's disk (kinst) through the archives found");
@@ -337,6 +355,7 @@ int main(int argc, char** argv)
 
 	BurnHDDFindImageHook = TestFind;
 	BurnHDDRenameHook = RenameHook;
+	BurnHDDSyncHook = SyncHook;
 	nBurnDrvActive = UINT32(burn::FindDriver("kinst"));
 	const std::string diff = g_saves + "/kinst.diff";
 
@@ -481,7 +500,7 @@ int main(int argc, char** argv)
 		put32(42);
 		v1 += std::string(512, char(0x42));
 		WriteFile(diff, v1);
-		Check(OpenIde(A) && ReadLba(42, 1, 1, 0x42) && Rep() && !Rep()->bSetAside, "a v1 kinst.diff (no id): read for this disk, as up to 2.1");
+		Check(OpenIde(A) && ReadLba(42, 1, 1, 0x42) && Rep() && !Rep()->bSetAside, "a v1 kinst.diff (no id, upstream FBNeo's format): read for this disk");
 		WriteLba(43, 1, 0x43);
 		CloseIde();
 		const std::string now = ReadFile(diff);
@@ -526,6 +545,136 @@ int main(int argc, char** argv)
 		snprintf(szAppEEPROMPath, MAX_PATH, "%s", keep.c_str());
 		Check(OpenIde(A) && Rep() && !Rep()->bSavingOff, "a missing kinst.diff (ENOENT): saving on");
 		CloseIde();
+	}
+
+	printf("the final review's cases: no rename replaces, fsync, the put-back's check, .unknown, the sampled id\n");
+	{
+		// a file at the set-aside's name made between the check and the rename: never replaced, the next name used
+		ClearSaves();
+		OpenIde(A);
+		WriteLba(12, 1, 0xc1);
+		CloseIde();
+		const std::string a_diff = ReadFile(diff);
+		g_race = 1;
+		Check(OpenIde(B) && Rep() && Rep()->bSetAside && std::string(Rep()->szSetAside) == diff + "." + a8 + "-2" &&
+				ReadFile(diff + "." + a8) == "another writer's file" && ReadFile(diff + "." + a8 + "-2") == a_diff && !Rep()->bSavingOff,
+			"a name taken just before the set-aside's rename: not replaced, A's .diff goes to -2");
+		CloseIde();
+		// the same for the put-back: <set>.diff made just before it -> left alone, saving off, the set-aside kept
+		Rm(diff);
+		Rm(diff + "." + a8);
+		g_race = 2;
+		Check(OpenIde(A) && Rep() && Rep()->bPutBackFailed && Rep()->bSavingOff && ReadFile(diff) == "another writer's file" &&
+				ReadFile(diff + "." + a8 + "-2") == a_diff,
+			"a kinst.diff made just before the put-back's rename: not replaced; saving off, the set-aside kept");
+		CloseIde();
+		g_race = 0;
+		Check(ReadFile(diff) == "another writer's file", "... and not written at the close either");
+
+		// a failed fsync: the write fails, kinst.diff as it was, no .tmp, still to save
+		ClearSaves();
+		OpenIde(A);
+		WriteLba(20, 1, 0x20);
+		BurnHDDFlush(Disk());
+		const std::string before = ReadFile(diff);
+		WriteLba(21, 1, 0x21);
+		g_sync_fail = 1;
+		Check(BurnHDDFlush(Disk()) != 0 && ReadFile(diff) == before && !Exists(diff + ".tmp") && BurnHDDIsDirty(Disk()),
+			"fsync fails (the hook): the write fails, kinst.diff as it was, no .tmp left, still to save");
+		g_sync_fail = 0;
+		Check(BurnHDDFlush(Disk()) == 0 && Le32(ReadFile(diff), 20) == 2, "... saved once fsync works");
+		CloseIde();
+
+		// the put-back's header check: a file under A's set-aside name with B's id, or A's id and another size
+		ClearSaves();
+		OpenIde(B);
+		WriteLba(30, 1, 0xb3);
+		CloseIde();
+		const std::string b_diff = ReadFile(diff);
+		Rm(diff);
+		WriteFile(diff + "." + a8, b_diff);
+		Check(OpenIde(A) && Rep() && !Rep()->bPutBack && !Rep()->bSavingOff && ReadFile(diff + "." + a8) == b_diff && ReadLba(30, 1, 1),
+			"kinst.diff." + a8 + " with B's id: not put back for A (the name isn't enough), saving on, left alone");
+		CloseIde();
+		ClearSaves();
+		OpenIde(A);
+		WriteLba(31, 1, 0xa3);
+		CloseIde();
+		std::string odd = ReadFile(diff);
+		Rm(diff);
+		const UINT32 count = Le32(odd, 16) + 1;
+		for (int i = 0; i < 4; i++)
+			odd[size_t(16 + i)] = char((count >> (8 * i)) & 0xff);
+		WriteFile(diff + "." + a8, odd);
+		Check(OpenIde(A) && Rep() && !Rep()->bPutBack && !Rep()->bSavingOff && !Exists(diff) && ReadFile(diff + "." + a8) == odd && ReadLba(31, 1, 1),
+			"A's id but another sector count: not put back (it would be refused once back), saving on, left alone");
+		CloseIde();
+
+		// a file at kinst.diff that isn't a .diff (no id): set aside as .unknown, then .unknown-2
+		ClearSaves();
+		WriteFile(diff, "not a diff at all");
+		Check(OpenIde(A) && Rep() && Rep()->bSetAside && std::string(Rep()->szSetAside) == diff + ".unknown" &&
+				ReadFile(diff + ".unknown") == "not a diff at all" && !Exists(diff),
+			"a kinst.diff without an id: set aside as kinst.diff.unknown");
+		CloseIde();
+		WriteFile(diff, "another one");
+		Check(OpenIde(A) && Rep() && std::string(Rep()->szSetAside) == diff + ".unknown-2" && ReadFile(diff + ".unknown") == "not a diff at all",
+			"... the next one as kinst.diff.unknown-2, the first kept");
+		CloseIde();
+
+		// errors other than ENOENT: kinst.diff a symlink loop (ELOOP); a set-aside of this image's name that can't be read
+		ClearSaves();
+		symlink("kinst.diff", diff.c_str());
+		Check(OpenIde(A) && Rep() && Rep()->bSavingOff && strstr(Rep()->szWhy, "could not be checked") && !Rep()->bSetAside,
+			"kinst.diff can't be checked (ELOOP, not ENOENT): saving off, not set aside");
+		WriteLba(40, 1, 0x40);
+		CloseIde();
+		struct stat lst;
+		Check(lstat(diff.c_str(), &lst) == 0 && S_ISLNK(lst.st_mode) && Saves().size() == 1, "... nothing written, nothing made");
+		Rm(diff);
+		mkdir((diff + "." + a8).c_str(), 0755);
+		Check(OpenIde(A) && Rep() && Rep()->bSavingOff && Rep()->bPutBackFailed, "a set-aside name of this image's that can't be read (a folder): saving off");
+		CloseIde();
+		rmdir((diff + "." + a8).c_str());
+
+		// the sampled id (a raw image): two images that differ only in the middle (past the first and last MB)
+		ClearSaves();
+		std::string r1 = ReadFile(R), r2 = r1;
+		const size_t at = size_t((INT64(r1.size()) - 65536) * 31 / 63) + 100;
+		Check(r1.size() > 3 * 1048576 / 2 && at > 1048576 && at < r1.size() - 1048576, "R.img is large enough for a byte past its first and last MB");
+		r2[at] = char(r2[at] ^ 0xff);
+		WriteFile(g_dir + "/R1.img", r1);
+		WriteFile(g_dir + "/R2.img", r2);
+		OpenIde(g_dir + "/R1.img");
+		WriteLba(1, 1, 1);
+		CloseIde();
+		const std::string id1 = DiffId(diff);
+		Rm(diff);
+		OpenIde(g_dir + "/R2.img");
+		WriteLba(1, 1, 1);
+		CloseIde();
+		const std::string id2 = DiffId(diff);
+		Check(id1.size() == 20 && id1 != id2, "two raw images differing only in the middle: different ids (the 62 samples)");
+		Rm(diff);
+		Rm(g_dir + "/R1.img");
+		Rm(g_dir + "/R2.img");
+	}
+
+	printf("an image found but not usable\n");
+	{
+		ClearSaves();
+		BurnHDDReportClear();
+		const char* path = nullptr;
+		Check(!OpenIde(g_dir + "/gone.chd") && BurnHDDOpenFailure(&path) == 1 && std::string(path) == g_dir + "/gone.chd",
+			"found, then gone (fopen fails): BurnHDDOpenFailure 1 with its path");
+		CloseIde();
+		WriteFile(g_dir + "/bad.chd", std::string("MComprHD") + std::string(4096, '\0'));
+		BurnHDDReportClear();
+		Check(BurnHDDOpenFailure(&path) == 0, "... cleared with the report");
+		Check(!OpenIde(g_dir + "/bad.chd") && BurnHDDOpenFailure(&path) == 2 && std::string(path) == g_dir + "/bad.chd",
+			"a CHD libchdr refuses: BurnHDDOpenFailure 2 with its path");
+		CloseIde();
+		Rm(g_dir + "/bad.chd");
 	}
 
 	printf("the periodic save's pieces\n");
@@ -580,6 +729,7 @@ int main(int argc, char** argv)
 	}
 
 	BurnHDDRenameHook = nullptr;
+	BurnHDDSyncHook = nullptr;
 	BurnHDDFindImageHook = nullptr;
 	burn::Exit();
 	printf("test-kinst-hdd: %d checks ok, %d failed\n", g_ok, g_bad);

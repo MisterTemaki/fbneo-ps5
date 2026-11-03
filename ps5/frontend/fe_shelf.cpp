@@ -1067,17 +1067,20 @@ std::string Shelf()
 			dirty = true;
 		}
 		if ((down & SCE_PAD_BUTTON_CROSS) && n > 0 && !st.games[size_t(sel)].disk.empty() &&
-			!LookForDisk(&st.games[size_t(sel)]))
+			st.games[size_t(sel)].disk_state != GameInfo::Disk::Found && !LookForDisk(&st.games[size_t(sel)], true))
 		{
-			// 2.2: a game whose hard disk image isn't there (looked for again: it may have been copied meanwhile)
+			// 2.2: a game whose hard disk image wasn't there at the scan, looked for again (it may have been copied
+			// meanwhile): the console's folders, then the connected shares only (LookForDisk). One the scan found isn't
+			// looked for here: the start does (with its own message if it is gone).
 			const GameInfo& g = st.games[size_t(sel)];
 			char text[1024];
+			const std::string name = g.region.empty() ? g.title : g.title + " (" + g.region + ")";
 			if (g.disk_state == GameInfo::Disk::TooLong)
 				snprintf(text, sizeof(text), T("The hard disk image's path is too long (more than %d characters): move the "
 											   "ROM folder nearer the top of the drive."), int(hdd::kMaxPath));
 			else
-				snprintf(text, sizeof(text), T("%s needs its hard disk image, %s next to the ROM zip: FBNeo PS5 looks for it in %s."),
-					g.file_base.c_str(), g.disk_need.c_str(), g.disk_folder.c_str());
+				snprintf(text, sizeof(text), T("%s needs its hard disk image: copy MAME's %s into %s and press Cross again."),
+					name.c_str(), g.disk_file.c_str(), g.disk_folder.c_str());
 			OrbisLog("[shelf] %s: %s", g.file_base.c_str(), text);
 			MessageBox("Hard disk image missing", text);
 			dirty = true;

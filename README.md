@@ -37,7 +37,7 @@ make (the driver list, Musashi's 68000 core, the CPS, Neo Geo, Cave, Psikyo, Toa
 frontends (`src/burner`) and its libretro port host the core: ROM loading from the sets' zips and 7z archives, inputs, DIP
 switches, states, NVRAM, the picture turned the right way up and the sound.
 
-> **Status (2.2):** builds with the ps5-payload-dev SDK into a signed native app, and passes 684 host tests, which
+> **Status (2.2):** builds with the ps5-payload-dev SDK into a signed native app, and passes 709 host tests, which
 > run the same code (FBNeo's core included) on Linux with the PS5 calls simulated: two arcade boards running a tiny
 > test program each (a vertical and a horizontal game) are played through the whole chain -- the shelf, the pad,
 > the core, the video and sound output -- and 39 more boards start, run, save and load a state under
@@ -101,7 +101,8 @@ once it is there. The game writes its audits and settings to that disk: the imag
   update goes to `/data/homebrew/PPSA99924` as in 2.1. See [Updates](#updates).
 - **The C++ runtime is the app's own** (Snes9x PS5 2.11's "lesson 2"): libc++, libc++abi and libunwind are linked
   before the system's stubs, and every build checks that the app imports nothing of the C++ runtime from the system
-  and loads only its eleven modules (`ps5/tools/check_imports.py`); a failed allocation is a `std::bad_alloc` the code
+  and loads only its eleven modules (`ps5/tools/check_imports.py`), and that its own code makes no raw system call
+  (`ps5/tools/check_syscalls.py`: nothing from the SDK's `libc.a(syscalls.o)`); a failed allocation is a `std::bad_alloc` the code
   catches (it stopped the app before) -- a Killer Instinct that runs out of memory as it starts says "Not enough memory
   to start the game." and the shelf goes on. With the debug logs on, `boot.log` says `[boot] exceptions: ok` at start.
 - A thread the system refuses no longer ends the app (no sound then, no covers; the game still runs); the crash report
@@ -427,8 +428,11 @@ Killer Instinct and Killer Instinct 2 boot from a hard disk. FBNeo PS5 2.2 reads
   sectors), as upstream does; **a raw KI2 `.img` is unverified** (MAME's KI2 disk has 16 heads and 52 sectors): prefer
   the CHD. A path longer than 259 characters is refused, with its own message.
 - **Missing:** the shelf lists the set and says "needs kinst/kinst.chd next to the ROM zip". Cross looks again (copy the
-  CHD while the shelf is open, then press Cross) and starts it, or shows "Hard disk image missing" with the folder it
-  looked in.
+  CHD while the shelf is open, then press Cross; the console's folders first, then only the shares that are connected,
+  so a share that is down never holds the shelf up) and starts it, or shows "Hard disk image missing": "Killer
+  Instinct (ROM ver. 1.5d) needs its hard disk image: copy MAME's kinst.chd into /data/fbneo/roms/kinst and press
+  Cross again." An image that is there but can't be opened, or isn't a hard disk CHD, has its own message with its
+  path.
 - **The game's changes:** the game writes its audits, high scores and settings to the disk. The image is never changed:
   the sectors written are kept in `/data/fbneo/saves/<set>.diff` (`kinst.diff`), saved at the pause menu, after a save
   state, every 5 seconds while they change (on a thread of their own: the game doesn't wait), and when the game ends.
@@ -438,9 +442,10 @@ Killer Instinct and Killer Instinct 2 boot from a hard disk. FBNeo PS5 2.2 reads
   image's.
 - **One `.diff` per image:** a `.diff` names the image it was made for (its SHA-1). Started with another image, the
   old `kinst.diff` is **set aside** -- renamed `kinst.diff.<first 8 hex digits of that image's SHA-1>` (`-2`, `-3`...
-  when the name is taken; `.unknown` for a `.diff` of 2.1, which named no image) -- never deleted, and a notification
+  when the name is taken; `.unknown` for a file without an image's id) -- never deleted, and a notification
   says so. When that image is used again, its `.diff` is **put back** (the newest one if there are several), and the
-  other one goes aside in turn. A `.diff` of 2.1 at `kinst.diff` is kept as this image's.
+  other one goes aside in turn. A `.diff` made by upstream FBNeo (format v1, which names no image) at `kinst.diff` is
+  kept as this image's.
 - **When it can't be sure:** if a `.diff` can't be read or checked, or renaming one fails, nothing is written over:
   saving is off for that game until it ends, and a notification says which ("an old .diff could not be set aside",
   "this disk's saved changes could not be put back: saving is off for this game"). A save that fails (a full disk)
@@ -859,7 +864,7 @@ make send PS5_HOST=192.168.0.10  # sends it to elfldr (port 9021)
 make dist                        # build/dist/FBNeoPS5-v<version>.elf + the release zip + the ROM DAT
 make dat                         # ps5/dat/fbneo-ps5-arcade.dat, again (after a core update or a version change)
 make app                         # only build/app/PPSA99924/, to copy by hand
-make test                        # Linux builds (app, installer, helper, headless core) + 684 host tests (ASan/UBSan)
+make test                        # Linux builds (app, installer, helper, headless core) + 709 host tests (ASan/UBSan)
 make test-mips3                  # the MIPS III core alone, four builds (in make test)
 make test-kinst-hdd              # Killer Instinct's hard disk alone, on synthetic CHDs (in make test)
 ```
@@ -876,7 +881,9 @@ The build has three stages:
    - It is linked against static libc++, libc++abi and libunwind first (the app's own C++ runtime), then the SDK's
      stubs, with `ps5-pie.ld` + `ehframe.ld` and every symbol local; `tools/check_imports.py` then refuses any import
      of the C++ runtime from the system, any module but the eleven the app loads, and anything only libkernel_sys or
-     libkernel_web has.
+     libkernel_web has. The link also traces (`-y`) every function of the SDK's `libc.a(syscalls.o)` -- the payload
+     SDK's raw system calls -- and `tools/check_syscalls.py` refuses the PIE if its code calls one (the app goes
+     through libkernel's exports only).
    - Then it goes through `ps5-native-tool link` and `self --sign`, exactly like PS5SX2's `link-vk.sh`.
    - `libc.prx` goes with it, generated by `libc_builder` and checked against the published SHA-256
      (`ps5/proto/native/libc.prx.sha256`).
@@ -938,7 +945,7 @@ The build has three stages:
   DIP switches saved and read back and in place before a driver starts, a frame's and a save state's time, a driver's palette made at start), the
   stand-in ROM sets (`make_fake_set.py`: every ROM a driver lists, with its name and its CRC, as FBNeo's split
   sets are made), the test programs (`tests/data`: a tiny Z80 program on the Pac-Man board, red screen, green
-  while the joystick or the button is pressed), and the 684 tests: picture, rotation, input and states on a
+  while the joystick or the button is pressed), and the 709 tests: picture, rotation, input and states on a
   vertical and a horizontal game, the library (parents, BIOS sets, incomplete sets, the check's cache), a set with
   a ROM missing, DIP switches, button layouts (a layout per game, a clone using its parent's, Auto's Fighting (R1 R2) for 6-button games), sound latency and pacing by the sound, 720p, install (packed
   files), covers (flyer, parent's flyer, screenshot, 404, the no-cover card's arcade panel with a long title below it), tabs and clones, the CRT shaders (each one, both

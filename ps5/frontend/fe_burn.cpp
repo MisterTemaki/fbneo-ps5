@@ -1772,6 +1772,10 @@ bool Load(int driver, const ZipFinder& find, std::string* error, const std::stri
 		return false;
 	}
 	g.loading_find = nullptr;
+	// an image the lookup found but the core could not use (read before TakeDiskReports clears the record)
+	const char* failed_path = nullptr;
+	const INT32 open_failure = g.cur.disk.empty() ? 0 : BurnHDDOpenFailure(&failed_path);
+	const std::string failed = failed_path ? failed_path : "";
 	TakeDiskReports();
 	// a .7z's decoded block is not kept while the game runs (a reset that loads a ROM again decodes it again)
 	for (Zip& z : g.zips)
@@ -1786,12 +1790,16 @@ bool Load(int driver, const ZipFinder& find, std::string* error, const std::stri
 		if (error)
 		{
 			const fe::hdd::Lookup& l = g.last_lookup;
-			if (!g.cur.disk.empty() && l.result == fe::hdd::Find::TooLong)
+			if (open_failure == 1)
+				*error = TrFmt("The hard disk image couldn't be opened: %s.", failed.c_str());
+			else if (open_failure == 2)
+				*error = TrFmt("The hard disk image can't be used (not a hard disk CHD, or damaged): %s.", failed.c_str());
+			else if (!g.cur.disk.empty() && l.result == fe::hdd::Find::TooLong)
 				*error = TrFmt("The hard disk image's path is too long (more than %d characters): move the ROM folder "
 							   "nearer the top of the drive.", int(fe::hdd::kMaxPath));
 			else if (!g.cur.disk.empty() && !l.need.empty() && l.result == fe::hdd::Find::Missing)
-				*error = TrFmt("Hard disk image missing: %s needs %s next to the ROM zip (in %s).", g.cur.name.c_str(),
-					l.need.c_str(), l.folder.c_str());
+				*error = TrFmt("Hard disk image missing: %s needs MAME's %s in %s.", g.cur.title.c_str(), l.file.c_str(),
+					l.folder.c_str());
 			else
 				*error = !g.sevenz_why.empty() ? g.sevenz_why
 					: TrFmt("FBNeo could not start %s (the ROMs may be from another version of the set).", g.cur.name.c_str());

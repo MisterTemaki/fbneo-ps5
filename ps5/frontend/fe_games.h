@@ -96,12 +96,14 @@ struct GameInfo
 	Disk disk_state = Disk::None;
 	bool disk_on_network = false; // the image is on a share: the game may stutter while it reads it
 	std::string disk_need;        // "kinst/kinst.chd"
-	std::string disk_folder;      // where it is, or where it is expected
+	std::string disk_folder;      // where it is, or where it is expected (/data/fbneo/roms/kinst)
+	std::string disk_file;        // the image's file name: "kinst.chd"
 };
 
-// 2.2: looks for a game's hard disk image again (Cross on the shelf: an image copied while the shelf is open) and
-// updates g's disk fields. True when it is there.
-bool LookForDisk(GameInfo* g);
+// 2.2: looks for a game's hard disk image again and updates g's disk fields. True when it is there. from_ui (Cross on
+// the shelf, a missing image copied while the shelf is open): the console's own folders first, then only the shares
+// that are connected (a share that is down never holds the shelf up).
+bool LookForDisk(GameInfo* g, bool from_ui = false);
 
 // Every arcade set under the ROM folders (sub-folders included, 4 levels), sorted by title. The driver list must
 // be up (burn::Init) and no game running (the check uses the core's tables).

@@ -326,16 +326,20 @@ EBOOT_OBJS = build/app/app_crt.o build/app/app_cpp_runtime.o $(PS5_EMU_OBJ) $(PS
 # the personality routine, __cxa_get_globals and the type_info / std exception vtables while __cxa_throw and the
 # unwinder were static: the mix Stella PS5 1.0 crashed with at its first throw. tools/check_imports.py refuses any C++
 # runtime import, any module outside the allow-list and any symbol only libkernel_sys / libkernel_web has.
+# tools/check_syscalls.py (the final review of 2.2): the link traces (-y) every function of the SDK's libc.a(syscalls.o),
+# the payload SDK's raw system calls; the PIE may call none of them (2.2's first build took link() from it).
 build/app/fbneo-pie.elf: $(EBOOT_OBJS) $(PS5_CORE_OUT)/libfbneo.a $(NATIVE)/tooling/native/ps5-pie.ld \
 		$(NATIVE)/tooling/native/ehframe.ld $(NATIVE)/tooling/native/app-symbols.map $(NATIVE)/tooling/native/localize.map \
-		$(PS5_OUT)/lib7z/names.ok tools/check_imports.py
+		$(PS5_OUT)/lib7z/names.ok tools/check_imports.py tools/check_syscalls.py
+	python3 tools/check_syscalls.py rsp $(SDK_LIB)/libc.a build/app/syscalls-y.rsp
 	$(LLD) -m elf_x86_64 -pie -z max-page-size=0x4000 --hash-style=gnu \
 		-T $(NATIVE)/tooling/native/ps5-pie.ld -T $(NATIVE)/tooling/native/ehframe.ld --eh-frame-hdr \
 		--version-script $(NATIVE)/tooling/native/app-symbols.map --version-script $(NATIVE)/tooling/native/localize.map \
 		-e _start --no-dynamic-linker $(NETFS_WRAP_LLD) -o $@ $(EBOOT_OBJS) $(PS5_CORE_OUT)/libfbneo.a \
 		$(SDK_LIB)/libc++.a $(SDK_LIB)/libc++abi.a $(SDK_LIB)/libunwind.a \
-		--as-needed $(APP_STUBS) -L $(SDK_LIB) $(SDK_LIB)/libc.a -lpthread
+		--as-needed $(APP_STUBS) -L $(SDK_LIB) $(SDK_LIB)/libc.a -lpthread @build/app/syscalls-y.rsp >build/app/fbneo-pie.trace
 	python3 tools/check_imports.py $@ $(SDK_LIB) || { rm -f $@; exit 1; }
+	python3 tools/check_syscalls.py check build/app/fbneo-pie.trace || { rm -f $@; exit 1; }
 
 build/app/eboot.elf: build/app/fbneo-pie.elf $(NATIVE_TOOL)
 	$(NATIVE_TOOL) link --in $< --out $@ --stub-dir $(SDK_LIB) --module-sdk 0x02000009 \

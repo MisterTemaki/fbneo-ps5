@@ -2028,14 +2028,14 @@ mkset kinst2
 #    CHD copied while the shelf is open; Cross again: the game starts
 T=$(newroot t42a)
 cp "$SETS/kinst/kinst.zip" "$T/root/roms/"
-( waitlong "$T/root/logs/boot.log" '\[shelf\] kinst: kinst needs its hard disk image' && mkdir -p "$T/root/roms/kinst" &&
+( waitlong "$T/root/logs/boot.log" '\[shelf\] kinst: Killer Instinct (ROM ver. 1.5d) needs its hard disk image' && mkdir -p "$T/root/roms/kinst" &&
 	cp "$WORK/ki-A.chd" "$T/root/roms/kinst/kinst.chd" ) &
 cp_pid=$!
 rc=$(MAXFLIPS=1500 FBNEO_HOST_FRAME_LOG=120 run "$T" "0:0;40:$CROSS;42:0;100:$CROSS;102:0;160:$CROSS;162:0;$(QUITAT 450)" "30,70")
 wait $cp_pid
 B=$T/root/logs/boot.log
 expect "[ $rc = 0 ] && grep -q '\[games\] kinst: hard disk kinst: missing, kinst/kinst.chd expected in $T/root/roms/kinst' $B" "the shelf lists Killer Instinct without its CHD: missing, kinst/kinst.chd expected beside kinst.zip"
-expect "grep -q '\[shelf\] kinst: kinst needs its hard disk image, kinst/kinst.chd next to the ROM zip: FBNeo PS5 looks for it in $T/root/roms/kinst.' $B" "Cross: \"Hard disk image missing\", with the folder"
+expect "grep -qF '[shelf] kinst: Killer Instinct (ROM ver. 1.5d) needs its hard disk image: copy MAME'\\''s kinst.chd into $T/root/roms/kinst and press Cross again.' $B" "Cross: \"Hard disk image missing\": the game as the shelf names it, MAME's file name, the whole folder"
 expect "grep -q 'hard disk 0 (kinst): $T/root/roms/kinst/kinst.chd\$' $B && grep -q 'running kinst \"Killer Instinct (ROM ver. 1.5d)\"' $B" "the CHD copied while the shelf is open: Cross looks again and starts the game"
 expect "grep -q 'running kinst \"Killer Instinct (ROM ver. 1.5d)\" (MIDWAY), 58.980 fps (at 60 Hz, vsync)' $B" "the board's 58.98 Hz (6.25 MHz / 406 x 261), paced by the 60 Hz vsync"
 n=$(grep -c '\[emu\] frame [0-9]*: core' $B)
@@ -2050,7 +2050,7 @@ T=$(newroot t42a-de)
 cp "$SETS/kinst/kinst.zip" "$T/root/roms/"
 echo "language=4" >>"$T/root/fbneo-ps5.ini"
 rc=$(MAXFLIPS=600 run "$T" "0:0;40:$CROSS;42:0;100:$CROSS;102:0;$(SHELFQUIT_AT 140)" "30,70")
-expect "[ $rc = 0 ] && grep -q '\[shelf\] kinst: kinst braucht sein Festplatten-Image, kinst/kinst.chd neben dem ROM-Zip: FBNeo PS5 sucht es in $T/root/roms/kinst.' $T/root/logs/boot.log" "the message in German"
+expect "[ $rc = 0 ] && grep -qF '[shelf] kinst: Killer Instinct (ROM ver. 1.5d) braucht sein Festplatten-Image: kopiere MAMEs kinst.chd nach $T/root/roms/kinst und drücke noch einmal Kreuz.' $T/root/logs/boot.log" "the message in German"
 nosan "$T"
 shot "$T/dump/flip00030.ppm" 22-shelf-ki-missing-chd-de.png
 shot "$T/dump/flip00070.ppm" 22-missing-message-de.png
@@ -2058,7 +2058,12 @@ shot "$T/dump/flip00070.ppm" 22-missing-message-de.png
 T=$(newroot t42a-cl)
 cp "$SETS/kinst/kinst.zip" "$T/root/roms/"
 rc=$(MAXFLIPS=300 run "$T" "0:0" "" "$T/root/roms/kinst.zip")
-expect "grep -q 'could not start kinst.zip: Hard disk image missing: kinst needs kinst/kinst.chd next to the ROM zip (in $T/root/roms/kinst).' $T/root/logs/boot.log && ! grep -q 'running kinst' $T/root/logs/boot.log" "started without its CHD: refused, the same words"
+expect "grep -qF 'could not start kinst.zip: Hard disk image missing: Killer Instinct (ROM ver. 1.5d) needs MAME'\\''s kinst.chd in $T/root/roms/kinst.' $T/root/logs/boot.log && ! grep -q 'running kinst' $T/root/logs/boot.log" "started without its CHD: refused, the game's name, MAME's file name, the folder"
+# an image found that FBNeo can't use (not a hard disk CHD): its own message, not "the ROMs may be from another version"
+mkdir -p "$T/root/roms/kinst" && { printf 'MComprHD'; head -c 4096 /dev/zero; } >"$T/root/roms/kinst/kinst.chd"
+rc=$(MAXFLIPS=300 run "$T" "0:0" "" "$T/root/roms/kinst.zip")
+expect "grep -qF 'could not start kinst.zip: The hard disk image can'\\''t be used (not a hard disk CHD, or damaged): $T/root/roms/kinst/kinst.chd.' $T/root/logs/boot.log && ! grep -q 'another version of the set' $T/root/logs/boot.log" "a kinst.chd that isn't a hard disk CHD: \"can't be used\", with its path"
+rm -rf "$T/root/roms/kinst"
 D=$T/root/$(printf 'd%.0s' $(seq 1 60))/$(printf 'e%.0s' $(seq 1 60))/$(printf 'f%.0s' $(seq 1 60))/$(printf 'g%.0s' $(seq 1 60))
 mkdir -p "$D/kinst" && cp "$SETS/kinst/kinst.zip" "$D/" && cp "$WORK/ki-A.chd" "$D/kinst/kinst.chd"
 rc=$(MAXFLIPS=300 run "$T" "0:0" "" "$D/kinst.zip")
@@ -2087,6 +2092,7 @@ B=$T/root/logs/boot.log
 expect "[ $rc = 0 ] && grep -q '\[games\] kinst14: hard disk kinst: /smb/10.0.0.5/games/kinst/kinst.chd (on a network share)' $B" "kinst14 on a share: its parent's kinst/kinst.chd on the share, said to be there"
 expect "grep -q 'loading /smb/10.0.0.5/games/kinst14.zip' $B && grep -q 'hard disk 0 (kinst): /smb/10.0.0.5/games/kinst/kinst.chd (on a network share)' $B && grep -q 'running kinst14' $B" "the clone starts with the parent's CHD from the share"
 expect "[ \"\$(find $T/share -type f -exec sha256sum {} + | sort)\" = \"$before\" ]" "nothing written to the share (the .diff stays on the console)"
+expect "[ \"\$(awk '/\[games\] kinst14: hard disk/ {g=NR} /\[shelf\] tab/ {t=NR} /loading .*kinst14.zip/ {print (g < t) ? \"kept\" : \"again\"; exit}' $B)\" = kept ]" "Cross on a set whose CHD the scan found: not looked for again on the shelf (no share access on the UI thread)"
 nosan "$T"
 shot "$T/dump/flip00290.ppm" 22-share-hint.png
 # d. an unreadable part of the CHD (cut short while the game runs): counted, said once
@@ -2231,6 +2237,28 @@ if [ -d "$SDKLIB" ] && command -v ld.lld >/dev/null && command -v clang >/dev/nu
 	make -s --eval 'print-app-stubs: ; @echo $(APP_STUBS)' print-app-stubs >"$WORK/imp/stubs.txt" 2>&1
 	expect "grep -q '/libkernel.so' $WORK/imp/stubs.txt && ! grep -q 'libkernel_sys\|libkernel_web' $WORK/imp/stubs.txt" "the app's link takes no libkernel_sys / libkernel_web stub"
 	expect "make -n -p build/app/fbneo-pie.elf 2>/dev/null | grep -A2 '^build/app/fbneo-pie.elf:' | grep -q check_imports.py" "make ps5 runs the check on every link of the PIE"
+	# (2.2's final review) no function of the SDK's libc.a(syscalls.o) -- raw system calls -- in the app: a call to link()
+	# (only libkernel_sys exports it) is taken from there; dup, which libkernel.so's stub has too, is not
+	python3 tools/check_syscalls.py rsp "$SDKLIB/libc.a" "$WORK/imp/sys.rsp"
+	for prog in link dup; do
+		if [ $prog = link ]; then
+			printf 'int link(const char*, const char*);\nint _start(void) { return link("a", "b"); }\n' >"$WORK/imp/sc-$prog.c"
+		else
+			printf 'int dup(int);\nint _start(void) { return dup(0); }\n' >"$WORK/imp/sc-$prog.c"
+		fi
+		clang -fPIC -c -o "$WORK/imp/sc-$prog.o" "$WORK/imp/sc-$prog.c" &&
+			ld.lld -pie --no-dynamic-linker -e _start -o "$WORK/imp/sc-$prog.elf" "$WORK/imp/sc-$prog.o" --as-needed "$SDKLIB/libkernel.so" \
+				"$SDKLIB/libc.a" @"$WORK/imp/sys.rsp" >"$WORK/imp/sc-$prog.trace" 2>&1
+		python3 tools/check_syscalls.py check "$WORK/imp/sc-$prog.trace" >"$WORK/imp/sc-$prog.txt" 2>&1
+		eval "rc_$prog=\$?"
+	done
+	expect "[ $rc_link = 1 ] && grep -q 'sc-link.o calls link: a raw system call from libc.a(syscalls.o)' $WORK/imp/sc-link.txt" "a PIE calling link(): refused (taken from libc.a(syscalls.o), a raw system call)"
+	expect "[ $rc_dup = 0 ] && grep -q '^check_syscalls: ok' $WORK/imp/sc-dup.txt" "... dup(), which libkernel's stub has: allowed"
+	if [ -f build/app/fbneo-pie.trace ]; then
+		python3 tools/check_syscalls.py check build/app/fbneo-pie.trace >"$WORK/imp/pie-sys.txt" 2>&1
+		expect "[ $? = 0 ] && grep -q '^check_syscalls: ok' $WORK/imp/pie-sys.txt" "the app's PIE of the last make ps5: no function of libc.a(syscalls.o)"
+	fi
+	expect "make -n -p build/app/fbneo-pie.elf 2>/dev/null | grep -A4 '^build/app/fbneo-pie.elf:' | grep -q check_syscalls.py" "make ps5 runs that check on every link of the PIE"
 else
 	echo "  (skipped: no SDK, ld.lld or clang for the check's own test)"
 fi

@@ -87,7 +87,7 @@ std::vector<std::string> Folders(const std::string& set_archive, const std::stri
 }
 
 Lookup FindImage(const std::string& set, const std::string& parent, const std::string& disk,
-	const std::vector<std::string>& folders)
+	const std::vector<std::string>& folders, const std::function<bool(const std::string&)>& skip)
 {
 	Lookup r;
 	const std::string owner = parent.empty() ? set : parent;
@@ -97,6 +97,7 @@ Lookup FindImage(const std::string& set, const std::string& parent, const std::s
 		base = base.substr(0, base.size() - 4);
 	const std::string names[2] = {base + ".chd", base + ".img"};
 	r.need = owner + "/" + base + ".chd";
+	r.file = base + ".chd";
 	std::vector<std::string> subs = {set};
 	if (!parent.empty() && parent != set)
 		subs.push_back(parent);
@@ -111,6 +112,8 @@ Lookup FindImage(const std::string& set, const std::string& parent, const std::s
 		seen.push_back(f);
 		if (r.folder.empty())
 			r.folder = f + "/" + owner;
+		if (skip && skip(f))
+			continue;
 		for (const std::string& sub : subs)
 		{
 			const std::string d = Match(f, sub, true, &too_long);

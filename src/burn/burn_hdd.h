@@ -52,6 +52,13 @@ extern INT32 (*BurnHDDFindImageHook)(INT32 nIndex, const char* szName, char* szP
 // back); a non-zero return is a failed rename (errno as the hook left it).
 extern INT32 (*BurnHDDRenameHook)(const char* szFrom, const char* szTo);
 
+// Test-only (NULL unless a test sets it): called in place of fsync() on the .diff's .tmp; non-zero is a failed fsync.
+extern INT32 (*BurnHDDSyncHook)(INT32 nFd);
+
+// The last image the lookup found that could not be used, since BurnHDDReportClear: 0 none, 1 it could not be opened,
+// 2 it is not a hard disk image FBNeo can read (not a hard disk CHD, damaged). *pszPath: its path.
+INT32 BurnHDDOpenFailure(const char** pszPath);
+
 // Every disk open (or half open) now.
 INT32 BurnHDDFlushAll();		// BurnHDDFlush of each; 0 when all succeeded
 void BurnHDDCloseAll();			// BurnHDDClose of each (a start that failed: the driver may not have closed them)

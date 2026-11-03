@@ -392,7 +392,9 @@ std::vector<std::string> RomRoots()
 	return roots;
 }
 
-bool LookForDisk(GameInfo* g)
+bool OnShareNotReady(const std::string& path);
+
+bool LookForDisk(GameInfo* g, bool from_ui)
 {
 	if (g->disk.empty())
 	{
@@ -403,12 +405,34 @@ bool LookForDisk(GameInfo* g)
 	const size_t hash = g->path.find('#', g->path.find_last_of('/') + 1);
 	const std::string own = hash == std::string::npos ? g->path : g->path.substr(0, hash);
 	const std::string parent = g->parent.empty() ? std::string() : FindSetZip(g->parent);
-	const hdd::Lookup l = hdd::FindImage(g->file_base, g->parent, g->disk, hdd::Folders(own, parent, RomRoots()));
+	const std::vector<std::string> folders = hdd::Folders(own, parent, RomRoots());
+	hdd::Lookup l;
+	if (!from_ui)
+		l = hdd::FindImage(g->file_base, g->parent, g->disk, folders);
+	else
+	{
+		// the console's folders, then the shares that are connected; where it is expected stays the first folder's
+		auto net = [](const std::string& f) { return netfs_is_network_path(f.c_str()); };
+		l = hdd::FindImage(g->file_base, g->parent, g->disk, folders, net);
+		if (l.result != hdd::Find::Found)
+		{
+			const hdd::Lookup local = l;
+			l = hdd::FindImage(g->file_base, g->parent, g->disk, folders,
+				[&](const std::string& f) { return !net(f) || OnShareNotReady(f); });
+			if (l.result != hdd::Find::Found)
+			{
+				l.folder = local.folder;
+				if (local.result == hdd::Find::TooLong)
+					l.result = hdd::Find::TooLong;
+			}
+		}
+	}
 	g->disk_state = l.result == hdd::Find::Found ? GameInfo::Disk::Found
 		: l.result == hdd::Find::TooLong ? GameInfo::Disk::TooLong : GameInfo::Disk::Missing;
 	g->disk_on_network = l.on_network;
 	g->disk_need = l.need;
 	g->disk_folder = l.folder;
+	g->disk_file = l.file;
 	OrbisLog("[games] %s: hard disk %s: %s", g->file_base.c_str(), g->disk.c_str(),
 		l.result == hdd::Find::Found ? (l.path + (l.on_network ? " (on a network share)" : "")).c_str()
 		: l.result == hdd::Find::TooLong ? "its path is too long" : ("missing, " + l.need + " expected in " + l.folder).c_str());
