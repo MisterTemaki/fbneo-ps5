@@ -43,6 +43,15 @@ $(1)/libfbneo.a: $(patsubst %.c,$(1)/%.o,$(patsubst %.cpp,$(1)/%.o,$(CORE_ALL_SR
 	@rm -f $$@
 	@echo "  AR $$@ ($$(words $$^) objects)"
 	@$(AR) rcs $$@ $$^
+# 2.3: Sega Model 2's objects and their own headers (the rest of the core has no header dependencies)
+$(1)/src/burn/drv/sega/d_model2.o $(1)/src/burn/drv/sega/model2_v.o: $(MODEL2_HDRS)
+$(1)/src/cpu/i960_intf.o $(1)/src/cpu/i960/i960.o: $(ROOT)/src/cpu/i960_intf.h $(ROOT)/src/cpu/i960/i960.h \
+	$(ROOT)/src/cpu/i960/i960_ops.inc
+$(1)/src/cpu/mb86233_intf.o $(1)/src/cpu/mb86233/mb86233.o: $(ROOT)/src/cpu/mb86233_intf.h \
+	$(ROOT)/src/cpu/mb86233/mb86233.h $(ROOT)/src/cpu/mb86233/mb86233_ops.inc
+$(1)/src/burn/burn_parallel.o: $(ROOT)/src/burn/burn_parallel.h
 endef
+MODEL2_HDRS := $(addprefix $(ROOT)/src/burn/drv/sega/,model2.h model2_helpers.h model2_poly.h model2rd.ipp) \
+	$(ROOT)/src/burn/burn_parallel.h $(ROOT)/src/cpu/i960_intf.h $(ROOT)/src/cpu/mb86233_intf.h $(ROOT)/src/cpu/i960/i960.h
 # (the generated headers are order-only for the core's objects: burn.o holds the driver list, rebuilt with it)
 $(HOST_CORE_OUT)/src/burn/burn.o $(PS5_CORE_OUT)/src/burn/burn.o: $(GEN_STAMP)

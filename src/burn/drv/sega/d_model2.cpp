@@ -211,7 +211,7 @@ static inline UINT64 m2_ticks() { return __rdtsc(); }
 #else
 static inline UINT64 m2_ticks() { return (UINT64)clock() * 1000; }
 #endif
-enum { PART_I960, PART_TGP, PART_SND, PART_IO, PART_3D, PART_2D, PART_COUNT };
+enum { PART_I960, PART_TGP, PART_SND, PART_IO, PART_GEO, PART_3D, PART_2D, PART_COUNT };
 static UINT64 part_ticks[PART_COUNT];
 static INT32 perf_frames;
 static UINT64 perf_tick_start;
@@ -229,9 +229,10 @@ static void perf_report()
 	if (secs > 0.1 && ticks > 0) {
 		const double ms_per_tick = secs * 1000.0 / (double)ticks;
 		const double f = 1.0 / perf_frames;
-		bprintf(PRINT_IMPORTANT, _T("model2: ms a frame (%d frames, %.2f s): i960 %.2f, TGP %.2f, sound %.2f, I/O %.2f, 3D %.2f, 2D %.2f; TGP ahead %d cycles a frame, %d polygons a frame\n"),
+		bprintf(PRINT_IMPORTANT, _T("model2: ms a frame (%d frames, %.2f s): i960 %.2f, TGP %.2f, sound %.2f, I/O %.2f, geometrizer %.2f, 3D %.2f, 2D %.2f; TGP ahead %d cycles a frame, %d polygons a frame\n"),
 			perf_frames, secs, part_ticks[PART_I960] * ms_per_tick * f, part_ticks[PART_TGP] * ms_per_tick * f,
-			part_ticks[PART_SND] * ms_per_tick * f, part_ticks[PART_IO] * ms_per_tick * f, part_ticks[PART_3D] * ms_per_tick * f,
+			part_ticks[PART_SND] * ms_per_tick * f, part_ticks[PART_IO] * ms_per_tick * f, part_ticks[PART_GEO] * ms_per_tick * f,
+			part_ticks[PART_3D] * ms_per_tick * f,
 			part_ticks[PART_2D] * ms_per_tick * f, (INT32)(perf_tgp_ahead / perf_frames), perf_polys / perf_frames);
 	}
 	memset(part_ticks, 0, sizeof(part_ticks));
@@ -2274,7 +2275,7 @@ static void vblank_begin()
 	if ((videocontrol & 1) == 0 || (framenum & 1) == 0) {
 		UINT64 t0 = m2_ticks();
 		m2->geo_parse();
-		part_ticks[PART_3D] += m2_ticks() - t0;
+		part_ticks[PART_GEO] += m2_ticks() - t0;
 	}
 
 	const UINT32 line = 1 << 0;

@@ -12,11 +12,6 @@
 //
 // SPDX-License-Identifier: BSD-3-Clause
 
-#include "burnint.h"
-#include "i960_intf.h"
-#include "mb86233_intf.h"
-#include "i960/i960.h"
-
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -25,13 +20,24 @@
 #include <vector>
 #include <functional>
 
+// MAME's cores, in namespace mame (as tests/mame_ref/ref_*.cpp build them): the port's i960.h has the same names
 #include "mame_ref/emu.h"
 #define private public
 #define protected public
+namespace mame {
 #include "mame_ref/i960.h"
 #include "mame_ref/mb86233.h"
+}
 #undef private
 #undef protected
+using mame::i80960kb_device;
+using mame::mb86233_device;
+using mame::mb86234_device;
+
+#include "burnint.h"
+#include "i960_intf.h"
+#include "mb86233_intf.h"
+#include "i960/i960.h"
 #include "mb86233/mb86233.h"
 
 // what the interfaces take from the rest of FBNeo
@@ -336,7 +342,7 @@ void RunI960Kats()
 		a.Halt();
 	}, [](const I960Regs& s) {
 		Check(s.r[6] == 0x12354687, "addo");
-		Check(s.r[7] == 0x12346669, "subo");
+		Check(s.r[7] == 0x12336669, "subo: " + Hex(s.r[7]));
 		Check(s.r[8] == uint32_t(0x12345678u * 0xf00fu), "mulo");
 		Check(s.r[9] == 0x12345678u / 0xf00f, "divo");
 		Check(s.r[10] == 0x12345678u % 0xf00f, "remo");
@@ -353,35 +359,39 @@ void RunI960Kats()
 		Check(s.r[G0 + 8] == 0x8000f00f && s.r[G0 + 9] == 0xf00e, "setbit/clrbit");
 	}});
 
-	kats.push_back({"64-bit add with carry (addc), subc", [](Asm& a) {
+	kats.push_back({"add with carry (addc, as MAME has it), subc", [](Asm& a) {
 		a.Const(4, 0xffffffff); a.Const(5, 0x00000001); // r5:r4 = 0x1ffffffff
 		a.Const(6, 0x00000001); a.Const(7, 0x00000002); // r7:r6 = 0x200000001
-		a.Emit(Reg(0x5a, 0x0, 0, 4, 4));                 // cmpo r4, r4: equal -> condition 010 (carry clear)
+		a.Emit(Reg(0x5a, 0x0, 0, 4, 4));                 // cmpo r4, r4: equal -> condition 010 (C, bit 1, set)
 		a.Emit(Reg(0x5b, 0x0, 8, 6, 4));                 // addc r8 = r4 + r6 + C
 		a.Emit(Reg(0x5b, 0x0, 9, 7, 5));                 // addc r9 = r5 + r7 + C
 		a.Emit(Reg(0x64, 0x5, 10, 0, 0, true, true));    // modac r10 = AC (mask 0: unchanged)
 		a.Emit(Reg(0x5b, 0x2, 11, 6, 4));                // subc r11 = r4 - r6 - !C
 		a.Halt();
 	}, [](const I960Regs& s) {
-		Check(s.r[8] == 0x00000000 && s.r[9] == 0x00000004, "addc chain gives 0x400000000");
-		Check((s.r[10] & 7) == 0, "addc's condition code (no carry out of the top)");
-		Check(s.r[11] == 0xfffffffe, "subc");
+		// 0xffffffff + 1 + C(1) = 0x1_00000001: r8 = 1. MAME's addc adds t1 + C and t2 on 32 bits (uint32_t t1, t2), so
+		// its carry out is never set: r9 = 1 + 2 + 0 = 3 (a real i960 gives 4). The port keeps MAME's addc, as it keeps
+		// all of MAME's i960: Model 2's games are known to run on it.
+		Check(s.r[8] == 0x00000001 && s.r[9] == 0x00000003, "addc as MAME's (no carry out): " + Hex(s.r[9]) + ":" + Hex(s.r[8]));
+		Check((s.r[10] & 3) == 0, "addc's condition code (C and V clear)");
+		// subc = r4 + ~r6 + C = 0xffffffff + 0xfffffffe + 0
+		Check(s.r[11] == 0xfffffffd, "subc: " + Hex(s.r[11]));
 	}});
 
-	kats.push_back({"compare and branch loop (cmpibl, bg, be)", [](Asm& a) {
+	kats.push_back({"compare and branch loop (cmpibg, cmpi, be)", [](Asm& a) {
 		a.Lit(4, 0); a.Lit(5, 0);
 		const uint32_t loop = a.Here();
 		a.Emit(Reg(0x59, 0x0, 4, 3, 4, true));            // addo r4 += 3
 		a.Emit(Reg(0x59, 0x0, 5, 1, 5, true));            // addo r5 += 1
-		a.Emit(Cobr(0x3c, 10, 5, int32_t(loop - a.Here()), true)); // cmpibl 10 < r5 ? no: loop while 10 > r5 ... (r5 < 10)
+		a.Emit(Cobr(0x39, 10, 5, int32_t(loop - a.Here()), true)); // cmpibg: back while 10 > r5
 		a.Emit(Reg(0x5a, 0x1, 0, 30, 4, true));           // cmpi 30, r4 -> equal
 		a.B(0x12, a.Here() + 8);                          // be +8
 		a.Lit(6, 1);                                      // (skipped)
 		a.Lit(7, 7);
 		a.Halt();
 	}, [](const I960Regs& s) {
-		Check(s.r[5] == 10 && s.r[4] == 30, "loop ran 10 times");
-		Check(s.r[6] == 0 && s.r[7] == 7, "be taken");
+		Check(s.r[5] == 10 && s.r[4] == 30, "loop ran 10 times: r5 " + Hex(s.r[5]) + " r4 " + Hex(s.r[4]));
+		Check(s.r[6] == 0 && s.r[7] == 7, "be taken: r6 " + Hex(s.r[6]) + " r7 " + Hex(s.r[7]));
 	}});
 
 	kats.push_back({"call/ret six deep through the register cache, flushreg", [](Asm& a) {
@@ -876,6 +886,7 @@ void RunTgpKats()
 {
 	// 1. float ALU: a = 2.5, b = 4.0 -> fml (p = a*b = 10), d = 1.5, fadd d = d + a = 4.0, fsbd; then the integer ALU
 	{
+		const int failed_before = g_failed;
 		TgpBus b = TgpBus();
 		memset(b.program, 0, sizeof(b.program));
 		memset(b.data, 0, sizeof(b.data));
@@ -909,11 +920,13 @@ void RunTgpKats()
 		TgpRef t;
 		TgpRefRun(t, b, 200);
 		Check(memcmp(g_tbus.data, t.bus.data, sizeof(g_tbus.data)) == 0, "TGP ALU program: the port's core and MAME's end the same");
-		printf("  ok?: TGP ALU program (%s)\n", g_failed ? "see above" : "checked");
+		if (g_failed == failed_before)
+			printf("  ok: TGP float and integer ALU (fml, fadd, fsbd, addd, subd)\n");
 	}
 	// 2. a loop with c0 (brif zc0 counts it down), a call (bsif) and return (rtif), the FIFO read through rf1 and the
 	//    output through rf2
 	{
+		const int failed_before = g_failed;
 		TgpBus b = TgpBus();
 		memset(b.program, 0, sizeof(b.program));
 		memset(b.data, 0, sizeof(b.data));
@@ -940,6 +953,8 @@ void RunTgpKats()
 		TgpRefRun(t, b, 300);
 		const TgpRegs p = TGet(Mb86233Core()), q = TGet(t.cpu);
 		Check(memcmp(&p, &q, sizeof(p)) == 0 && g_tbus.rf_log == t.bus.rf_log, "TGP loop program: the port's core and MAME's end the same");
+		if (g_failed == failed_before)
+			printf("  ok: TGP loop on c0, the FIFO through the register file, bsif / rtif\n");
 	}
 	printf("TGP: 2 known-answer programs\n");
 }

@@ -18,7 +18,7 @@
 //       flag already set (NetCheck stopping), which must end as a read error, not as ROMs missing
 //   fbneo_headless bench <rom dir> <set> <frames> the time a frame takes (drawn), and a save state's: its time and size
 //   fbneo_headless run <rom dir> <set> <frames> [out.ppm] [--state] [--dips] [--drive] [--wav out.wav]
-//           [--shots <prefix> <every>]
+//           [--shots <prefix> <every>]   (FBNEO_HEADLESS_THREADS=N: the core's worker threads, N in all)
 //       runs the set for N frames (no input but coin+start pressed at frames 60 and 90 and fire 1 every 8 frames
 //       after 120), writes the last picture as a PPM, prints the picture size, the sound's level and a picture
 //       checksum; --state also saves a state halfway, runs on, loads it back and checks that the same frames
@@ -37,11 +37,14 @@
 #include <cmath>
 #include <atomic>
 #include <unistd.h>
+#include <condition_variable>
+#include <mutex>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "burnint.h"
@@ -110,6 +113,88 @@ burn::Input DriveInputFor(uint64_t frame)
 	return in;
 }
 
+// 2.3: the core's worker threads (burn::SetParallel), FBNEO_HEADLESS_THREADS of them in all (the caller included; 1, the
+// default: none): the parts handed out one at a time, as the app's fe::PartPool does
+struct HostPool
+{
+	std::vector<std::thread> threads;
+	std::mutex lock;
+	std::condition_variable cv, done;
+	uint64_t gen = 0;
+	bool quit = false;
+	burn::ParallelJob job = nullptr;
+	void* ctx = nullptr;
+	int parts = 0, busy = 0;
+	std::atomic<int> next{0};
+
+	explicit HostPool(int workers)
+	{
+		for (int i = 0; i < workers; i++)
+			threads.emplace_back([this] { Worker(); });
+	}
+	~HostPool()
+	{
+		{
+			std::lock_guard<std::mutex> l(lock);
+			quit = true;
+			gen++;
+		}
+		cv.notify_all();
+		for (auto& t : threads)
+			t.join();
+	}
+	void Work(burn::ParallelJob j, void* c, int n)
+	{
+		for (int i; (i = next.fetch_add(1)) < n;)
+			j(c, i);
+	}
+	void Worker()
+	{
+		uint64_t seen = 0;
+		for (;;)
+		{
+			burn::ParallelJob j;
+			void* c;
+			int n;
+			{
+				std::unique_lock<std::mutex> l(lock);
+				cv.wait(l, [&] { return gen != seen; });
+				seen = gen;
+				if (quit)
+					return;
+				j = job;
+				c = ctx;
+				n = parts;
+			}
+			Work(j, c, n);
+			std::lock_guard<std::mutex> l(lock);
+			if (--busy == 0)
+				done.notify_one();
+		}
+	}
+	void Run(burn::ParallelJob j, void* c, int n)
+	{
+		{
+			std::lock_guard<std::mutex> l(lock);
+			job = j;
+			ctx = c;
+			parts = n;
+			next.store(0);
+			busy = int(threads.size());
+			gen++;
+		}
+		cv.notify_all();
+		Work(j, c, n);
+		std::unique_lock<std::mutex> l(lock);
+		done.wait(l, [this] { return busy == 0; });
+	}
+};
+HostPool* g_pool = nullptr;
+void PoolRun(burn::ParallelJob job, void* ctx, int parts)
+{
+	g_pool->Run(job, ctx, parts);
+}
+
 bool WriteWav(const char* path, const std::vector<int16_t>& pcm)
 {
 	FILE* f = fopen(path, "wb");
@@ -143,6 +228,13 @@ int main(int argc, char** argv)
 		return 2;
 	}
 	burn::SetLog(Log);
+	const char* th = getenv("FBNEO_HEADLESS_THREADS");
+	const int threads = th ? atoi(th) : 1;
+	if (threads > 1)
+	{
+		g_pool = new HostPool(threads - 1);
+		burn::SetParallel(PoolRun, threads);
+	}
 	const char* tmp = getenv("TMPDIR");
 	const std::string scratch = std::string(tmp && *tmp ? tmp : "/tmp") + "/fbneo-headless";
 	mkdir(scratch.c_str(), 0755);

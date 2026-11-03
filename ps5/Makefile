@@ -590,11 +590,44 @@ test-kinst-hdd: $(KINST_HDD_TEST)
 
 test: test-mips3 test-kinst-hdd
 
+# 2.3: Sega Model 2's i960KB and MB86234 cores (src/cpu/i960, src/cpu/mb86233) on their own, against MAME's own
+# i960.cpp and mb86233.cpp (tests/mame_ref, unmodified, on a stand-in emu.h): known answers and random programs that must
+# end the same on both (tests/test_cpus.cpp). The port's cores are built as the core is (with UBSan here too); MAME's
+# need C++20, and -fwrapv: their signed arithmetic overflows (muli, addi...), which the port's do on unsigned values.
+CPUS_PORT_SRC := $(ROOT)/src/cpu/i960/i960.cpp $(ROOT)/src/cpu/i960_intf.cpp $(ROOT)/src/cpu/mb86233/mb86233.cpp \
+	$(ROOT)/src/cpu/mb86233_intf.cpp
+CPUS_PORT_DEPS := $(ROOT)/src/cpu/i960/i960.h $(ROOT)/src/cpu/i960/i960_ops.inc $(ROOT)/src/cpu/i960_intf.h \
+	$(ROOT)/src/cpu/mb86233/mb86233.h $(ROOT)/src/cpu/mb86233/mb86233_ops.inc $(ROOT)/src/cpu/mb86233_intf.h
+CPUS_REF_SRC := tests/mame_ref/ref_i960.cpp tests/mame_ref/ref_mb86233.cpp
+CPUS_TEST := $(HOST_OUT)/test-cpus
+CPUS_TEST_FLAGS = -O1 -g1 $(HOST_CORE_SAN) -fsanitize=undefined -fno-sanitize-recover=undefined $(CORE_DEFS) $(CORE_INCS) \
+	-fno-strict-aliasing -fsigned-char
+$(HOST_OUT)/cpus/port/%.o: $(ROOT)/src/cpu/%.cpp $(CPUS_PORT_DEPS) | $(GEN_STAMP)
+	@mkdir -p $(dir $@)
+	$(HOST_CXX) $(CPUS_TEST_FLAGS) $(CORE_CXXFLAGS) -c -o $@ $<
+$(HOST_OUT)/cpus/ref/%.o: tests/mame_ref/%.cpp tests/mame_ref/emu.h tests/mame_ref/i960.cpp tests/mame_ref/i960.h \
+		tests/mame_ref/mb86233.cpp tests/mame_ref/mb86233.h
+	@mkdir -p $(dir $@)
+	$(HOST_CXX) -std=c++20 -O1 -g1 $(HOST_CORE_SAN) -fwrapv -fno-strict-aliasing -Itests/mame_ref -w -c -o $@ $<
+$(HOST_OUT)/cpus/test_cpus.o: tests/test_cpus.cpp $(CPUS_PORT_DEPS) tests/mame_ref/emu.h tests/mame_ref/i960.h \
+		tests/mame_ref/mb86233.h | $(GEN_STAMP)
+	@mkdir -p $(dir $@)
+	$(HOST_CXX) -std=gnu++20 $(CPUS_TEST_FLAGS) -Wno-write-strings -c -o $@ $<
+CPUS_TEST_OBJ := $(patsubst $(ROOT)/src/cpu/%.cpp,$(HOST_OUT)/cpus/port/%.o,$(CPUS_PORT_SRC)) \
+	$(patsubst tests/mame_ref/%.cpp,$(HOST_OUT)/cpus/ref/%.o,$(CPUS_REF_SRC)) $(HOST_OUT)/cpus/test_cpus.o
+$(CPUS_TEST): $(CPUS_TEST_OBJ)
+	$(HOST_CXX) $(HOST_CORE_SAN) -fsanitize=undefined -o $@ $^ -lm
+
+test-cpus: $(CPUS_TEST)
+	ASAN_OPTIONS=detect_leaks=1 $(CPUS_TEST)
+
+test: test-cpus
+
 clean:
 	rm -rf build
 
 # the SMB backend against a real Samba (adds `smb-test`, run before the other tests; skipped without smbd)
 include tests/smb/smb.mk
 
-.PHONY: ps5 core-ps5 core-host host headless dat test test-nfs test-nfs-server test-tabs test-7z test-mips3 test-kinst-hdd send app dist clean
+.PHONY: ps5 core-ps5 core-host host headless dat test test-nfs test-nfs-server test-tabs test-7z test-mips3 test-kinst-hdd test-cpus send app dist clean
 .SECONDARY:

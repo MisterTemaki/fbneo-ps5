@@ -1,11 +1,13 @@
 // license:BSD-3-Clause
 // copyright-holders:Ville Linde, Aaron Giles
 //
-// FBNeo PS5 2.3: what MAME's src/devices/video/poly.h (mamedev/mame b7f483f) gives Sega Model 2's renderer, without
-// the threads: render_triangle and render_polygon compute each scanline's extent and parameters exactly as poly.h
-// does (same rounding, same pixel centres, same left/right edge walk) and call the scanline callback at once, in the
-// order the primitives come (poly.h's work queue keeps that order on each scanline too, so the front-to-back fill of
-// the Model 2 renderer gives the same pixels).
+// FBNeo PS5 2.3: what MAME's src/devices/video/poly.h (mamedev/mame b7f483f) gives Sega Model 2's renderer.
+// render_triangle and render_polygon keep each primitive (its vertices, clip and object data) until wait(), as poly.h
+// queues them; wait() then draws them all, in the order they came, by bands of lines -- on the frontend's worker
+// threads when there are some (burn_parallel.h), each band a part. Each scanline's extent and parameters are computed
+// exactly as poly.h does (same rounding, same pixel centres, same left/right edge walk) from the vertices and the line
+// number alone, so a band gives the same pixels as the whole; and the order of the primitives on each line is the
+// order they came, as poly.h's work queue keeps it (the front-to-back fill of the Model 2 renderer needs it).
 #ifndef FBNEO_MODEL2_POLY_H
 #define FBNEO_MODEL2_POLY_H
 
@@ -13,6 +15,10 @@
 #include <math.h>
 #include <algorithm>
 #include <limits>
+#include <vector>
+
+#include "burnint.h"
+#include "burn_parallel.h"
 
 // MAME's rectangle (inclusive bounds)
 struct m2_rectangle
@@ -66,7 +72,7 @@ public:
 		void* owner;
 	};
 
-	// one object at a time: it is rendered at once
+	// the object data of the next primitive (copied into it by render_triangle / render_polygon)
 	struct object_array
 	{
 		ObjectType obj;
@@ -74,7 +80,96 @@ public:
 	};
 	object_array& object_data() { return m_object; }
 
-	void wait(const char* = "general") { }
+	// poly.h's wait(): every primitive kept so far is drawn, then forgotten
+	void wait(const char* = "general")
+	{
+		if (m_jobs.empty())
+			return;
+		m_band_parts = (nBurnParallelThreads > 1) ? kBands : 1;
+		BurnParallelRun(&draw_part, this, m_band_parts);
+		m_jobs.clear();
+	}
+
+	// MAME's render_triangle: kept for wait()
+	template<int ParamCount>
+	uint32_t render_triangle(const m2_rectangle& cliprect, const render_delegate& callback, const vertex_t& v1, const vertex_t& v2, const vertex_t& v3)
+	{
+		job& j = new_job(cliprect, callback, &job_triangle<ParamCount>);
+		j.v[0] = v1;
+		j.v[1] = v2;
+		j.v[2] = v3;
+		return 0;
+	}
+
+	// MAME's render_polygon: kept for wait()
+	template<int NumVerts, int ParamCount>
+	uint32_t render_polygon(const m2_rectangle& cliprect, const render_delegate& callback, const vertex_t* v)
+	{
+		static_assert(NumVerts <= kMaxVerts, "too many vertices");
+		job& j = new_job(cliprect, callback, &job_polygon<NumVerts, ParamCount>);
+		for (int i = 0; i < NumVerts; i++)
+			j.v[i] = v[i];
+		return 0;
+	}
+
+private:
+	enum { kMaxVerts = 8, kBands = 16, kHeight = 512 };
+	struct job;
+	typedef void (*job_func)(m2_poly_manager* m, const job& j, const m2_rectangle& clip, int part);
+	struct job
+	{
+		job_func draw;
+		m2_rectangle clip;
+		render_delegate callback;
+		vertex_t v[kMaxVerts];
+		ObjectType obj;
+	};
+	std::vector<job> m_jobs;
+	int m_band_parts = 1;
+
+	job& new_job(const m2_rectangle& cliprect, const render_delegate& callback, job_func draw)
+	{
+		m_jobs.emplace_back();
+		job& j = m_jobs.back();
+		j.draw = draw;
+		j.clip = cliprect;
+		j.callback = callback;
+		j.obj = m_object.obj;
+		return j;
+	}
+
+	template<int ParamCount>
+	static void job_triangle(m2_poly_manager* m, const job& j, const m2_rectangle& clip, int part)
+	{
+		m->template draw_triangle<ParamCount>(clip, j.callback, j.v[0], j.v[1], j.v[2], j.obj, part);
+	}
+
+	template<int NumVerts, int ParamCount>
+	static void job_polygon(m2_poly_manager* m, const job& j, const m2_rectangle& clip, int part)
+	{
+		m->template draw_polygon<NumVerts, ParamCount>(clip, j.callback, j.v, j.obj, part);
+	}
+
+	// one band of lines (all of them with one part): every primitive, in order, clipped to the band
+	static void draw_part(void* ctx, INT32 part)
+	{
+		m2_poly_manager* m = static_cast<m2_poly_manager*>(ctx);
+		const int rows = kHeight / m->m_band_parts;
+		const int top = part * rows;
+		const int bottom = (part == m->m_band_parts - 1) ? std::numeric_limits<int>::max() : (top + rows - 1);
+		for (const job& j : m->m_jobs) {
+			m2_rectangle clip = j.clip;
+			if (m->m_band_parts > 1) {
+				clip.min_y = std::max(clip.min_y, top);
+				clip.max_y = std::min(clip.max_y, bottom);
+				if (clip.min_y > clip.max_y)
+					continue;
+			}
+			j.draw(m, j, clip, part);
+		}
+	}
+
+public:
 
 	static int32_t round_coordinate(BaseType value)
 	{
@@ -89,9 +184,9 @@ public:
 		return int32_t(ipart) + ((fpart > BaseType(0.5)) ? 1 : 0);
 	}
 
-	// poly.h's render_triangle, the extents rendered as they are made
+	// poly.h's render_triangle, drawn: each extent as it is made
 	template<int ParamCount>
-	uint32_t render_triangle(const m2_rectangle& cliprect, const render_delegate& callback, const vertex_t& _v1, const vertex_t& _v2, const vertex_t& _v3)
+	uint32_t draw_triangle(const m2_rectangle& cliprect, const render_delegate& callback, const vertex_t& _v1, const vertex_t& _v2, const vertex_t& _v3, const ObjectType& object, int threadid)
 	{
 		const vertex_t* v1 = &_v1;
 		const vertex_t* v2 = &_v2;
@@ -201,14 +296,14 @@ public:
 				extent.param[paramnum].dpdx = param_dpdx[paramnum];
 			}
 			if (istartx < istopx)
-				callback.func(callback.owner, curscan, extent, m_object.obj, 0);
+				callback.func(callback.owner, curscan, extent, object, threadid);
 		}
 		return pixels;
 	}
 
-	// poly.h's render_polygon, the extents rendered as they are made
+	// poly.h's render_polygon, drawn: each extent as it is made
 	template<int NumVerts, int ParamCount>
-	uint32_t render_polygon(const m2_rectangle& cliprect, const render_delegate& callback, const vertex_t* v)
+	uint32_t draw_polygon(const m2_rectangle& cliprect, const render_delegate& callback, const vertex_t* v, const ObjectType& object, int threadid)
 	{
 		// determine min/max Y vertices
 		BaseType minx = v[0].x;
@@ -353,7 +448,7 @@ public:
 			extent.stopx = istopx;
 			pixels += istopx - istartx;
 			if (istartx < istopx)
-				callback.func(callback.owner, curscan, extent, m_object.obj, 0);
+				callback.func(callback.owner, curscan, extent, object, threadid);
 		}
 		return pixels;
 	}

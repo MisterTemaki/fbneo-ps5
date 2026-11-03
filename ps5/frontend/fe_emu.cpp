@@ -13,6 +13,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "fe_emu.h"
+#include "fe_pool.h"
 
 #include "ProsperoNotify.h"
 #include "fe_games.h"
@@ -962,6 +963,27 @@ ps5video::Rect DrawLast()
 		cfg.scanlines, cfg.shader);
 }
 
+// 2.3: the core's worker threads (Sega Model 2's 3D), started the first time a driver asks for them, stopped with the
+// core: three workers and the emulation thread
+constexpr int kPartWorkers = 3;
+fe::PartPool* g_parts = nullptr;
+void RunParts(burn::ParallelJob job, void* ctx, int parts)
+{
+	if (!g_parts)
+	{
+		g_parts = new (std::nothrow) fe::PartPool(kPartWorkers);
+		if (g_parts)
+			OrbisLog("[emu] %d worker thread(s) for the core", g_parts->Threads() - 1);
+	}
+	if (!g_parts)
+	{
+		for (int i = 0; i < parts; i++)
+			job(ctx, i);
+		return;
+	}
+	g_parts->Run(job, ctx, parts);
+}
+
 void SetTiming()
 {
 	g.fps = burn::Fps();
@@ -989,6 +1011,7 @@ bool InitCore()
 	burn::SetRomFolders([] { return fe::RomRoots(); }); // 2.2: where else a hard disk image may be
 	if (!burn::Init(paths))
 		return false;
+	burn::SetParallel(RunParts, 1 + kPartWorkers);
 	g.inited = true;
 	return true;
 }
@@ -999,6 +1022,9 @@ void DeinitCore()
 		return;
 	CloseGame();
 	burn::Exit();
+	burn::SetParallel(nullptr, 1);
+	delete g_parts;
+	g_parts = nullptr;
 	g.inited = false;
 }
 

@@ -205,6 +205,11 @@ void SetHiscores(bool on);
 
 // The core's log lines go here (OrbisLog on the PS5).
 void SetLog(void (*log)(const char* line));
+// 2.3: worker threads for a driver's work that splits into parts (Sega Model 2's 3D, by bands of lines; the core's
+// burn_parallel.h). run(job, ctx, parts) calls job(ctx, i) for each i < parts, on the caller and the workers, and
+// returns when all are done; threads counts the caller too. Without it (or threads 1) the parts run in turn.
+typedef void (*ParallelJob)(void* ctx, int part);
+void SetParallel(void (*run)(ParallelJob job, void* ctx, int parts), int threads);
 // The texts Load's *error shows on the screen go through this (fe::T in the app: the interface's language).
 void SetTranslate(const char* (*tr)(const char* english));
 } // namespace burn

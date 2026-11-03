@@ -10,6 +10,7 @@
 
 #include "burnint.h"
 #include "burn_hdd.h"
+#include "burn_parallel.h"
 #include "unzip.h"
 #include "version.h"
 
@@ -1489,6 +1490,19 @@ void HddTestRead(uint32_t lba, uint32_t count)
 void SetLog(void (*log)(const char* line))
 {
 	g.log = log;
+}
+
+static void (*g_parallel_run)(ParallelJob job, void* ctx, int parts) = nullptr;
+static void ParallelHook(BurnParallelJob job, void* ctx, INT32 parts)
+{
+	g_parallel_run(job, ctx, parts);
+}
+
+void SetParallel(void (*run)(ParallelJob job, void* ctx, int parts), int threads)
+{
+	g_parallel_run = run;
+	BurnParallelRunHook = run && threads > 1 ? ParallelHook : NULL;
+	nBurnParallelThreads = run && threads > 1 ? threads : 1;
 }
 
 void SetTranslate(const char* (*tr)(const char* english))
