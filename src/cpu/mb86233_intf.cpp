@@ -192,6 +192,12 @@ UINT32 Mb86233GetPC()
 	return core->m_ppc;
 }
 
+// the core itself (src/cpu/mb86233/mb86233.h): the tests compare its registers with MAME's
+mb86233_core* Mb86233Core()
+{
+	return core;
+}
+
 void Mb86233Reset()
 {
 	core->device_reset();

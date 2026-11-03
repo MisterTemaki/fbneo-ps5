@@ -140,4 +140,7 @@ public:
 	void write_mem_io_1(u32 r, u32 v);
 };
 
+// the one core mb86233_intf.cpp runs (tests)
+mb86233_core* Mb86233Core();
+
 #endif

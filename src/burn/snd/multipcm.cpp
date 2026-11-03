@@ -122,13 +122,32 @@ struct multi_chip {
 };
 
 // dink was here! feb 2020
-static multi_chip chip;
-static UINT8 *m_ROM = NULL;
-static INT16 *mixer_buffer_left = NULL;
-static INT16 *mixer_buffer_right = NULL;
-static INT32 samples_from; // "re"sampler
-static INT32 add_to_stream;
-static double volume;
+// FBNeo PS5 2.3: up to two chips (the Model 1 sound board of Sega Model 2's Daytona USA has two). Each one's state is
+// an instance below; the functions work on the instance "mpcm" points at, which the ...Chip() calls choose (the
+// calls without a chip number are chip 0's, as before: the state of a one-chip driver is the same as it was).
+#define MULTIPCM_CHIPS 2
+struct multipcm_instance {
+	multi_chip chip;
+	UINT8 *m_ROM;
+	INT16 *mixer_buffer_left;
+	INT16 *mixer_buffer_right;
+	INT32 samples_from; // "re"sampler
+	INT32 add_to_stream;
+	double volume;
+};
+static multipcm_instance mpcm_inst[MULTIPCM_CHIPS];
+static multipcm_instance *mpcm = &mpcm_inst[0];
+#define chip (mpcm->chip)
+#define m_ROM (mpcm->m_ROM)
+#define mixer_buffer_left (mpcm->mixer_buffer_left)
+#define mixer_buffer_right (mpcm->mixer_buffer_right)
+#define samples_from (mpcm->samples_from)
+#define add_to_stream (mpcm->add_to_stream)
+
+static void MultiPCMSelect(INT32 nChip)
+{
+	mpcm = &mpcm_inst[(nChip >= 0 && nChip < MULTIPCM_CHIPS) ? nChip : 0];
+}
 
 /*******************************
         ENVELOPE SECTION
@@ -424,6 +443,13 @@ UINT8 MultiPCMRead()
 	return 0;
 }
 
+void MultiPCMWriteChip(INT32 nChip, INT32 offset, UINT8 data)
+{
+	MultiPCMSelect(nChip);
+	MultiPCMWrite(offset, data);
+	MultiPCMSelect(0);
+}
+
 void MultiPCMWrite(INT32 offset, UINT8 data)
 {
 	switch(offset)
@@ -444,6 +470,13 @@ void MultiPCMWrite(INT32 offset, UINT8 data)
 
 /* MAME/M1 access functions */
 
+void MultiPCMSetBankChip(INT32 nChip, UINT32 leftoffs, UINT32 rightoffs)
+{
+	MultiPCMSelect(nChip);
+	MultiPCMSetBank(leftoffs, rightoffs);
+	MultiPCMSelect(0);
+}
+
 void MultiPCMSetBank(UINT32 leftoffs, UINT32 rightoffs)
 {
 	chip.BankL = leftoffs;
@@ -458,12 +491,16 @@ void MultiPCMSetBank(UINT32 leftoffs, UINT32 rightoffs)
 
 void MultiPCMExit()
 {
-	if (mixer_buffer_left) {
-		BurnFree(mixer_buffer_left);
-		mixer_buffer_left = NULL;
-		mixer_buffer_right = NULL;
-		m_ROM = NULL;
+	for (INT32 i = 0; i < MULTIPCM_CHIPS; i++) {
+		MultiPCMSelect(i);
+		if (mixer_buffer_left) {
+			BurnFree(mixer_buffer_left);
+			mixer_buffer_left = NULL;
+			mixer_buffer_right = NULL;
+			m_ROM = NULL;
+		}
 	}
+	MultiPCMSelect(0);
 }
 
 // The slot pointers (sample, LFO tables) are only valid in the process that set
@@ -497,9 +534,31 @@ static void RebuildSlotPointers()
 
 void MultiPCMScan(INT32 nAction, INT32 *pnMin)
 {
+	MultiPCMScanChip(0, nAction, pnMin);
+}
+
+void MultiPCMScanChip(INT32 nChip, INT32 nAction, INT32 *pnMin)
+{
+	MultiPCMSelect(nChip);
 	ClearSlotPointers();
-	SCAN_VAR(chip);
+	{
+		// SCAN_VAR(chip), with the name it always had
+		struct BurnArea ba;
+		ba.Data = &chip;
+		ba.nLen = sizeof(chip);
+		ba.nAddress = 0;
+		ba.szName = "chip";
+		BurnAcb(&ba);
+	}
 	RebuildSlotPointers();
+	MultiPCMSelect(0);
+}
+
+void MultiPCMResetChip(INT32 nChip)
+{
+	MultiPCMSelect(nChip);
+	MultiPCMReset();
+	MultiPCMSelect(0);
 }
 
 void MultiPCMReset()
@@ -510,9 +569,23 @@ void MultiPCMReset()
 	}
 }
 
+void MultiPCMSetVolumeChip(INT32 nChip, double vol)
+{
+	MultiPCMSelect(nChip);
+	MultiPCMSetVolume(vol);
+	MultiPCMSelect(0);
+}
+
 void MultiPCMSetVolume(double vol)
 {
-	volume = vol;
+	mpcm->volume = vol;
+}
+
+void MultiPCMInitChip(INT32 nChip, INT32 clock, UINT8 *SndROM, INT32 bAdd)
+{
+	MultiPCMSelect(nChip);
+	MultiPCMInit(clock, SndROM, bAdd);
+	MultiPCMSelect(0);
 }
 
 void MultiPCMInit(INT32 clock, UINT8 *SndROM, INT32 bAdd)
@@ -530,7 +603,7 @@ void MultiPCMInit(INT32 clock, UINT8 *SndROM, INT32 bAdd)
 	mixer_buffer_left = (INT16*)BurnMalloc(2 * sizeof(INT16) * chip.Rate);
 	mixer_buffer_right = mixer_buffer_left + ((INT32)chip.Rate);
 
-	volume = 1.00;
+	mpcm->volume = 1.00;
 
 	//Volume+pan table
 	for(i=0;i<0x800;++i)
@@ -653,6 +726,13 @@ void MultiPCMSetMonoMode(INT32 monomode)
 //  sound_stream_update - handle a stream update
 //-------------------------------------------------
 
+void MultiPCMUpdateChip(INT32 nChip, INT16 *buffer, INT32 samples_len)
+{
+	MultiPCMSelect(nChip);
+	MultiPCMUpdate(buffer, samples_len);
+	MultiPCMSelect(0);
+}
+
 void MultiPCMUpdate(INT16 *buffer, INT32 samples_len)
 {
 	INT32 samples = (samples_from * samples_len) / nBurnSoundLen;
@@ -733,8 +813,8 @@ void MultiPCMUpdate(INT16 *buffer, INT32 samples_len)
 	{
 		INT32 k = (samples_from * j) / nBurnSoundLen;
 
-		INT32 l = (add_to_stream) ? (lmix[k] * volume) + buffer[0] : (lmix[k] * volume);
-		INT32 r = (add_to_stream) ? (rmix[k] * volume) + buffer[1] : (rmix[k] * volume);
+		INT32 l = (add_to_stream) ? (lmix[k] * mpcm->volume) + buffer[0] : (lmix[k] * mpcm->volume);
+		INT32 r = (add_to_stream) ? (rmix[k] * mpcm->volume) + buffer[1] : (rmix[k] * mpcm->volume);
 		buffer[0] = BURN_SND_CLIP(l);
 		buffer[1] = BURN_SND_CLIP(r);
 		buffer += 2;

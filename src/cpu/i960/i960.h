@@ -179,4 +179,7 @@ public:
 	void do_ret();
 };
 
+// the one core i960_intf.cpp runs (tests)
+i960_core* I960Core();
+
 #endif

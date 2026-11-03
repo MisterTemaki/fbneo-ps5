@@ -272,6 +272,12 @@ UINT32 I960GetPC()
 	return core->m_PIP;
 }
 
+// the core itself (src/cpu/i960/i960.h): the tests compare its registers with MAME's
+i960_core* I960Core()
+{
+	return core;
+}
+
 // ---- reset / state ----------------------------------------------------------------------------------------------
 void I960Reset()
 {
