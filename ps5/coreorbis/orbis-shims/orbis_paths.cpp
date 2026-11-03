@@ -25,6 +25,7 @@ std::mutex s_log_mutex;
 FILE* s_log = nullptr;
 bool s_enabled = true; // the "Debug logs" setting
 std::string s_name;    // the log OrbisLogOpen opened (or would have), to open again when logs are turned on
+bool s_file_this_run = false; // 2.2: this run already started its own file (else turning logs on starts a new one)
 
 // The "Debug logs" setting, read here (not through fe::Settings: the installer and the helper have none): off unless
 // fbneo-ps5.ini says debug_logs=1. The host tests turn the default on with FBNEO_LOGS_DEFAULT=1 (they read boot.log).
@@ -138,6 +139,8 @@ void OrbisLogOpen(const char* name)
 	std::lock_guard<std::mutex> lock(s_log_mutex);
 	if (s_log)
 		return;
+	if (s_name != name)
+		s_file_this_run = false; // another log (boot-after-update): it hasn't started its own file yet
 	s_name = name;
 	if (IniSaysLogsOff())
 	{
@@ -154,6 +157,7 @@ void OrbisLogOpen(const char* name)
 	const std::string prev = dir + "/" + name + ".prev.log";
 	rename(cur.c_str(), prev.c_str()); // keep the run before, like PS5SX2's logs
 	s_log = fopen(cur.c_str(), "w");
+	s_file_this_run = true;
 	if (s_log)
 	{
 		for (const std::string& line : EarlyLines())
@@ -229,15 +233,31 @@ void OrbisLogSetEnabled(bool on)
 		return;
 	}
 	s_enabled = true;
-	// the same file again, added to (this run's lines before the switch stay in it)
+	// A run that already wrote its file adds to it (its lines before the switch stay in it). A run that started with
+	// the logs off starts its own file, the one before kept as .prev.log (2.2: up to 2.1 it was added to an older
+	// run's file, maybe another version's, under that run's first lines).
 	const std::string dir = OrbisDir("logs");
 	if (!s_name.empty() && OrbisIsDir(dir))
-		s_log = fopen((dir + "/" + s_name + ".log").c_str(), "a");
-	printf("[fbneo-ps5 %10.3f] [log] debug logs turned on\n", t);
+	{
+		const std::string cur = dir + "/" + s_name + ".log";
+		if (!s_file_this_run)
+		{
+			const std::string prev = dir + "/" + s_name + ".prev.log";
+			rename(cur.c_str(), prev.c_str());
+			s_log = fopen(cur.c_str(), "w");
+			s_file_this_run = true;
+		}
+		else
+			s_log = fopen(cur.c_str(), "a");
+	}
+	// which version wrote what follows (a run started with the logs off has no [boot] line)
+	printf("[fbneo-ps5 %10.3f] [log] debug logs turned on (FBNeo PS5 %s, built %s %s, pid %d)\n", t, FBNEO_PS5_VERSION,
+		__DATE__, __TIME__, int(getpid()));
 	fflush(stdout);
 	if (s_log)
 	{
-		fprintf(s_log, "[%10.3f] [log] debug logs turned on\n", t);
+		fprintf(s_log, "[%10.3f] [log] debug logs turned on (FBNeo PS5 %s, built %s %s, pid %d)\n", t, FBNEO_PS5_VERSION,
+			__DATE__, __TIME__, int(getpid()));
 		fflush(s_log);
 	}
 }

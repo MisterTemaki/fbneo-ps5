@@ -37,13 +37,14 @@ make (the driver list, Musashi's 68000 core, the CPS, Neo Geo, Cave, Psikyo, Toa
 frontends (`src/burner`) and its libretro port host the core: ROM loading from the sets' zips and 7z archives, inputs, DIP
 switches, states, NVRAM, the picture turned the right way up and the sound.
 
-> **Status (2.2):** builds with the ps5-payload-dev SDK into a signed native app, and passes 709 host tests, which
+> **Status (2.2):** builds with the ps5-payload-dev SDK into a signed native app, and passes 718 host tests, which
 > run the same code (FBNeo's core included) on Linux with the PS5 calls simulated: two arcade boards running a tiny
 > test program each (a vertical and a horizontal game) are played through the whole chain -- the shelf, the pad,
 > the core, the video and sound output -- and 39 more boards start, run, save and load a state under
-> AddressSanitizer. **Killer Instinct 1 and 2 (new in 2.2) have not run on a PS5 yet**: there are no ROMs or hard
-> disk images here, so they ran on stand-in ROM sets and synthetic CHDs only (the hard disk, the shelf, the saved
-> changes, the start); the new MIPS III core passes its own tests in four builds. The network shares and the `.7z`
+> AddressSanitizer; the new MIPS III core passes its own tests in four builds. **Killer Instinct 1 and 2 (new in 2.2)
+> run on a PS5** (tested with MAME's CHDs): both found their CHDs in MAME's layout, a clone (`kinst15ai`) used its
+> parent's, full matches at 60 fps with the sound right, the game's disk writes kept in the `.diff` from one session to
+> the next, a state saved and loaded, and the CHD's sha256 unchanged. The network shares and the `.7z`
 > sets have run only in those tests (a local folder standing in for the share), not yet on a PS5; 2.1's choice of
 > player per controller has run with up to four simulated pads, not yet with several real controllers. If something
 > fails, the logs in `/data/fbneo/logs/` say where.
@@ -89,8 +90,8 @@ boot from a **hard disk**: besides the ROM zip you need its image, a MAME CHD, i
 the zip -- **`kinst/kinst.chd` next to `kinst.zip`**, `kinst2/kinst2.chd` next to `kinst2.zip`, as MAME keeps them. The
 shelf lists a set without it and says so ("needs kinst/kinst.chd next to the ROM zip"); Cross looks again and starts it
 once it is there. The game writes its audits and settings to that disk: the image is never written, the changes go to
-`/data/fbneo/saves/<set>.diff`. See [Killer Instinct](#killer-instinct-hard-disk-images). **Not tried on a PS5 yet**
-(no ROMs here). Also in 2.2:
+`/data/fbneo/saves/<set>.diff`. See [Killer Instinct](#killer-instinct-hard-disk-images). **Both run on a PS5** at full
+speed. Also in 2.2:
 
 - **Revolution X's parent changed upstream:** `revx` (revision 2.0) is the parent now, `revx1` and `revxp5` its clones.
   Split sets made with 2.1's DAT have the old layout: rebuild them with 2.2's (`revx` shows as incomplete until then).
@@ -454,7 +455,9 @@ Killer Instinct and Killer Instinct 2 boot from a hard disk. FBNeo PS5 2.2 reads
   slow or busy network can make it stutter; the shelf says "hard disk on a network share: may stutter". **Keep the CHD
   on the console or a USB drive** (the zip can stay on the share). A part of the image that can't be read (a share
   that dropped) is read as zeros, counted, and said once a game. The `.diff` is always on the console.
-- **Untested on a console:** Killer Instinct 1 and 2 ran here on stand-in ROMs and synthetic CHDs only (no ROMs).
+- **On a PS5:** Killer Instinct 1 and 2 run at full speed (60 fps, the sound right) from MAME's CHDs on the console's
+  drive; the `.diff` keeps the game's writes between sessions, states save and load, and the CHD stays unchanged. Not
+  yet tried on a console: a CHD on a USB drive or a network share, and a raw `.img`.
 
 ## The game shelf and covers
 
@@ -814,8 +817,10 @@ original code aiming at the same look. Every minute in a game, `boot.log` says h
 
 **Turning the logs on or off:** Settings -> **SYSTEM** -> **Debug logs**. Off stops every log at once: the app
 writes nothing more to `boot.log` (its last line says the logs were turned off), and the next starts -- the app,
-the installer and the helper -- write no log files at all; the files of earlier runs are left as they are. The
-setting is `debug_logs=0` / `debug_logs=1` in `fbneo-ps5.ini`; it is off by default (since 1.9.1), so turn it on
+the installer and the helper -- write no log files at all; the files of earlier runs are left as they are. On
+starts writing at once. In a run that started with the logs off, it starts a new log file (`boot.log`, or
+`installer.log` / `helper.log` for the helper); the one before is kept as `.prev.log`, and the new file's first
+line names the version. The setting is `debug_logs=0` / `debug_logs=1` in `fbneo-ps5.ini`; it is off by default (since 1.9.1), so turn it on
 if you want to report a problem.
 
 If something fails, send the files in `/data/fbneo/logs/`: `boot.log` (the app), `installer.log` and `helper.log`,
@@ -846,10 +851,10 @@ covers, emu, menu), and the return addresses, which map into `ps5/build/app/fbne
   the IP address). Tested here with a folder of the test machine standing in for the share, and the NFS backend
   against a mock and loopback sockets; **not yet on a PS5**, nor against a real NAS in this port (Beetle PCE PS5,
   NES FCEUmm PS5, Genesis Plus GX PS5 and Snes9x PS5 run the same network code).
-- The heaviest boards (CPS-3, PGM2, Konami GX, Midway's 3D ones, Killer Instinct's MIPS R4600) depend on the PS5's
-  CPU running FBNeo's interpreters; not measured on a console yet.
-- Killer Instinct 1 and 2 (2.2): not run on a console yet; a raw KI2 `.img` is unverified (use the CHD); a CHD on a
-  network share may stutter.
+- The heaviest boards (CPS-3, PGM2, Konami GX, Midway's 3D ones) depend on the PS5's CPU running FBNeo's
+  interpreters; not measured on a console yet. Killer Instinct's MIPS R4600 (2.2) runs at full speed on a PS5.
+- Killer Instinct 1 and 2 (2.2): run on a PS5 from the console's drive; a raw KI2 `.img` is unverified (use the CHD); a
+  CHD on a network share may stutter.
 
 ## Building
 
@@ -864,7 +869,7 @@ make send PS5_HOST=192.168.0.10  # sends it to elfldr (port 9021)
 make dist                        # build/dist/FBNeoPS5-v<version>.elf + the release zip + the ROM DAT
 make dat                         # ps5/dat/fbneo-ps5-arcade.dat, again (after a core update or a version change)
 make app                         # only build/app/PPSA99924/, to copy by hand
-make test                        # Linux builds (app, installer, helper, headless core) + 709 host tests (ASan/UBSan)
+make test                        # Linux builds (app, installer, helper, headless core) + 718 host tests (ASan/UBSan)
 make test-mips3                  # the MIPS III core alone, four builds (in make test)
 make test-kinst-hdd              # Killer Instinct's hard disk alone, on synthetic CHDs (in make test)
 ```
@@ -945,7 +950,7 @@ The build has three stages:
   DIP switches saved and read back and in place before a driver starts, a frame's and a save state's time, a driver's palette made at start), the
   stand-in ROM sets (`make_fake_set.py`: every ROM a driver lists, with its name and its CRC, as FBNeo's split
   sets are made), the test programs (`tests/data`: a tiny Z80 program on the Pac-Man board, red screen, green
-  while the joystick or the button is pressed), and the 709 tests: picture, rotation, input and states on a
+  while the joystick or the button is pressed), and the 718 tests: picture, rotation, input and states on a
   vertical and a horizontal game, the library (parents, BIOS sets, incomplete sets, the check's cache), a set with
   a ROM missing, DIP switches, button layouts (a layout per game, a clone using its parent's, Auto's Fighting (R1 R2) for 6-button games), sound latency and pacing by the sound, 720p, install (packed
   files), covers (flyer, parent's flyer, screenshot, 404, the no-cover card's arcade panel with a long title below it), tabs and clones, the CRT shaders (each one, both

@@ -719,6 +719,30 @@ expect "grep -q '^debug_logs=0' $T/root/fbneo-ps5.ini" "Debug logs Off saved"
 expect "tail -1 $T/root/logs/boot.log | grep -q 'debug logs turned off'" "the last line of boot.log says the logs were turned off"
 nosan "$T"
 stop_helpers
+# 2.2: a run started with the logs off, turned on in Settings: its own boot.log (the old run's kept as boot.prev.log),
+# its first line naming the version (on the console, 2.2's lines were added under an older version's run)
+T=$(newroot t20c)
+addset ponpoko "$T/root/roms"
+echo "debug_logs=0" >>"$T/root/fbneo-ps5.ini"
+mkdir -p "$T/root/logs" && echo "OLD RUN" >"$T/root/logs/boot.log"
+rc=$(run "$T" "0:0;30:$TRIANGLE;32:0;50:$UP;52:0;60:$UP;62:0;65:$UP;67:0;70:$CROSS;72:0;90:$CIRCLE;92:0;$(SHELFQUIT_AT 120)" "")
+expect "[ $rc = 0 ] && grep -q '^debug_logs=1' $T/root/fbneo-ps5.ini" "Debug logs On saved (got $rc)"
+expect "head -1 $T/root/logs/boot.log | grep -q 'debug logs turned on (FBNeo PS5 $(sed -n 's/^VERSION *?= *//p' Makefile), built .*, pid [0-9]*)'" "boot.log starts with the line turning them on, naming the version"
+expect "! grep -q 'OLD RUN' $T/root/logs/boot.log && [ \"\$(cat $T/root/logs/boot.prev.log)\" = 'OLD RUN' ]" "the old run's boot.log kept as boot.prev.log, not added to"
+expect "grep -q '\[boot\] leaving' $T/root/logs/boot.log" "what follows is written to it"
+nosan "$T"
+# then Off and On again in the same run: the same file, added to (not started again)
+T=$(newroot t20e)
+addset ponpoko "$T/root/roms"
+echo "debug_logs=0" >>"$T/root/fbneo-ps5.ini"
+mkdir -p "$T/root/logs" && echo "OLD RUN" >"$T/root/logs/boot.log"
+DL="50:$UP;52:0;60:$UP;62:0;65:$UP;67:0"
+rc=$(run "$T" "0:0;30:$TRIANGLE;32:0;$DL;70:$CROSS;72:0;80:$CROSS;82:0;90:$CROSS;92:0;100:$CIRCLE;102:0;$(SHELFQUIT_AT 130)" "")
+expect "[ $rc = 0 ] && grep -q '^debug_logs=1' $T/root/fbneo-ps5.ini" "On, Off, On saved as On (got $rc)"
+expect "[ \"\$(grep -c 'debug logs turned on' $T/root/logs/boot.log)\" = 2 ] && grep -q 'debug logs turned off' $T/root/logs/boot.log && head -1 $T/root/logs/boot.log | grep -q 'debug logs turned on'" "both On lines and the Off line in one file"
+expect "[ \"\$(cat $T/root/logs/boot.prev.log)\" = 'OLD RUN' ]" "boot.prev.log is still the old run (rotated once)"
+nosan "$T"
+stop_helpers
 T=$(newroot t20d)
 addset ponpoko "$T/root/roms"
 mkdir -p "$T/hroot" && echo "debug_logs=0" >"$T/hroot/fbneo-ps5.ini"
