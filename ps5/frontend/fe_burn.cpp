@@ -9,6 +9,7 @@
 #include "fe_7z.h"
 
 #include "burnint.h"
+#include "burn_hdd.h"
 #include "unzip.h"
 #include "version.h"
 
@@ -20,12 +21,16 @@ extern int bDrvOkay; // core/burn_frontend.cpp (cheat.cpp reads it)
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
+#include <cstdlib>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
 #include <atomic>
 #include <memory>
 #include <mutex>
+#include <new>
+#include <thread>
 
 namespace
 {
@@ -129,6 +134,13 @@ struct G
 	std::vector<uint8_t> nvram_last;
 	// the screen's texts in the interface's language (SetTranslate)
 	const char* (*tr)(const char*) = nullptr;
+
+	// 2.2, hard disks: the archives' finder while the driver starts (the image is looked for beside them), the other ROM
+	// folders, the last lookup, and what happened to the saved disk changes at the last start
+	const burn::ZipFinder* loading_find = nullptr;
+	std::function<std::vector<std::string>()> rom_folders;
+	fe::hdd::Lookup last_lookup;
+	std::vector<burn::DiskReport> disks;
 };
 G g;
 
@@ -1249,8 +1261,229 @@ INT32 __cdecl ZipLoadOneFile(char* arcName, const char* fileName, void** Dest, I
 	return 0;
 }
 
+// ---- 2.2: the hard disk image (Killer Instinct), MAME's layout (fe_hdd.h) ----------------------------------------
+namespace
+{
+std::vector<std::string> DiskFolders(const std::string& set, const std::string& parent, const burn::ZipFinder& find)
+{
+	const std::string sz = find(set), pz = parent.empty() ? std::string() : find(parent);
+	return fe::hdd::Folders(sz, pz, g.rom_folders ? g.rom_folders() : std::vector<std::string>());
+}
+
+// BurnHDDFindImageHook: called by the core while the driver starts (burn_hdd.cpp)
+INT32 FindImageHook(INT32 nIndex, const char* szName, char* szPath, INT32 nPathLen)
+{
+#ifndef __PROSPERO__
+	// the host tests: an allocation that fails while a Killer Instinct starts (FBNEO_HOST_OOM_START=disk)
+	if (const char* e = getenv("FBNEO_HOST_OOM_START"); e && strcmp(e, "disk") == 0)
+		throw std::bad_alloc();
+#endif
+	const std::vector<std::string> folders = g.loading_find ? DiskFolders(g.cur.name, g.cur.parent, *g.loading_find)
+		: fe::hdd::Folders("", "", g.rom_folders ? g.rom_folders() : std::vector<std::string>());
+	g.last_lookup = fe::hdd::FindImage(g.cur.name, g.cur.parent, szName ? szName : "", folders);
+	const fe::hdd::Lookup& l = g.last_lookup;
+	Log("[burn] hard disk %d (%s): %s", nIndex, szName ? szName : "?",
+		l.result == fe::hdd::Find::Found ? (l.path + (l.on_network ? " (on a network share)" : "")).c_str()
+		: l.result == fe::hdd::Find::TooLong ? "its path is too long" : ("not found, expected in " + l.folder).c_str());
+	if (l.result == fe::hdd::Find::TooLong)
+		return 2;
+	if (l.result != fe::hdd::Find::Found)
+		return 1;
+	if (l.path.size() + 1 > size_t(nPathLen))
+		return 2;
+	snprintf(szPath, size_t(nPathLen), "%s", l.path.c_str());
+	return 0;
+}
+
+void TakeDiskReports()
+{
+	g.disks.clear();
+	for (INT32 i = 0; i < BurnHDDReportCount(); i++)
+	{
+		const BurnHDDReport* r = BurnHDDGetReport(i);
+		burn::DiskReport d;
+		d.disk = r->szDisk;
+		d.image = r->szImage;
+		d.diff = r->szDiff;
+		d.set_aside_as = r->szSetAside;
+		d.put_back_from = r->szPutBack;
+		d.why = r->szWhy;
+		d.put_back = r->bPutBack;
+		d.set_aside = r->bSetAside;
+		d.set_aside_failed = r->bSetAsideFailed;
+		d.put_back_failed = r->bPutBackFailed;
+		d.saving_off = r->bSavingOff;
+		d.sha_mismatch = r->bShaMismatch;
+		d.set_asides = r->nSetAsideCount;
+		g.disks.push_back(d);
+	}
+	BurnHDDReportClear();
+}
+} // namespace
+
 namespace burn
 {
+void SetRomFolders(std::function<std::vector<std::string>()> folders)
+{
+	g.rom_folders = std::move(folders);
+}
+
+fe::hdd::Lookup FindDisk(int driver, const ZipFinder& find)
+{
+	burn::Driver d;
+	if (!GetDriver(driver, &d) || d.disk.empty())
+		return fe::hdd::Lookup();
+	return fe::hdd::FindImage(d.name, d.parent, d.disk, DiskFolders(d.name, d.parent, find));
+}
+
+std::vector<DiskReport> LastStartDisks()
+{
+	return g.disks;
+}
+
+fe::hdd::Lookup LastDiskLookup()
+{
+	return g.last_lookup;
+}
+
+bool HasDisk()
+{
+	return g.loaded && BurnHDDOpenCount() > 0;
+}
+
+bool HddDirty()
+{
+	// (a disk whose saving is off has nothing to write this session)
+	for (INT32 i = 0; i < BurnHDDOpenCount(); i++)
+		if (BurnHDDIsDirty(BurnHDDGetOpen(i)) && !BurnHDDSavingOff(BurnHDDGetOpen(i)))
+			return true;
+	return false;
+}
+
+bool HddSavingOff()
+{
+	for (INT32 i = 0; i < BurnHDDOpenCount(); i++)
+		if (BurnHDDSavingOff(BurnHDDGetOpen(i)))
+			return true;
+	return false;
+}
+
+uint32_t HddReadErrors()
+{
+	uint32_t n = 0;
+	for (INT32 i = 0; i < BurnHDDOpenCount(); i++)
+		n += BurnHDDReadErrors(BurnHDDGetOpen(i));
+	return n;
+}
+
+bool HddOnNetwork()
+{
+	for (INT32 i = 0; i < BurnHDDOpenCount(); i++)
+	{
+		const std::string p = BurnHDDImagePath(BurnHDDGetOpen(i));
+		if (p.compare(0, 5, "/smb/") == 0 || p.compare(0, 5, "/nfs/") == 0)
+			return true;
+	}
+	return false;
+}
+
+bool HddFlush()
+{
+	const bool dirty = HddDirty();
+	const bool ok = BurnHDDFlushAll() == 0;
+	if (dirty)
+		Log("[burn] hard disk changes written: %s", ok ? "ok" : "FAILED");
+	return ok;
+}
+
+struct HddJob::Impl
+{
+	std::vector<BurnHDDSnapshot> snaps;
+	std::vector<bool> ok;
+};
+
+HddJob::HddJob() : m(new Impl) {}
+HddJob::~HddJob() = default;
+
+bool HddJob::Take()
+{
+	m->snaps.clear();
+	m->ok.clear();
+#ifndef __PROSPERO__
+	// the host tests: an allocation that fails while the changes are taken (FBNEO_HOST_HDD_OOM=take)
+	if (const char* e = getenv("FBNEO_HOST_HDD_OOM"); e && strcmp(e, "take") == 0)
+		throw std::bad_alloc();
+#endif
+	for (INT32 i = 0; i < BurnHDDOpenCount(); i++)
+	{
+		BurnHDDSnapshot s;
+		if (BurnHDDTakeSnapshot(BurnHDDGetOpen(i), &s))
+			m->snaps.push_back(std::move(s));
+	}
+	m->ok.assign(m->snaps.size(), false);
+	return !m->snaps.empty();
+}
+
+bool HddJob::Write()
+{
+#ifndef __PROSPERO__
+	// the host tests: a slow write (the game must go on meanwhile), an allocation that fails in the writer
+	if (const char* e = getenv("FBNEO_HOST_HDD_WRITE_DELAY_MS"); e && atoi(e) > 0)
+		std::this_thread::sleep_for(std::chrono::milliseconds(atoi(e)));
+	if (const char* e = getenv("FBNEO_HOST_HDD_OOM"); e && strcmp(e, "write") == 0)
+		throw std::bad_alloc();
+#endif
+	bool all = true;
+	for (size_t i = 0; i < m->snaps.size(); i++)
+	{
+		const BurnHDDSnapshot& s = m->snaps[i];
+		m->ok[i] = BurnHDDWriteDiffData(s.szPath, s.data.empty() ? nullptr : &s.data[0], s.data.size()) == 0;
+		all = all && m->ok[i];
+	}
+	return all;
+}
+
+void HddJob::Done(bool ok)
+{
+	for (size_t i = 0; i < m->snaps.size(); i++)
+		BurnHDDSnapshotDone(&m->snaps[i], ok && i < m->ok.size() && m->ok[i]);
+	m->snaps.clear();
+	m->ok.clear();
+}
+
+bool HddJob::Empty() const
+{
+	return m->snaps.empty();
+}
+
+size_t HddJob::Bytes() const
+{
+	size_t n = 0;
+	for (const BurnHDDSnapshot& s : m->snaps)
+		n += s.data.size();
+	return n;
+}
+
+#ifndef __PROSPERO__
+void HddTestWrite(uint32_t lba, uint32_t count, uint8_t fill)
+{
+	if (BurnHDDOpenCount() == 0)
+		return;
+	BurnHDD* d = BurnHDDGetOpen(0);
+	std::vector<uint8_t> buf(size_t(BurnHDDGetSectorSize(d)) * count, fill);
+	BurnHDDWrite(d, lba, count, buf.data());
+}
+
+void HddTestRead(uint32_t lba, uint32_t count)
+{
+	if (BurnHDDOpenCount() == 0)
+		return;
+	BurnHDD* d = BurnHDDGetOpen(0);
+	std::vector<uint8_t> buf(size_t(BurnHDDGetSectorSize(d)) * count);
+	BurnHDDRead(d, lba, count, buf.data());
+}
+#endif
+
 void SetLog(void (*log)(const char* line))
 {
 	g.log = log;
@@ -1293,6 +1526,7 @@ bool Init(const Paths& paths)
 	SetPath(szAppHDDPath, paths.saves);
 	bprintf = CoreLog;
 	BurnExtLoadRom = LoadRom;
+	BurnHDDFindImageHook = FindImageHook; // 2.2: the hard disk image beside the ROM sets (fe_hdd.h)
 	BurnHighCol = HighCol32;
 	nBurnBpp = 4;
 	nInterpolation = 3; // FBNeo's defaults for ADPCM/PCM (cubic) and FM (none)
@@ -1383,6 +1617,9 @@ bool GetDriver(int index, Driver* out)
 	d.vertical = (d.flags & BDF_ORIENTATION_VERTICAL) != 0;
 	d.bios = (d.flags & BDF_BOARDROM) != 0 || (d.genre & GBF_BIOS) != 0;
 	d.arcade = IsArcade(d.hardware, d.genre);
+	char* disk = nullptr;
+	if (BurnDrvGetHDDName(&disk, 0, 0) == 0 && disk && *disk)
+		d.disk = disk;
 	nBurnDrvActive = old;
 	*out = d;
 	return true;
@@ -1509,7 +1746,33 @@ bool Load(int driver, const ZipFinder& find, std::string* error, const std::stri
 	g.draw.clear();
 	pBurnDraw = nullptr;
 	g.drawing = false;
-	const INT32 rc = BurnDrvInit();
+	// 2.2: the hard disk (Killer Instinct): looked for beside the archives found here; what happened to its saved
+	// changes is this start's only
+	g.loading_find = &find;
+	g.last_lookup = fe::hdd::Lookup();
+	g.disks.clear();
+	BurnHDDReportClear();
+	INT32 rc = 0;
+	try
+	{
+		rc = BurnDrvInit();
+	}
+	catch (const std::bad_alloc&)
+	{
+		// 2.2: an allocation that failed while the driver started (Killer Instinct's 8 MB of RAM, the disk's id...):
+		// what a failed start does, with nothing left open
+		g.loading_find = nullptr;
+		Log("[burn] %s: out of memory while it started", g.cur.name.c_str());
+		BurnDrvExit();
+		BurnHDDCloseAll();
+		TakeDiskReports();
+		CloseZips();
+		if (error)
+			*error = TrFmt("Not enough memory to start the game.");
+		return false;
+	}
+	g.loading_find = nullptr;
+	TakeDiskReports();
 	// a .7z's decoded block is not kept while the game runs (a reset that loads a ROM again decodes it again)
 	for (Zip& z : g.zips)
 		if (z.sz)
@@ -1518,10 +1781,21 @@ bool Load(int driver, const ZipFinder& find, std::string* error, const std::stri
 	{
 		Log("[burn] %s: BurnDrvInit failed (%d)", g.cur.name.c_str(), rc);
 		BurnDrvExit();
+		BurnHDDCloseAll();
 		CloseZips();
 		if (error)
-			*error = !g.sevenz_why.empty() ? g.sevenz_why
-				: TrFmt("FBNeo could not start %s (the ROMs may be from another version of the set).", g.cur.name.c_str());
+		{
+			const fe::hdd::Lookup& l = g.last_lookup;
+			if (!g.cur.disk.empty() && l.result == fe::hdd::Find::TooLong)
+				*error = TrFmt("The hard disk image's path is too long (more than %d characters): move the ROM folder "
+							   "nearer the top of the drive.", int(fe::hdd::kMaxPath));
+			else if (!g.cur.disk.empty() && !l.need.empty() && l.result == fe::hdd::Find::Missing)
+				*error = TrFmt("Hard disk image missing: %s needs %s next to the ROM zip (in %s).", g.cur.name.c_str(),
+					l.need.c_str(), l.folder.c_str());
+			else
+				*error = !g.sevenz_why.empty() ? g.sevenz_why
+					: TrFmt("FBNeo could not start %s (the ROMs may be from another version of the set).", g.cur.name.c_str());
+		}
 		return false;
 	}
 	bDrvOkay = 1;
@@ -1544,7 +1818,8 @@ void Unload()
 	if (!g.loaded)
 		return;
 	SaveNvram(false);
-	BurnDrvExit();
+	BurnDrvExit(); // a driver with a hard disk closes it (its changes written)
+	BurnHDDCloseAll(); // (any it left open)
 	CloseZips(); // kept open while the game runs: a few drivers load ROMs again at a reset (the Neo Geo's BIOS)
 	bDrvOkay = 0;
 	g.loaded = false;

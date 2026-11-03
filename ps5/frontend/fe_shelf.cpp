@@ -5,6 +5,7 @@
 
 #include "fe_covers.h"
 #include "fe_games.h"
+#include "fe_hdd.h"
 #include "fe_i18n.h"
 #include "fe_menu.h"
 #include "fe_prefetch.h"
@@ -1065,7 +1066,23 @@ std::string Shelf()
 			sel_since = now;
 			dirty = true;
 		}
-		if ((down & SCE_PAD_BUTTON_CROSS) && n > 0)
+		if ((down & SCE_PAD_BUTTON_CROSS) && n > 0 && !st.games[size_t(sel)].disk.empty() &&
+			!LookForDisk(&st.games[size_t(sel)]))
+		{
+			// 2.2: a game whose hard disk image isn't there (looked for again: it may have been copied meanwhile)
+			const GameInfo& g = st.games[size_t(sel)];
+			char text[1024];
+			if (g.disk_state == GameInfo::Disk::TooLong)
+				snprintf(text, sizeof(text), T("The hard disk image's path is too long (more than %d characters): move the "
+											   "ROM folder nearer the top of the drive."), int(hdd::kMaxPath));
+			else
+				snprintf(text, sizeof(text), T("%s needs its hard disk image, %s next to the ROM zip: FBNeo PS5 looks for it in %s."),
+					g.file_base.c_str(), g.disk_need.c_str(), g.disk_folder.c_str());
+			OrbisLog("[shelf] %s: %s", g.file_base.c_str(), text);
+			MessageBox("Hard disk image missing", text);
+			dirty = true;
+		}
+		else if ((down & SCE_PAD_BUTTON_CROSS) && n > 0)
 		{
 			cfg.last_rom = st.games[size_t(sel)].path;
 			cfg.last_tab = stab;
@@ -1299,10 +1316,20 @@ std::string Shelf()
 				sub += " (7z)";
 			char missing[96];
 			snprintf(missing, sizeof(missing), T("%d ROM(s) missing"), int(g.missing));
+			// 2.2: the hard disk image a Killer Instinct needs
+			char disk[160] = "";
+			if (g.disk_state == GameInfo::Disk::Missing)
+				snprintf(disk, sizeof(disk), T("needs %s next to the ROM zip"), g.disk_need.c_str());
+			else if (g.disk_state == GameInfo::Disk::TooLong)
+				snprintf(disk, sizeof(disk), "%s", T("hard disk image: path too long"));
+			else if (g.disk_state == GameInfo::Disk::Found && g.disk_on_network)
+				snprintf(disk, sizeof(disk), "%s", T("hard disk on a network share: may stutter"));
 			if (g.check_pending)
 				sub += std::string("   ") + T("ROMs not checked yet");
 			else if (!g.complete)
 				sub += std::string("   ") + missing;
+			else if (disk[0])
+				sub += std::string("   ") + disk;
 			else if (!g.working)
 				sub += std::string("   ") + T("not working yet in FBNeo");
 			if (sel_tex && !sel_tex->real)

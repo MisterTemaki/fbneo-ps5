@@ -25,6 +25,7 @@
 #include "ProsperoCrash.h"
 #include "ProsperoInput.h"
 #include "ProsperoSce.h"
+#include "ProsperoThread.h"
 #include "ProsperoVideo.h"
 
 #include "netfs.h"
@@ -33,6 +34,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cmath>
 #include <cstdarg>
@@ -40,6 +42,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <new>
 #include <vector>
 
 static_assert(emu::kPads == fe::Settings::kPads && emu::kPads == ps5input::kMaxPads, "one setting per controller");
@@ -272,6 +275,20 @@ struct State
 
 	// saves
 	double next_nvram_check = 0;
+
+	// 2.2: the hard disk's changes (Killer Instinct writes its audits and settings to its disk): every 5 s while they
+	// change, the game's thread takes them and a thread of their own writes them (the game goes on meanwhile); the
+	// pause menu, a save state and the end of the game write them at once, after that thread is done
+	burn::HddJob hdd_job;
+	ps5::BigThread hdd_writer;
+	std::atomic<bool> hdd_busy{false};
+	std::atomic<bool> hdd_result{false};
+	std::atomic<bool> hdd_oom{false};
+	bool hdd_threads = true;  // false once a thread was refused: written at the pause menu and at the end only
+	bool hdd_failed = false;  // a write failed since the last one that succeeded (its notice given)
+	bool hdd_read_noticed = false;
+	double next_hdd_save = 0;
+	uint64_t hdd_started_frame = 0;
 
 	// messages and the FPS counter
 	std::string osd;
@@ -734,6 +751,197 @@ void ShowOverlays(ps5video::Rect* damage)
 	g.overlay_was_drawn = drawn;
 }
 
+// ---- the hard disk's changes (2.2) --------------------------------------------------------------------------------------
+std::string BaseName(const std::string& p)
+{
+	return p.substr(p.find_last_of('/') + 1);
+}
+
+// A write that failed: logged each time, one notice until a write succeeds at the pause menu or a save state.
+void HddFailed(const char* when)
+{
+	OrbisLog("[emu] hard disk: the changes could not be written (%s)", when);
+	if (g.hdd_failed)
+		return;
+	g.hdd_failed = true;
+	ProsperoNotify("%s", T("FBNeo PS5: the hard disk's changes could not be saved (is the console's storage full?)"));
+}
+
+// The periodic writer's result, once it is done (wait: join it first).
+void HddCollect(bool wait)
+{
+	if (!g.hdd_writer.joinable() || (!wait && g.hdd_busy.load()))
+		return;
+	g.hdd_writer.join();
+	const bool ok = g.hdd_result.load();
+	g.hdd_job.Done(ok);
+	if (g.hdd_oom.exchange(false))
+		OrbisLog("[emu] hard disk: out of memory in the writer: the changes are kept, written later");
+	OrbisLog("[emu] hard disk: periodic save %s (frames %llu-%llu)", ok ? "done" : "failed",
+		(unsigned long long)g.hdd_started_frame, (unsigned long long)g.frames);
+	if (!ok)
+		HddFailed("periodic save");
+}
+
+// Every disk's changes now (the pause menu, a save state, the end of the game): after the periodic writer. clear: a
+// success ends the failed state (another failure gets its notice again).
+bool HddFlushNow(const char* when, bool clear)
+{
+	HddCollect(true);
+	if (!burn::HasDisk())
+		return true;
+	const bool dirty = burn::HddDirty();
+	const bool ok = burn::HddFlush();
+	if (dirty)
+		OrbisLog("[emu] hard disk: changes written at the %s: %s", when, ok ? "ok" : "FAILED");
+	if (!ok)
+		HddFailed(when);
+	else if (clear)
+		g.hdd_failed = false;
+	return ok;
+}
+
+// every 5 s while there are changes (the host tests: FBNEO_HOST_HDD_PERIOD_S)
+double HddPeriod()
+{
+#ifndef __PROSPERO__
+	if (const char* e = getenv("FBNEO_HOST_HDD_PERIOD_S"); e && atof(e) > 0)
+		return atof(e);
+#endif
+	return 5.0;
+}
+
+void HddPeriodic(double now)
+{
+	if (!burn::HasDisk())
+		return;
+	HddCollect(false);
+	if (now < g.next_hdd_save)
+		return;
+	g.next_hdd_save = now + HddPeriod();
+	if (g.hdd_busy.load() || g.hdd_writer.joinable() || !g.hdd_threads || !burn::HddDirty())
+		return;
+	try
+	{
+		if (!g.hdd_job.Take())
+			return;
+		g.hdd_busy = true;
+		g.hdd_started_frame = g.frames;
+		OrbisLog("[emu] hard disk: periodic save of %zu bytes started (frame %llu)", g.hdd_job.Bytes(),
+			(unsigned long long)g.frames);
+		g.hdd_writer = ps5::BigThread(
+			[] {
+				bool ok = false;
+				try
+				{
+					ok = g.hdd_job.Write();
+				}
+				catch (const std::bad_alloc&)
+				{
+					g.hdd_oom = true;
+				}
+				g.hdd_result = ok;
+				g.hdd_busy = false;
+			},
+			256 * 1024);
+		if (!g.hdd_writer.joinable())
+		{
+			g.hdd_busy = false;
+			g.hdd_threads = false;
+			g.hdd_job.Done(false);
+			OrbisLog("[emu] hard disk: no thread for the periodic save (the system refused it): the changes are written at "
+					 "the pause menu and at the end");
+		}
+	}
+	catch (const std::bad_alloc&)
+	{
+		g.hdd_busy = false;
+		g.hdd_job.Done(false);
+		OrbisLog("[emu] hard disk: out of memory taking the changes: kept, written later");
+	}
+}
+
+#ifndef __PROSPERO__
+// The host tests (FBNEO_HOST_HDD_WRITES="<frame>:<lba>:<count>:<fill>;...", FBNEO_HOST_HDD_READS="<frame>:<lba>:<count>;..."):
+// the game's IDE controller writing / reading sectors at those frames (the stand-in ROMs run no game code that would)
+void HostDiskWrites()
+{
+	if (!burn::HasDisk())
+		return;
+	if (const char* r = getenv("FBNEO_HOST_HDD_READS"))
+		for (const char* p = r; *p;)
+		{
+			unsigned long long frame = 0;
+			unsigned lba = 0, count = 0;
+			if (sscanf(p, "%llu:%u:%u", &frame, &lba, &count) == 3 && frame == g.frames)
+				burn::HddTestRead(lba, count);
+			const char* semi = strchr(p, ';');
+			if (!semi)
+				break;
+			p = semi + 1;
+		}
+	const char* e = getenv("FBNEO_HOST_HDD_WRITES");
+	if (!e)
+		return;
+	for (const char* p = e; *p;)
+	{
+		unsigned long long frame = 0;
+		unsigned lba = 0, count = 0, fill = 0;
+		if (sscanf(p, "%llu:%u:%u:%u", &frame, &lba, &count, &fill) == 4 && frame == g.frames)
+		{
+			burn::HddTestWrite(lba, count, uint8_t(fill));
+			OrbisLog("[emu] host: the IDE wrote %u sector(s) at %u (frame %llu)", count, lba, frame);
+		}
+		const char* semi = strchr(p, ';');
+		if (!semi)
+			break;
+		p = semi + 1;
+	}
+}
+#endif
+
+// What happened to the saved disk changes as the game started: said once, for this start only.
+void ReportDisks()
+{
+	g.hdd_failed = false;
+	g.hdd_read_noticed = false;
+	g.hdd_threads = true;
+	g.next_hdd_save = Now() + HddPeriod();
+	for (const burn::DiskReport& d : burn::LastStartDisks())
+	{
+		const std::string diff = BaseName(d.diff), aside = BaseName(d.set_aside_as), back = BaseName(d.put_back_from);
+		OrbisLog("[emu] hard disk %s: %s%s%s%s%s%s%s", d.disk.c_str(), d.image.c_str(),
+			d.set_aside ? (", " + diff + " set aside as " + aside).c_str() : "", d.put_back ? (", put back " + back).c_str() : "",
+			d.set_aside_failed ? ", an old .diff could not be set aside" : "",
+			d.put_back_failed ? ", its saved changes could not be put back" : "",
+			d.saving_off ? (", saving off: " + d.why).c_str() : "", d.sha_mismatch ? ", not the SHA-1 the driver names" : "");
+		if (d.set_aside)
+			ProsperoNotify(T("FBNeo PS5: %s was made for another hard disk image: kept as %s"), diff.c_str(), aside.c_str());
+		if (d.put_back)
+			ProsperoNotify(T("FBNeo PS5: this hard disk image's saved changes were put back (%s)"), back.c_str());
+		if (d.set_aside_failed)
+			ProsperoNotify("%s", T("FBNeo PS5: an old .diff could not be set aside: saving is off for this game"));
+		else if (d.put_back_failed)
+			ProsperoNotify("%s", T("FBNeo PS5: this disk's saved changes could not be put back: saving is off for this game"));
+		else if (d.saving_off)
+			ProsperoNotify(T("FBNeo PS5: %s could not be checked: saving is off for this game"), diff.c_str());
+	}
+}
+
+// A sector of the image that could not be read (a share that dropped): said once a game.
+void WatchDiskReads()
+{
+	if (g.hdd_read_noticed || !burn::HasDisk())
+		return;
+	const uint32_t n = burn::HddReadErrors();
+	if (!n)
+		return;
+	g.hdd_read_noticed = true;
+	OrbisLog("[emu] hard disk: %u sector(s) of the image could not be read%s", n,
+		burn::HddOnNetwork() ? " (it is on a network share)" : "");
+	ProsperoNotify("%s", T("FBNeo PS5: parts of the hard disk image could not be read (a network share that dropped?)"));
+}
+
 double FrameAspect()
 {
 	const fe::Settings& cfg = fe::Config();
@@ -778,6 +986,7 @@ bool InitCore()
 	paths.blend = OrbisDir("blend");
 	paths.config = OrbisDir("config");
 	fe::PrepareFolders();
+	burn::SetRomFolders([] { return fe::RomRoots(); }); // 2.2: where else a hard disk image may be
 	if (!burn::Init(paths))
 		return false;
 	g.inited = true;
@@ -896,6 +1105,7 @@ bool LoadGame(const std::string& path, std::string* error)
 	netfs_set_realtime(true);
 	OrbisLog("[emu] running %s \"%s\" (%s), %.3f fps (%s), aspect %.4f, %d button(s)", g.set.c_str(), g.title.c_str(),
 		g.board.c_str(), g.fps, g.vsynced ? "at 60 Hz, vsync" : "paced by the sound", burn::Aspect(), burn::ButtonCount());
+	ReportDisks();
 	return true;
 }
 
@@ -905,6 +1115,7 @@ void CloseGame()
 		return;
 	FBNEO_STAGE(Emu, "close game");
 	OrbisLog("[emu] inputs the game got: %s", burn::InputReport().c_str());
+	HddFlushNow("game's end", false); // the periodic writer done first, then the hard disk's changes
 	burn::Unload(); // writes the NVRAM (and the core its EEPROM and high scores)
 	g.loaded = false;
 	g.frame.clear();
@@ -932,7 +1143,10 @@ std::string SystemName()
 	return g.loaded ? g.board : "";
 }
 
-void Pause() {}
+void Pause()
+{
+	HddFlushNow("pause menu", true); // the hard disk's changes, at once
+}
 
 void Resume()
 {
@@ -957,8 +1171,17 @@ bool SaveState(int slot)
 {
 	if (!g.loaded)
 		return false;
-	const bool ok = burn::SaveState(StatePath(slot));
+	bool ok = false;
+	try
+	{
+		ok = burn::SaveState(StatePath(slot));
+	}
+	catch (const std::bad_alloc&)
+	{
+		OrbisLog("[emu] save state %d: out of memory", slot); // 2.2: operator new throws (it trapped up to 2.1)
+	}
 	OrbisLog("[emu] save state %d: %s", slot, ok ? "ok" : "failed");
+	HddFlushNow("save state", true); // and the hard disk's changes with it
 	Osd(ok ? Fmt(T("State saved to slot %d"), slot) : "Could not save the state");
 	return ok;
 }
@@ -973,7 +1196,17 @@ bool LoadState(int slot)
 		return false;
 	}
 	std::string why;
-	const bool ok = burn::LoadState(StatePath(slot), &why);
+	bool ok = false;
+	try
+	{
+		ok = burn::LoadState(StatePath(slot), &why);
+	}
+	catch (const std::bad_alloc&)
+	{
+		// 2.2: a damaged state file can declare 512 MiB: the allocation's std::bad_alloc is the load failing
+		why = "a damaged save";
+		OrbisLog("[emu] load state %d: out of memory reading it (a damaged state?)", slot);
+	}
 	OrbisLog("[emu] load state %d: %s%s%s", slot, ok ? "ok" : "failed", ok ? "" : ": ", why.c_str());
 	Osd(ok ? Fmt(T("State loaded from slot %d"), slot) : Fmt(T("Could not load the state: %s"), WhyShown(why).c_str()));
 	return ok;
@@ -1205,7 +1438,19 @@ FrameResult RunFrame()
 	// -- emulate
 	FBNEO_STAGE(Emu, "frame");
 	const burn::Input in = ReadPads();
+#ifndef __PROSPERO__
+	// the host tests (FBNEO_HOST_FRAME_LOG=N): how long the core's frame takes, for the first N frames
+	static const long frame_log = getenv("FBNEO_HOST_FRAME_LOG") ? atol(getenv("FBNEO_HOST_FRAME_LOG")) : 0;
+	const double t_core = frame_log ? Now() : 0;
+#endif
 	burn::RunFrame(in, true);
+#ifndef __PROSPERO__
+	if (frame_log && g.frames < uint64_t(frame_log))
+		OrbisLog("[emu] frame %llu: core %.2f ms", (unsigned long long)g.frames, (Now() - t_core) * 1000.0);
+#endif
+#ifndef __PROSPERO__
+	HostDiskWrites();
+#endif
 	TakePicture();
 	FlushAudio();
 	g.frames++;
@@ -1253,12 +1498,15 @@ FrameResult RunFrame()
 		}
 	}
 
-	// -- NVRAM, every 5 s when it changed; the log, now and then
+	// -- NVRAM, every 5 s when it changed; the hard disk's changes the same, on a thread; the log, now and then
 	if (now >= g.next_nvram_check)
 	{
 		g.next_nvram_check = now + 5.0;
 		burn::SaveNvram(false);
 	}
+	HddPeriodic(now);
+	if (g.frames % 60 == 0)
+		WatchDiskReads();
 	if (now >= g.next_stats)
 	{
 		g.stats_reports++;

@@ -1967,6 +1967,437 @@ PY
 expect "echo '$o' | grep -qv ';' && [ -n '$o' ]" "the DAT parses as XML: one set per driver the shelf lists, parents and BIOS sets in it, sf2's and mslug's ROMs as the drivers list them ($o)"
 fi
 
+# ---------------------------------------------------------------- 2.2 ----------------------------------------------------
+if want 40; then
+echo "== 40. the MIPS III core of Killer Instinct (make test-mips3): four builds, known answers, random programs alike"
+if [ -x build/host/mips3-test-c0i0 ]; then
+	while IFS= read -r l; do
+		case "$l" in
+			*"  ok: "*) ok "${l#*ok: }" ;;
+			*"  FAIL: "*) bad "${l#*FAIL: }" ;;
+		esac
+	done <<EOF
+$(sh tests/run_mips3.sh build/host 2>&1)
+EOF
+else
+	echo "  (skipped: make test-mips3 first)"
+fi
+fi
+
+if want 41; then
+echo "== 41. Killer Instinct's hard disk without the game (make test-kinst-hdd): lookup, IDE, the .diff, a failed allocation"
+if [ -x build/host/test-kinst-hdd ]; then
+	while IFS= read -r l; do
+		case "$l" in
+			"  ok: "*) ok "${l#  ok: }" ;;
+			"  FAIL: "*) bad "${l#  FAIL: }" ;;
+		esac
+	done <<EOF
+$(sh tests/run_kinst_hdd.sh build/host/test-kinst-hdd "$WORK/kinst-hdd" 2>&1)
+EOF
+else
+	echo "  (skipped: make test-kinst-hdd first)"
+fi
+fi
+
+# Killer Instinct 1 and 2 on the host app: stand-in ROM sets and synthetic hard disk images (tests/make_chd.py), never
+# real ones; SHOTS=<dir> saves the screens (22-*.png)
+KICHD() { python3 tests/make_chd.py "$1" --cyls 20 --seed "${2:-5}" >/dev/null; } # KI's 13 heads, 47 sectors
+waitlong() { for i in $(seq 1 600); do grep -q "$2" "$1" 2>/dev/null && return 0; sleep 0.1; done; return 1; }
+shot() { [ -n "${SHOTS:-}" ] && [ -f "$1" ] && mkdir -p "$SHOTS" && python3 -c "import sys; from PIL import Image; Image.open(sys.argv[1]).save(sys.argv[2])" "$1" "$SHOTS/$2"; }
+diffinfo() { python3 - "$1" <<'PY'
+import struct, sys
+d = open(sys.argv[1], 'rb').read()
+if d[:8] != b'FBNHDIFF':
+    print('not a diff'); sys.exit()
+v, ss, sc, n = struct.unpack('<IIII', d[8:24])
+lbas = [struct.unpack('<I', d[64 + i * (4 + ss):68 + i * (4 + ss)])[0] for i in range(n)]
+fills = [d[68 + i * (4 + ss)] for i in range(n)]
+print('v%d %d %d entries %d lbas %s fills %s id %s' % (v, ss, sc, n, ','.join(map(str, lbas)), ','.join('%02x' % f for f in fills), d[24:28].hex()))
+PY
+}
+chd8() { python3 -c "import sys; print(open(sys.argv[1],'rb').read()[84:88].hex())" "$1"; }
+
+if want 42; then
+echo "== 42. Killer Instinct 1 and 2 (2.2): the CHD in MAME's layout, the shelf, the game's changes in kinst.diff, out of memory"
+mkset kinst
+mkset kinst14
+mkset kinst2
+[ -f "$WORK/ki-A.chd" ] || { KICHD "$WORK/ki-A.chd" 5; KICHD "$WORK/ki-B.chd" 6; KICHD "$WORK/ki2.chd" 7; }
+# a. the shelf without the CHD: listed, "needs kinst/kinst.chd next to the ROM zip"; Cross: the message, the folder; the
+#    CHD copied while the shelf is open; Cross again: the game starts
+T=$(newroot t42a)
+cp "$SETS/kinst/kinst.zip" "$T/root/roms/"
+( waitlong "$T/root/logs/boot.log" '\[shelf\] kinst: kinst needs its hard disk image' && mkdir -p "$T/root/roms/kinst" &&
+	cp "$WORK/ki-A.chd" "$T/root/roms/kinst/kinst.chd" ) &
+cp_pid=$!
+rc=$(MAXFLIPS=1500 FBNEO_HOST_FRAME_LOG=120 run "$T" "0:0;40:$CROSS;42:0;100:$CROSS;102:0;160:$CROSS;162:0;$(QUITAT 450)" "30,70")
+wait $cp_pid
+B=$T/root/logs/boot.log
+expect "[ $rc = 0 ] && grep -q '\[games\] kinst: hard disk kinst: missing, kinst/kinst.chd expected in $T/root/roms/kinst' $B" "the shelf lists Killer Instinct without its CHD: missing, kinst/kinst.chd expected beside kinst.zip"
+expect "grep -q '\[shelf\] kinst: kinst needs its hard disk image, kinst/kinst.chd next to the ROM zip: FBNeo PS5 looks for it in $T/root/roms/kinst.' $B" "Cross: \"Hard disk image missing\", with the folder"
+expect "grep -q 'hard disk 0 (kinst): $T/root/roms/kinst/kinst.chd\$' $B && grep -q 'running kinst \"Killer Instinct (ROM ver. 1.5d)\"' $B" "the CHD copied while the shelf is open: Cross looks again and starts the game"
+expect "grep -q 'running kinst \"Killer Instinct (ROM ver. 1.5d)\" (MIDWAY), 58.980 fps (at 60 Hz, vsync)' $B" "the board's 58.98 Hz (6.25 MHz / 406 x 261), paced by the 60 Hz vsync"
+n=$(grep -c '\[emu\] frame [0-9]*: core' $B)
+avg=$(sed -n 's/.*\[emu\] frame [0-9]*: core \([0-9.]*\) ms/\1/p' $B | awk '{s+=$1; if ($1>m) m=$1} END {if (NR) printf "%.1f ms average, %.1f ms at most", s/NR, m}')
+expect "[ $n = 120 ]" "the core's time per frame, logged for 120 frames (host, ASan: $avg)"
+expect "grep -q 'HDD: warning: .*kinst.chd has SHA-1 .*, the driver names 81d833236e994528d1482979261401b198d1ca53' $B" "a CHD that isn't the driver's (SHA-1): a warning in the log"
+nosan "$T"
+shot "$T/dump/flip00030.ppm" 22-shelf-ki-missing-chd.png
+shot "$T/dump/flip00070.ppm" 22-missing-message-en.png
+# the same in German
+T=$(newroot t42a-de)
+cp "$SETS/kinst/kinst.zip" "$T/root/roms/"
+echo "language=4" >>"$T/root/fbneo-ps5.ini"
+rc=$(MAXFLIPS=600 run "$T" "0:0;40:$CROSS;42:0;100:$CROSS;102:0;$(SHELFQUIT_AT 140)" "30,70")
+expect "[ $rc = 0 ] && grep -q '\[shelf\] kinst: kinst braucht sein Festplatten-Image, kinst/kinst.chd neben dem ROM-Zip: FBNeo PS5 sucht es in $T/root/roms/kinst.' $T/root/logs/boot.log" "the message in German"
+nosan "$T"
+shot "$T/dump/flip00030.ppm" 22-shelf-ki-missing-chd-de.png
+shot "$T/dump/flip00070.ppm" 22-missing-message-de.png
+# from the command line without its CHD; with a path too long
+T=$(newroot t42a-cl)
+cp "$SETS/kinst/kinst.zip" "$T/root/roms/"
+rc=$(MAXFLIPS=300 run "$T" "0:0" "" "$T/root/roms/kinst.zip")
+expect "grep -q 'could not start kinst.zip: Hard disk image missing: kinst needs kinst/kinst.chd next to the ROM zip (in $T/root/roms/kinst).' $T/root/logs/boot.log && ! grep -q 'running kinst' $T/root/logs/boot.log" "started without its CHD: refused, the same words"
+D=$T/root/$(printf 'd%.0s' $(seq 1 60))/$(printf 'e%.0s' $(seq 1 60))/$(printf 'f%.0s' $(seq 1 60))/$(printf 'g%.0s' $(seq 1 60))
+mkdir -p "$D/kinst" && cp "$SETS/kinst/kinst.zip" "$D/" && cp "$WORK/ki-A.chd" "$D/kinst/kinst.chd"
+rc=$(MAXFLIPS=300 run "$T" "0:0" "" "$D/kinst.zip")
+expect "grep -q 'hard disk 0 (kinst): its path is too long' $T/root/logs/boot.log && grep -q 'The hard disk image.s path is too long (more than 259 characters)' $T/root/logs/boot.log" "a CHD path over 259 characters: its own message"
+nosan "$T"
+# b. the shelf with the CHD (no note), a state saved and loaded from the pause menu: the CHD never written
+T=$(newroot t42b)
+cp "$SETS/kinst/kinst.zip" "$T/root/roms/"
+mkdir -p "$T/root/roms/kinst" && cp "$WORK/ki-A.chd" "$T/root/roms/kinst/kinst.chd"
+sum=$(sha256sum <"$T/root/roms/kinst/kinst.chd")
+rc=$(MAXFLIPS=1500 run "$T" "0:0;40:$CROSS;42:0;200:$L3R3;202:0;210:$DOWN;212:0;220:$CROSS;222:0;230:$CIRCLE;232:0;260:$L3R3;262:0;270:$DOWN;272:0;278:$DOWN;280:0;286:$CROSS;288:0;$(QUITAT 330)" "30")
+expect "[ $rc = 0 ] && grep -q '\[games\] kinst: hard disk kinst: $T/root/roms/kinst/kinst.chd\$' $T/root/logs/boot.log" "the shelf finds the CHD (no note)"
+expect "grep -q 'save state 1: ok' $T/root/logs/boot.log && grep -q 'load state 1: ok' $T/root/logs/boot.log" "save and load a state from the pause menu"
+expect "[ \"\$(sha256sum <$T/root/roms/kinst/kinst.chd)\" = \"$sum\" ]" "the CHD's sha256 unchanged"
+nosan "$T"
+shot "$T/dump/flip00030.ppm" 22-shelf-ki-ready.png
+# c. on a share: the shelf's hint, a clone (kinst14) with its parent's CHD on the share
+T=$(newroot t42c)
+mkdir -p "$T/share/kinst"
+cp "$SETS/kinst14/"*.zip "$T/share/"
+cp "$WORK/ki-A.chd" "$T/share/kinst/kinst.chd"
+echo "smb://10.0.0.5/games" >"$T/root/shares.txt"
+before=$(find "$T/share" -type f -exec sha256sum {} + | sort)
+rc=$(FBNEO_HOST_REALTIME=1 MAXFLIPS=1500 FBNEO_HOST_NETFS_DIR="$T/share" run "$T" "0:0;300:$RIGHT;302:0;330:$CROSS;332:0;$(QUITAT 600)" "290,320")
+B=$T/root/logs/boot.log
+expect "[ $rc = 0 ] && grep -q '\[games\] kinst14: hard disk kinst: /smb/10.0.0.5/games/kinst/kinst.chd (on a network share)' $B" "kinst14 on a share: its parent's kinst/kinst.chd on the share, said to be there"
+expect "grep -q 'loading /smb/10.0.0.5/games/kinst14.zip' $B && grep -q 'hard disk 0 (kinst): /smb/10.0.0.5/games/kinst/kinst.chd (on a network share)' $B && grep -q 'running kinst14' $B" "the clone starts with the parent's CHD from the share"
+expect "[ \"\$(find $T/share -type f -exec sha256sum {} + | sort)\" = \"$before\" ]" "nothing written to the share (the .diff stays on the console)"
+nosan "$T"
+shot "$T/dump/flip00290.ppm" 22-share-hint.png
+# d. an unreadable part of the CHD (cut short while the game runs): counted, said once
+T=$(newroot t42d)
+cp "$SETS/kinst/kinst.zip" "$T/root/roms/"
+mkdir -p "$T/root/roms/kinst" && cp "$WORK/ki-A.chd" "$T/root/roms/kinst/kinst.chd"
+( waitlong "$T/root/logs/boot.log" 'running kinst' && truncate -s 200000 "$T/root/roms/kinst/kinst.chd" ) &
+cp_pid=$!
+rc=$(FBNEO_HOST_HDD_READS="120:6000:4;180:7000:4" MAXFLIPS=600 run "$T" "0:0;$(QUITAT 260)" "" "$T/root/roms/kinst.zip")
+wait $cp_pid
+expect "[ $(grep -c 'hard disk: [0-9]* sector(s) of the image could not be read' $T/root/logs/boot.log) = 1 ] && [ $(grep -c '\[notify\] .*parts of the hard disk image could not be read' $T/root/logs/boot.log) = 1 ]" "sectors that can't be read: logged and said once (a notification)"
+nosan "$T"
+# e. KI2: kinst2/kinst2.chd
+T=$(newroot t42e)
+cp "$SETS/kinst2/kinst2.zip" "$T/root/roms/"
+mkdir -p "$T/root/roms/kinst2" && cp "$WORK/ki2.chd" "$T/root/roms/kinst2/kinst2.chd"
+rc=$(MAXFLIPS=400 run "$T" "0:0;$(QUITAT 150)" "" "$T/root/roms/kinst2.zip")
+expect "[ $rc = 0 ] && grep -q 'hard disk 0 (kinst2): $T/root/roms/kinst2/kinst2.chd' $T/root/logs/boot.log && grep -q 'running kinst2 \"Killer Instinct II (ROM ver. 1.4)\"' $T/root/logs/boot.log" "Killer Instinct 2 starts with kinst2/kinst2.chd"
+nosan "$T"
+# f. the game's changes end to end (a host hook stands for the game's IDE writes): the periodic save on a thread of its
+#    own while the game runs on (the write held 1.5 s); then (no periodic save) the pause menu, a save state and the end
+#    each write what came before them
+T=$(newroot t42f)
+cp "$SETS/kinst/kinst.zip" "$T/root/roms/"
+mkdir -p "$T/root/roms/kinst" && cp "$WORK/ki-A.chd" "$T/root/roms/kinst/kinst.chd"
+sum=$(sha256sum <"$T/root/roms/kinst/kinst.chd")
+rc=$(FBNEO_HOST_HDD_WRITES="20:100:2:161" FBNEO_HOST_HDD_WRITE_DELAY_MS=1500 MAXFLIPS=2000 run "$T" "0:0;$(QUITAT 400)" "" "$T/root/roms/kinst.zip")
+B=$T/root/logs/boot.log
+s=$(sed -n 's/.*hard disk: periodic save of [0-9]* bytes started (frame \([0-9]*\)).*/\1/p' $B | head -1)
+e=$(sed -n 's/.*hard disk: periodic save done (frames [0-9]*-\([0-9]*\)).*/\1/p' $B | head -1)
+expect "[ $rc = 0 ] && [ -n \"$s\" ] && [ -n \"$e\" ] && [ \$(( ${e:-0} - ${s:-0} )) -ge 10 ]" "the periodic save: on its own thread, the game ran on meanwhile (frames ${s:-?}-${e:-?}, the write held 1.5 s)"
+expect "diffinfo $T/root/saves/kinst.diff | grep -q 'entries 2 lbas 100,101 '" "... kinst.diff written by it"
+rc=$(FBNEO_HOST_HDD_PERIOD_S=1000 FBNEO_HOST_HDD_WRITES="100:300:1:162;140:350:1:164;200:400:1:163" FBNEO_HOST_QUIT_AFTER=14 MAXFLIPS=2000 \
+	run "$T" "0:0;120:$L3R3;122:0;130:$CIRCLE;132:0;170:$L3R3;172:0;180:$DOWN;182:0;190:$CROSS;192:0;200:$CIRCLE;202:0" "" "$T/root/roms/kinst.zip")
+expect "[ $rc = 0 ] && [ \$(grep -c 'hard disk: changes written at the pause menu: ok' $B) = 2 ] && grep -q 'save state 1: ok' $B && grep -q \"hard disk: changes written at the game's end: ok\" $B" "the pause menu (each time it opens: the save state's menu too) and the end write the changes at once"
+o=$(diffinfo "$T/root/saves/kinst.diff")
+expect "echo '$o' | grep -q '^v2 512 12220 entries 5 lbas 100,101,300,350,400 fills a1,a1,a2,a4,a3 id $(chd8 "$WORK/ki-A.chd")\$'" "kinst.diff: v2, every sector written, the CHD's id ($o)"
+expect "[ \"\$(sha256sum <$T/root/roms/kinst/kinst.chd)\" = \"$sum\" ] && [ ! -e $T/root/saves/kinst.diff.tmp ]" "the CHD unchanged, no .tmp left"
+nosan "$T"
+# i. A -> B -> A: another CHD sets kinst.diff aside, the first one's comes back
+cp "$WORK/ki-B.chd" "$T/root/roms/kinst/kinst.chd"
+rc=$(FBNEO_HOST_HDD_WRITES="20:500:1:177" MAXFLIPS=600 run "$T" "0:0;$(QUITAT 120)" "" "$T/root/roms/kinst.zip")
+a8=$(chd8 "$WORK/ki-A.chd"); b8=$(chd8 "$WORK/ki-B.chd")
+expect "[ -f $T/root/saves/kinst.diff.$a8 ] && grep -q 'kinst.diff was made for another hard disk image: kept as kinst.diff.$a8' $T/root/logs/boot.log && diffinfo $T/root/saves/kinst.diff | grep -q 'lbas 500 .* id $b8'" "another CHD: kinst.diff set aside as kinst.diff.$a8 (said), the new one's own kinst.diff"
+cp "$WORK/ki-A.chd" "$T/root/roms/kinst/kinst.chd"
+rc=$(MAXFLIPS=600 run "$T" "0:0;$(QUITAT 120)" "" "$T/root/roms/kinst.zip")
+expect "[ -f $T/root/saves/kinst.diff.$b8 ] && [ ! -e $T/root/saves/kinst.diff.$a8 ] && grep -q 'saved changes were put back (kinst.diff.$a8)' $T/root/logs/boot.log && grep -q 'kinst.diff was made for another hard disk image: kept as kinst.diff.$b8' $T/root/logs/boot.log && diffinfo $T/root/saves/kinst.diff | grep -q 'lbas 100,101,300,350,400 .* id $a8'" "the first CHD again: its changes put back, the other's set aside as kinst.diff.$b8"
+# j. the next start: nothing to say (the notices were that start's)
+rc=$(MAXFLIPS=600 run "$T" "0:0;$(QUITAT 120)" "" "$T/root/roms/kinst.zip")
+expect "[ $rc = 0 ] && ! grep -q '\[notify\]' $T/root/logs/boot.log && grep -q 'hard disk kinst: .*kinst.chd, not the SHA-1' $T/root/logs/boot.log" "the next start: no notice of the earlier ones"
+nosan "$T"
+# k. no thread for the periodic save: the changes are written at the pause menu and at the end
+T=$(newroot t42k)
+cp "$SETS/kinst/kinst.zip" "$T/root/roms/"
+mkdir -p "$T/root/roms/kinst" && cp "$WORK/ki-A.chd" "$T/root/roms/kinst/kinst.chd"
+rc=$(FBNEO_HOST_NO_THREADS=1 FBNEO_HOST_HDD_WRITES="20:10:1:17;400:11:1:18" MAXFLIPS=1500 run "$T" "0:0;380:$L3R3;382:0;390:$CIRCLE;392:0;$(QUITAT 440)" "" "$T/root/roms/kinst.zip")
+B=$T/root/logs/boot.log
+expect "[ $rc = 0 ] && grep -q 'no thread for the periodic save (the system refused it)' $B && [ \$(grep -c 'changes written at the pause menu: ok' $B) = 2 ]" "no thread: written each time the pause menu opens (the last time to quit), the game unharmed"
+expect "diffinfo $T/root/saves/kinst.diff | grep -q 'entries 2 lbas 10,11 '" "... both writes in kinst.diff"
+nosan "$T"
+# l. std::bad_alloc while the changes are taken, then in the writer: kept, written later, one notice
+T=$(newroot t42l)
+cp "$SETS/kinst/kinst.zip" "$T/root/roms/"
+mkdir -p "$T/root/roms/kinst" && cp "$WORK/ki-A.chd" "$T/root/roms/kinst/kinst.chd"
+rc=$(FBNEO_HOST_HDD_OOM=take FBNEO_HOST_HDD_WRITES="20:10:1:17" MAXFLIPS=1500 run "$T" "0:0;380:$L3R3;382:0;390:$CIRCLE;392:0;$(QUITAT 440)" "" "$T/root/roms/kinst.zip")
+B=$T/root/logs/boot.log
+expect "[ $rc = 0 ] && grep -q 'out of memory taking the changes: kept, written later' $B && grep -q 'changes written at the pause menu: ok' $B && diffinfo $T/root/saves/kinst.diff | grep -q 'lbas 10 '" "out of memory taking the changes: kept, written at the pause menu"
+rm -f "$T/root/saves/kinst.diff"
+rc=$(FBNEO_HOST_HDD_OOM=write FBNEO_HOST_HDD_WRITES="20:12:1:19;300:13:1:20" MAXFLIPS=1500 run "$T" "0:0;$(QUITAT 480)" "" "$T/root/roms/kinst.zip")
+expect "[ $rc = 0 ] && grep -q 'out of memory in the writer: the changes are kept, written later' $B && [ \$(grep -c '\[notify\] .*changes could not be saved' $B) = 1 ] && diffinfo $T/root/saves/kinst.diff | grep -q 'lbas 12,13 '" "out of memory in the writer: kept, one notice, written at the end"
+nosan "$T"
+# m. out of memory while Killer Instinct starts: the message, nothing left open, the shelf goes on
+T=$(newroot t42m)
+cp "$SETS/kinst/kinst.zip" "$T/root/roms/"
+mkdir -p "$T/root/roms/kinst" && cp "$WORK/ki-A.chd" "$T/root/roms/kinst/kinst.chd"
+rc=$(FBNEO_HOST_OOM_START=disk MAXFLIPS=800 run "$T" "0:0;40:$CROSS;42:0;100:$CROSS;102:0;$(SHELFQUIT_AT 160)" "70")
+B=$T/root/logs/boot.log
+expect "[ $rc = 0 ] && grep -q '\[burn\] kinst: out of memory while it started' $B && grep -q 'could not start kinst.zip: Not enough memory to start the game.' $B" "out of memory as it starts: \"Not enough memory to start the game.\""
+expect "grep -q 'OPTIONS\|leaving' $B && ! grep -q 'running kinst' $B" "... back to the shelf, quit from there"
+nosan "$T"
+shot "$T/dump/flip00070.ppm" 22-oom-start.png
+fi
+
+if want 43; then
+echo "== 43. the Midway boards after upstream's MIPS III, DCS2K and ADSP-2100 changes: 15 sets start and replay a state under ASan"
+# stand-in ROMs (the CPUs run whatever the pattern decodes to: the pictures are blank), Killer Instinct 1 and 2 with
+# synthetic CHDs in MAME's layout beside them
+[ -f "$WORK/ki-A.chd" ] || { KICHD "$WORK/ki-A.chd" 5; KICHD "$WORK/ki2.chd" 7; }
+for g in kinst kinst2 mk mk2 nbajam nbajamte smashtv trog narc totcarn mk3 umk3 wwfmania openice revx; do
+	mkset $g
+	case $g in
+		kinst) mkdir -p "$SETS/kinst/kinst" && cp "$WORK/ki-A.chd" "$SETS/kinst/kinst/kinst.chd" ;;
+		kinst2) mkdir -p "$SETS/kinst2/kinst2" && cp "$WORK/ki2.chd" "$SETS/kinst2/kinst2/kinst2.chd" ;;
+	esac
+	o=$("$HEADLESS" run "$SETS/$g" $g 120 --state 2>"$WORK/h43-$g.err"); rc=$?
+	expect "[ $rc = 0 ] && echo '$o' | grep -q 'state replay same' && ! grep -q 'AddressSanitizer\|runtime error' $WORK/h43-$g.err" "$g: $(echo "$o" | head -1 | cut -c1-70)"
+done
+o=$("$HEADLESS" list 2>/dev/null | awk -F'\t' '$1=="revx" || $1=="revx1" || $1=="revxp5" {print $1 "=" $2}' | sort | tr '\n' ' ')
+expect "echo '$o' | grep -q 'revx1=revx ' && echo '$o' | grep -q 'revxp5=revx ' && echo '$o' | grep -q 'revx= '" "Revolution X: revx is the parent now, revx1 and revxp5 its clones ($o)"
+fi
+
+if want 44; then
+echo "== 44. from Snes9x PS5 2.11: the eboot's imports and C++ runtime, the version stamp, std::bad_alloc, threads, the crash report, the helper's HTTP limits, ShadowMount+'s folder"
+SDKLIB=${PS5_PAYLOAD_SDK:-/opt/ps5-payload-sdk}/target/lib
+stop44() { pkill -f 'build/host/fbneo-ps5-(installer|helper)' 2>/dev/null; pkill -f 'http.server 1[89][0-9][0-9][0-9]' 2>/dev/null; sleep 0.3; }
+waitfor44() { for i in $(seq 1 100); do grep -q "$2" "$1" 2>/dev/null && return 0; sleep 0.1; done; return 1; }
+CVER=$(sed -n 's/.*"contentVersion": "\([0-9.]*\)".*/\1/p' app/sce_sys/param.json)
+# a. the PIE of the last make ps5: the eleven modules 2.1 loads, no C++ runtime import, its own personality routine
+if [ -f build/app/fbneo-pie.elf ] && [ -d "$SDKLIB" ]; then
+	python3 tools/check_imports.py build/app/fbneo-pie.elf "$SDKLIB" >"$WORK/imports.txt" 2>&1
+	rc=$?
+	expect "[ $rc = 0 ] && grep -q '^check_imports: ok' $WORK/imports.txt && ! grep -q 'libkernel_sys\|libkernel_web' $WORK/imports.txt" "the app's PIE: only the eleven modules, every import in one of them, no C++ runtime import"
+	if command -v llvm-dwarfdump-18 >/dev/null && command -v llvm-readelf-18 >/dev/null; then
+		P=build/app/fbneo-pie.elf
+		pers=$(llvm-readelf-18 -sW $P | awk '$NF=="__gxx_personality_v0" && $2 != "0000000000000000" {print $2}' | sed 's/^0*//' | head -1)
+		slots=$(llvm-dwarfdump-18 --eh-frame $P 2>/dev/null | awk '/Personality Address/ {print $3}' | sed 's/^0*//' | sort -u)
+		ok44=1
+		[ -n "$pers" ] && [ -n "$slots" ] || ok44=0
+		for s in $slots; do llvm-readelf-18 -rW $P | grep -qi "^0*$s .*R_X86_64_RELATIVE *0*$pers\$" || ok44=0; done
+		expect "[ $ok44 = 1 ]" "the eboot's exceptions: its own __gxx_personality_v0 (0x$pers), every CIE's personality slot ($(echo $slots | tr ' ' ,)) relocated to it"
+		expect "llvm-readelf-18 -sW $P | awk '\$NF==\"_Znwm\" && \$5==\"LOCAL\"' | grep -q . && llvm-readelf-18 -sW $P | awk '\$NF==\"__cxa_throw\" && \$5==\"LOCAL\"' | grep -q ." "operator new and __cxa_throw are the eboot's own"
+	fi
+else
+	echo "  (skipped: build/app/fbneo-pie.elf or the SDK isn't there -- make ps5 first)"
+fi
+if [ -d "$SDKLIB" ] && command -v ld.lld >/dev/null && command -v clang >/dev/null; then
+	mkdir -p "$WORK/imp"
+	printf 'int statfs(const char*, void*);\nint _start(void) { return statfs("/", 0); }\n' >"$WORK/imp/bad.c"
+	clang -fPIC -c -o "$WORK/imp/bad.o" "$WORK/imp/bad.c" &&
+		ld.lld -pie --no-dynamic-linker -e _start -o "$WORK/imp/bad.elf" "$WORK/imp/bad.o" --as-needed "$SDKLIB/libkernel.so" "$SDKLIB/libkernel_sys.so"
+	python3 tools/check_imports.py "$WORK/imp/bad.elf" "$SDKLIB" >"$WORK/imp/out.txt" 2>&1
+	rc=$?
+	expect "[ $rc = 1 ] && grep -q 'NEEDED libkernel_sys.sprx: not a module the app may load' $WORK/imp/out.txt && grep -q 'import statfs: not in an allowed module (only in libkernel_sys.so)' $WORK/imp/out.txt" "a PIE importing statfs: refused, naming libkernel_sys"
+	for sym in __gxx_personality_v0 __dynamic_cast __cxa_get_globals; do
+		printf 'extern char %s;\nvoid* p = &%s;\nint _start(void) { return p != 0; }\n' $sym $sym >"$WORK/imp/$sym.c"
+		clang -fPIC -c -o "$WORK/imp/$sym.o" "$WORK/imp/$sym.c" &&
+			ld.lld -pie --no-dynamic-linker -e _start -o "$WORK/imp/$sym.elf" "$WORK/imp/$sym.o" --as-needed "$SDKLIB/libkernel.so" "$SDKLIB/libSceLibcInternal.so"
+		python3 tools/check_imports.py "$WORK/imp/$sym.elf" "$SDKLIB" >"$WORK/imp/$sym.txt" 2>&1
+		rc=$?
+		expect "[ $rc = 1 ] && grep -q 'import $sym: the C++ runtime .* must be the eboot.s own' $WORK/imp/$sym.txt" "a PIE importing $sym from the system: refused"
+	done
+	make -s --eval 'print-app-stubs: ; @echo $(APP_STUBS)' print-app-stubs >"$WORK/imp/stubs.txt" 2>&1
+	expect "grep -q '/libkernel.so' $WORK/imp/stubs.txt && ! grep -q 'libkernel_sys\|libkernel_web' $WORK/imp/stubs.txt" "the app's link takes no libkernel_sys / libkernel_web stub"
+	expect "make -n -p build/app/fbneo-pie.elf 2>/dev/null | grep -A2 '^build/app/fbneo-pie.elf:' | grep -q check_imports.py" "make ps5 runs the check on every link of the PIE"
+else
+	echo "  (skipped: no SDK, ld.lld or clang for the check's own test)"
+fi
+# b. a new VERSION rebuilds what is built with it, not the core; the same one nothing; an asset rebuilds its object
+cp -p build/defs.stamp "$WORK/defs.stamp.keep" 2>/dev/null
+make -n build/host/fbneo-ps5-host build/host/fbneo-ps5-installer VERSION=9.8.7 >"$WORK/t44-make-new.txt" 2>&1
+[ -f "$WORK/defs.stamp.keep" ] && cp -p "$WORK/defs.stamp.keep" build/defs.stamp
+make -n build/host/fbneo-ps5-host build/host/fbneo-ps5-installer >"$WORK/t44-make-same.txt" 2>&1
+[ -f "$WORK/defs.stamp.keep" ] && cp -p "$WORK/defs.stamp.keep" build/defs.stamp
+expect "grep -q 'main-boot.cpp' $WORK/t44-make-new.txt && grep -q 'installer_main.cpp' $WORK/t44-make-new.txt && grep -q 'fe_shelf.cpp' $WORK/t44-make-new.txt && grep -q 'fe_burn.cpp' $WORK/t44-make-new.txt && ! grep -q 'd_cps1.cpp\|mips3.cpp' $WORK/t44-make-new.txt" "a new VERSION: the objects that carry it are built again, not the core (make -n)"
+expect "! grep -q 'main-boot.cpp\|installer_main.cpp' $WORK/t44-make-same.txt" "... the same VERSION: nothing built again"
+make -s --eval 'audit-rm-stamp: ; @rm -f build/defs.stamp' audit-rm-stamp build/defs.stamp >"$WORK/t44-make-clean.txt" 2>&1
+rc=$?
+stamp=$(cat build/defs.stamp 2>/dev/null)
+[ -f "$WORK/defs.stamp.keep" ] && cp -p "$WORK/defs.stamp.keep" build/defs.stamp
+expect "[ $rc = 0 ] && [ \"$stamp\" = \"$VER PPSA99924 MisterTemaki/FBNeo-PS5 1.0.0.3\" ]" "the stamp removed during the run (make clean <target>): made again (exit $rc)"
+deps_ok=1
+for pair in frontend/data/cacert.pem:fe_tlshttp frontend/assets/fonts/Roboto-Regular.ttf:fe_text ../src/dep/libs/lib7z/7z.h:fe_7z; do
+	make -n -W "${pair%%:*}" "build/host/port/frontend/${pair##*:}.o" 2>&1 | grep -q "frontend/${pair##*:}.cpp" || { deps_ok=0; echo "    not rebuilt: ${pair##*:}.o for ${pair%%:*}"; }
+done
+expect "[ $deps_ok = 1 ]" "a changed CA list, font or 7z header rebuilds the object it is built into"
+# c. the eboot's operator new: a failed allocation is std::bad_alloc
+mkdir -p "$WORK/t44-new"
+cat >"$WORK/t44-new/main.cpp" <<'EOF'
+#include <cstdint>
+#include <cstdio>
+#include <new>
+int main()
+{
+	int caught = 0;
+	volatile size_t huge = SIZE_MAX / 2 + 1;
+	try { void* p = ::operator new(huge); ::operator delete(p); } catch (const std::bad_alloc&) { caught++; }
+	try { char* p = new char[huge]; delete[] p; } catch (const std::bad_alloc&) { caught++; }
+	try { void* p = ::operator new(huge, std::align_val_t(64)); ::operator delete(p, std::align_val_t(64)); } catch (const std::bad_alloc&) { caught++; }
+	void* q = ::operator new(huge, std::nothrow);
+	void* r = ::operator new(16);
+	::operator delete(r);
+	std::printf("caught %d, nothrow %s\n", caught, q ? "allocated" : "null");
+	return caught == 3 && !q ? 0 : 1;
+}
+EOF
+g++ -std=c++20 -O1 -fno-rtti -o "$WORK/t44-new/rt" "$WORK/t44-new/main.cpp" proto/native/tooling/native/app_cpp_runtime.cpp -Wno-alloc-size-larger-than >"$WORK/t44-new/build.txt" 2>&1
+"$WORK/t44-new/rt" >"$WORK/t44-new/out.txt" 2>&1
+rc=$?
+expect "[ $rc = 0 ] && grep -q 'caught 3, nothrow null' $WORK/t44-new/out.txt" "the eboot's operator new: a failed allocation throws std::bad_alloc (new, new[], aligned), nothrow gives null (got $rc: $(head -c 80 $WORK/t44-new/out.txt))"
+# d. the start-up self-test (debug logs on)
+T=$(newroot t44-exc)
+rc=$(run "$T" "0:0;30:$OPTIONS;32:0;40:$CROSS;42:0" "")
+expect "grep -q \"\[boot\] exceptions: ok (our throw caught, libc++'s std::invalid_argument caught, operator new's std::bad_alloc not tried on the host)\" $T/root/logs/boot.log" "the start-up self-test: exceptions: ok"
+# e. the helper's HTTP client: a chunk size near 2^64 is over the limit at once
+stop44
+T=$(newroot t44-chunk)
+mkdir -p "$T/root/covers/FBNeo"
+OPORT=$((18000 + RANDOM % 1900))
+python3 tests/odd_http_server.py $OPORT bigchunk 2>"$T/server.txt" &
+osp=$!
+sleep 0.5
+printf 'FBNeo/Big.png\thttp://127.0.0.1:%s/big.png\n' $OPORT >"$T/root/covers/wanted.txt"
+FBNEO_PS5_ROOT=$T/root ASAN_OPTIONS=detect_leaks=0 timeout 8 "$HELPER" >"$T/helper.txt" 2>&1
+kill $osp 2>/dev/null; wait $osp 2>/dev/null
+stop44
+H="$T/root/logs/helper.log"
+expect "grep -q 'GET http://127.0.0.1:$OPORT/big.png -> -2,' $H && ! grep -q 'a chunk stopped' $H" "a chunk bigger than the answer may be: refused at once as too big (-2), not read on"
+expect "[ \$(grep -c 'GET /big.png' $T/server.txt) = 1 ]" "... asked once"
+# f. a redirect from HTTPS down to plain HTTP isn't followed
+C=$WORK/t44-certs; rm -rf "$C"; mkdir -p "$C"
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout "$C/ca.key" -out "$C/ca.pem" -days 30 -subj "/CN=FBNeo PS5 Test CA" 2>/dev/null
+openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout "$C/srv.key" -out "$C/srv.csr" -subj "/CN=localhost" 2>/dev/null
+printf 'subjectAltName=DNS:localhost\nbasicConstraints=CA:FALSE\n' >"$C/ext.cnf"
+openssl x509 -req -in "$C/srv.csr" -CA "$C/ca.pem" -CAkey "$C/ca.key" -CAcreateserial -out "$C/srv.pem" -days 30 -extfile "$C/ext.cnf" 2>/dev/null
+T=$(newroot t44-down)
+mkdir -p "$T/root/covers/FBNeo"
+HPORT=$((18000 + RANDOM % 1900))
+python3 tests/odd_http_server.py $HPORT bigchunk 2>"$T/plain.txt" &
+p1=$!
+python3 tests/odd_http_server.py $((HPORT + 1)) downgrade "$C/srv.pem" "$C/srv.key" "http://127.0.0.1:$HPORT/big.png" 2>"$T/tls.txt" &
+p2=$!
+sleep 0.6
+printf 'FBNeo/Down.png\thttps://localhost:%s/down.png\n' $((HPORT + 1)) >"$T/root/covers/wanted.txt"
+FBNEO_EXTRA_CA=$C/ca.pem FBNEO_PS5_ROOT=$T/root ASAN_OPTIONS=detect_leaks=0 timeout 6 "$HELPER" >"$T/helper.txt" 2>&1
+kill $p1 $p2 2>/dev/null; wait $p1 $p2 2>/dev/null
+stop44
+H="$T/root/logs/helper.log"
+expect "grep -q 'GET /down.png' $T/tls.txt && grep -q 'from HTTPS to plain HTTP: not followed' $H && ! grep -q 'GET' $T/plain.txt" "a redirect from https:// to http://: not followed, the plain server never asked"
+expect "! grep -q 'runtime error\|AddressSanitizer' $T/helper.txt" "no sanitizer reports"
+# g. no thread at all (the system refuses every one): the shelf draws, a game starts, there is no sound, notices still come
+T=$(newroot t44-nothreads)
+addset pacman "$T/root/roms"
+rc=$(FBNEO_HOST_NO_THREADS=1 MAXFLIPS=600 run "$T" "0:0;60:$CROSS;62:0;$(QUITAT 200)" "")
+B=$T/root/logs/boot.log
+expect "[ $rc = 0 ] && grep -q 'loading .*pacman.zip' $B && grep -q 'running pacman' $B" "no threads at all: the shelf works and the game starts (exit $rc)"
+expect "grep -q 'no thread for the sound' $B && grep -q '\[covers\] no thread for the covers' $B" "... no sound (said), no covers (said): the app does not end"
+nosan "$T"
+# h. the crash report with rbp holding no frame (-O3 code): the stack scan first, the report whole
+T=$(newroot t44-crash)
+FBNEO_HOST_CRASH_HANDLER=1 FBNEO_HOST_CRASH_TEST=1 FBNEO_PS5_ROOT=$T/root FBNEO_PS5_HOMEBREW=$T/homebrew \
+	ASAN_OPTIONS=detect_leaks=0:handle_segv=0:allow_user_segv_handler=1 timeout 30 "$BIN" >"$T/out.txt" 2>&1
+rc=$?
+B=$T/root/logs/boot.log
+expect "[ $rc = 1 ] && grep -q '== CRASH ==' $B && grep -q 'signal 11 (SIGSEGV)' $B && grep -q 'stage\[boot\] = crash test' $B && grep -q '== END CRASH ==' $B" "a fault with a garbage rbp: the crash report is written whole (exit $rc)"
+expect "grep -q 'SIGSYS' coreorbis/orbis-shims/ProsperoCrash.cpp && grep -q 'SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT, SIGTRAP, SIGSYS' coreorbis/orbis-shims/ProsperoCrash.cpp" "SIGSYS (a call the console refuses a title) is caught and named too"
+# i. ShadowMount+: the payload and the helper's updates go to the folder the console runs the app from, never a second
+#    copy in /data/homebrew; an image is said, not written; a place that can't be told for sure: /data/homebrew, as 2.1
+stop44
+T=$(newroot t44-place)
+M=$T; [ ${#T} -le 56 ] || M=$(mktemp -d /tmp/fbn44.XXXXXX)
+SX=$M/sysex; U=$M/usb0/homebrew/PPSA99924
+FBNEO_PS5_ROOT=$T/root FBNEO_PS5_HOMEBREW=$T/homebrew FBNEO_PS5_APPMETA=$T/appmeta ASAN_OPTIONS=detect_leaks=0 timeout 60 "$INSTALLER" >"$T/inst0.txt" 2>&1 &
+waitfor44 $T/root/logs/installer.log 'listening on 127.0.0.1'
+stop44
+rm -rf "${SX:?}" "${M:?}/usb0" && mkdir -p $SX/app $M/usb0/homebrew && cp -r $T/homebrew/PPSA99924 $U
+sums44() { ( cd $1 && find . -type f | sort | xargs sha256sum ); }
+ver44() { sed -i "s/\"contentVersion\": \"[0-9.]*\"/\"contentVersion\": \"$2\"/" $1/sce_sys/param.json; }
+ln -s $U $SX/app/PPSA99924
+MNT="$SX/app/PPSA99924|nullfs|$U|rw;$M/usb0|exfatfs|/dev/da0s1|rw"
+echo "eboot usb old" >$U/eboot.bin; ver44 $U 00.900.000
+env FBNEO_SYSTEM_EX=$SX FBNEO_SHADOWMNT=$M/shadowmnt FBNEO_USER_APP=$M/userapp FBNEO_PS5_ROOT=$T/root FBNEO_PS5_HOMEBREW=$M/hb2 \
+	FBNEO_PS5_APPMETA=$T/appmeta FBNEO_HOST_MOUNTS="$MNT" ASAN_OPTIONS=detect_leaks=0 timeout 60 "$INSTALLER" >"$T/inst1.txt" 2>&1 &
+waitfor44 $T/inst1.txt 'listening on 127.0.0.1'
+stop44
+expect "grep -q \"updated to $VER (in $U, the copy ShadowMount+ runs)\" $T/inst1.txt && ! grep -q 'eboot usb old' $U/eboot.bin && grep -q '\"contentVersion\": \"$CVER\"' $U/sce_sys/param.json && [ ! -e $M/hb2 ]" "the payload: the copy ShadowMount+ runs (a USB folder) updated through the mount, no second copy"
+SRV=$T/srv; mkdir -p $SRV
+SPORT=$((18000 + RANDOM % 1900))
+(cd "$SRV" && exec python3 -m http.server $SPORT --bind 127.0.0.1 >/dev/null 2>&1) &
+rel44() { # tag contentVersion: a release of the USB copy with that tag, served as the newest
+	rm -rf "${T:?}/rel" && mkdir -p $T/rel && cp -r $U $T/rel/PPSA99924 && rm -f $T/rel/PPSA99924/manifest.sha256
+	echo "eboot $1" >$T/rel/PPSA99924/eboot.bin; ver44 $T/rel/PPSA99924 $2
+	python3 tools/make_release_zip.py $T/rel/PPSA99924 PPSA99924 $SRV/FBNeoPS5-$1-PPSA99924.zip >/dev/null
+	local sha size
+	sha=$(sha256sum $SRV/FBNeoPS5-$1-PPSA99924.zip | cut -c1-64); size=$(stat -c %s $SRV/FBNeoPS5-$1-PPSA99924.zip)
+	printf '{"tag_name":"%s","assets":[{"name":"FBNeoPS5-%s-PPSA99924.zip","size":%s,"digest":"sha256:%s","browser_download_url":"http://127.0.0.1:%s/FBNeoPS5-%s-PPSA99924.zip"}]}' $1 $1 $size $sha $SPORT $1 >$SRV/latest.json
+}
+rel44 v9.9 99.000.000
+sums44 $T/homebrew/PPSA99924 >$T/home.sums
+UPD="python3 tests/update_client.py $FBNEO_HELPER_PORT"
+helper44() {
+	rm -f $T/root/logs/helper.log
+	env FBNEO_UPDATE_API=http://127.0.0.1:$SPORT/latest.json FBNEO_SYSTEM_EX=$SX FBNEO_SHADOWMNT=$M/shadowmnt FBNEO_USER_APP=$M/userapp FBNEO_PS5_ROOT=$T/root FBNEO_PS5_HOMEBREW=$T/homebrew FBNEO_PS5_APPMETA=$T/appmeta "$@" ASAN_OPTIONS=detect_leaks=0 timeout 120 "$HELPER" >"$T/helper.txt" 2>&1 &
+	sleep 0.3
+	waitfor44 $T/root/logs/helper.log 'listening on 127.0.0.1'
+}
+helper44 FBNEO_HOST_MOUNTS="$MNT"
+expect "$UPD check $VER --until available,failed | grep -q '^available|9.9|' && $UPD install $VER --until done,failed | grep -q '^done|9.9|'" "the helper: 9.9 found, installed"
+expect "grep -q \"$SX/app/PPSA99924 is a nullfs mount of $U (on $M/usb0, exfatfs, from /dev/da0s1): files go through $SX/app/PPSA99924\" $T/root/logs/helper.log" "the app runs from a USB drive's folder (a nullfs mount): found, written through the mount"
+expect "grep -q 'eboot v9.9' $U/eboot.bin && grep -q '\"contentVersion\": \"99.000.000\"' $U/sce_sys/param.json" "... the update is in that folder"
+expect "sums44 $T/homebrew/PPSA99924 | cmp -s - $T/home.sums" "... /data/homebrew's copy untouched (no second copy written)"
+pkill -f 'build/host/fbneo-ps5-(installer|helper)' 2>/dev/null; sleep 0.3
+I=$M/shadowmnt/img1/PPSA99924
+rm -rf "${M:?}/shadowmnt" "${SX:?}/app/PPSA99924" && mkdir -p $M/shadowmnt/img1 && cp -r $U $I && ln -s $I $SX/app/PPSA99924
+sums44 $I >$T/img.sums
+helper44 FBNEO_HOST_MOUNTS="$SX/app/PPSA99924|nullfs|$I|rw;$M/shadowmnt/img1|ufs|/dev/lvd2|ro"
+rel44 v9.10 99.100.000
+expect "$UPD check 9.9 --until available,failed | grep -q '^available|9.10|' && $UPD install 9.9 --until done,failed | grep -q '^failed|.*image ShadowMount+ mounted'" "an image ShadowMount+ mounted can't take the update: refused, saying why"
+expect "sums44 $I | cmp -s - $T/img.sums && [ -z \"\$(find $M -name '*.new')\" ]" "... nothing written into it"
+pkill -f 'build/host/fbneo-ps5-(installer|helper)' 2>/dev/null; sleep 0.3
+# a mount that can't be read as ShadowMount+'s (not nullfs): /data/homebrew, as 2.1 wrote (never worse than 2.1)
+rm -f "${SX:?}/app/PPSA99924"; mkdir -p $SX/app/PPSA99924
+helper44 FBNEO_HOST_MOUNTS="$SX/app/PPSA99924|tmpfs|tmpfs|rw"
+rel44 v9.11 99.110.000
+expect "$UPD check 9.10 --until available,failed | grep -q '^available|9.11|' && $UPD install 9.10 --until done,failed | grep -q '^done|9.11|' && grep -q 'eboot v9.11' $T/homebrew/PPSA99924/eboot.bin" "a mount that isn't ShadowMount+'s: /data/homebrew/PPSA99924, as 2.1"
+pkill -f 'build/host/fbneo-ps5-(installer|helper)' 2>/dev/null; sleep 0.3
+pkill -f "http.server $SPORT" 2>/dev/null
+[ "$M" != "$T" ] && rm -rf "${M:?}"
+# j. the version: 2.2, contentVersion 02.020.000
+expect "[ '$VER' = 2.2 ] && [ '$CVER' = 02.020.000 ]" "version 2.2, contentVersion 02.020.000"
+fi
+
 echo
 echo "passed $PASS, failed $FAIL  (work dir $WORK)"
 [ $FAIL = 0 ]

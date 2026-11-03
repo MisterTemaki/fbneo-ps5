@@ -102,7 +102,7 @@ EMU_SRC := coreorbis/main-boot.cpp \
 	frontend/fe_emu.cpp frontend/fe_menu.cpp frontend/fe_settings.cpp frontend/fe_i18n.cpp frontend/fe_text.cpp \
 	frontend/fe_games.cpp frontend/fe_http.cpp frontend/fe_covers.cpp frontend/fe_shelf.cpp \
 	frontend/fe_prefetch.cpp frontend/fe_coverfetch.cpp frontend/fe_coverworker.cpp \
-	frontend/fe_netscreen.cpp frontend/fe_osk.cpp frontend/fe_ui.cpp frontend/fe_7z.cpp $(NETFS_SRC)
+	frontend/fe_netscreen.cpp frontend/fe_osk.cpp frontend/fe_ui.cpp frontend/fe_7z.cpp frontend/fe_hdd.cpp $(NETFS_SRC)
 # the glue that talks to the core (built with the core's headers and defines)
 GLUE_SRC := frontend/fe_burn.cpp core/burn_frontend.cpp
 # minizip (zlib licence) for the ROM-set zips, built as C with FBNeo's zlib
@@ -473,8 +473,8 @@ $(HOST_OUT)/dat/host/%.o: host/%.cpp host/fbneo_dat.h $(DEFS_STAMP) | $(GEN_STAM
 # the core and the glue alone (tests: ROM sets, states, DIP switches; .7z sets with the same reader; the ROM DAT)
 $(HOST_OUT)/fbneo_headless: $(HOST_OUT)/glue/host/fbneo_headless.o $(HOST_OUT)/glue/frontend/fe_burn.o \
 		$(HOST_OUT)/glue/core/burn_frontend.o $(HOST_OUT)/port/frontend/third_party/unzip.o \
-		$(HOST_OUT)/port/frontend/third_party/ioapi.o $(HOST_OUT)/port/frontend/fe_7z.o $(HOST_LIB7Z_OBJ) \
-		$(HOST_DAT_OBJ) $(HOST_CORE_OUT)/libfbneo.a
+		$(HOST_OUT)/port/frontend/third_party/ioapi.o $(HOST_OUT)/port/frontend/fe_7z.o $(HOST_OUT)/port/frontend/fe_hdd.o \
+		$(HOST_LIB7Z_OBJ) $(HOST_DAT_OBJ) $(HOST_CORE_OUT)/libfbneo.a
 	$(HOST_CXX) $(HOST_SAN) -o $@ $^ -lm -lpthread
 
 # netfs's own test: the netfs code, the stub backends and an in-memory share, linked with the same --wrap list
@@ -551,11 +551,46 @@ test-7z: $(SEVENZIP_TEST)
 
 test: test-7z
 
+# 2.2: the MIPS III core of Killer Instinct (src/cpu/mips3, upstream's new one) on its own, built four ways: the cached
+# interpreter or not, the idle-loop skip or not. Known-answer programs, and random programs whose results must be the
+# same in all four builds (tests/test_mips3.cpp, tests/run_mips3.sh).
+MIPS3_TEST_SRC := $(ROOT)/src/cpu/mips3/mips3.cpp $(ROOT)/src/cpu/mips3_intf.cpp tests/test_mips3.cpp
+MIPS3_TESTS := $(foreach c,1 0,$(foreach i,1 0,$(HOST_OUT)/mips3-test-c$(c)i$(i)))
+define MIPS3_TEST_RULE
+$(HOST_OUT)/mips3-test-c$(1)i$(2): $(MIPS3_TEST_SRC) $(ROOT)/src/cpu/mips3/mips3.h $(ROOT)/src/cpu/mips3_intf.h | $(GEN_STAMP)
+	@mkdir -p $$(dir $$@)
+	$(HOST_CXX) -O1 -g1 $(HOST_CORE_SAN) $(CORE_CXXFLAGS) $(CORE_DEFS) $(CORE_INCS) -DMIPS3_CACHED_INTERPRETER=$(1) \
+		-DMIPS3_IDLE_SKIP=$(2) -o $$@ $(MIPS3_TEST_SRC)
+endef
+$(foreach c,1 0,$(foreach i,1 0,$(eval $(call MIPS3_TEST_RULE,$(c),$(i)))))
+
+test-mips3: $(MIPS3_TESTS)
+	sh tests/run_mips3.sh $(HOST_OUT)
+
+# 2.2: Killer Instinct's hard disk without the game: the core's burn_hdd.cpp and IDE controller with the port's lookup
+# and glue, on images tests/make_chd.py makes (tests/test_kinst_hdd.cpp)
+KINST_HDD_TEST := $(HOST_OUT)/test-kinst-hdd
+# (the test replaces operator new to make one allocation fail: its operator delete frees with free())
+$(HOST_OUT)/glue/tests/test_kinst_hdd.o: tests/test_kinst_hdd.cpp frontend/fe_burn.h frontend/fe_hdd.h | $(GEN_STAMP)
+	@mkdir -p $(dir $@)
+	$(HOST_CXX) -std=gnu++17 $(HOST_OPT) $(HOST_SAN) $(DEFS) $(CORE_DEFS) $(GLUE_INCS) $(GLUE_WARN) -Wno-mismatched-new-delete \
+		-fsigned-char -c -o $@ $<
+$(KINST_HDD_TEST): $(HOST_OUT)/glue/tests/test_kinst_hdd.o $(HOST_OUT)/glue/frontend/fe_burn.o \
+		$(HOST_OUT)/glue/core/burn_frontend.o $(HOST_OUT)/port/frontend/third_party/unzip.o \
+		$(HOST_OUT)/port/frontend/third_party/ioapi.o $(HOST_OUT)/port/frontend/fe_7z.o $(HOST_OUT)/port/frontend/fe_hdd.o \
+		$(HOST_LIB7Z_OBJ) $(HOST_CORE_OUT)/libfbneo.a
+	$(HOST_CXX) $(HOST_SAN) -o $@ $^ -lm -lpthread
+
+test-kinst-hdd: $(KINST_HDD_TEST)
+	sh tests/run_kinst_hdd.sh $(KINST_HDD_TEST) $(HOST_OUT)/kinst-hdd
+
+test: test-mips3 test-kinst-hdd
+
 clean:
 	rm -rf build
 
 # the SMB backend against a real Samba (adds `smb-test`, run before the other tests; skipped without smbd)
 include tests/smb/smb.mk
 
-.PHONY: ps5 core-ps5 core-host host headless dat test test-nfs test-nfs-server test-tabs test-7z send app dist clean
+.PHONY: ps5 core-ps5 core-host host headless dat test test-nfs test-nfs-server test-tabs test-7z test-mips3 test-kinst-hdd send app dist clean
 .SECONDARY:

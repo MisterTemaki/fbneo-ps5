@@ -83,7 +83,25 @@ struct GameInfo
 	bool clone = false, vertical = false, working = true;
 	bool complete = true;  // every needed ROM found
 	int missing = 0;       // how many are not
+	// 2.2: the hard disk image the game needs (Killer Instinct: "kinst"), "" for none, and where it is (fe_hdd.h):
+	// its state as the scan (or Cross) last looked, what to put where when it is missing
+	std::string disk;
+	enum class Disk : uint8_t
+	{
+		None,
+		Found,
+		Missing,
+		TooLong,
+	};
+	Disk disk_state = Disk::None;
+	bool disk_on_network = false; // the image is on a share: the game may stutter while it reads it
+	std::string disk_need;        // "kinst/kinst.chd"
+	std::string disk_folder;      // where it is, or where it is expected
 };
+
+// 2.2: looks for a game's hard disk image again (Cross on the shelf: an image copied while the shelf is open) and
+// updates g's disk fields. True when it is there.
+bool LookForDisk(GameInfo* g);
 
 // Every arcade set under the ROM folders (sub-folders included, 4 levels), sorted by title. The driver list must
 // be up (burn::Init) and no game running (the check uses the core's tables).

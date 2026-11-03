@@ -75,8 +75,11 @@ bool netfs_is_network_path(const char* path);
 
 // The frontend calls this with true after LoadGame returns and with false in CloseGame. While it is true nothing
 // in netfs waits on the network for the calling thread: stat and open answer from memory, a .pcm read that is not
-// in memory is silence, and no connection call is made on the emulation thread. The one exception is a miss
-// inside an MSU-1 data file (<rom>.msu, msu1.rom) that did not fit the prefetch budget; see netfs_cache.h.
+// in memory is silence, and no connection call is made on the emulation thread. Two readers are allowed to wait:
+// a miss inside an MSU-1 data file (<rom>.msu, msu1.rom) that did not fit the prefetch budget (see netfs_cache.h),
+// and (2.2) Killer Instinct's hard disk image, a CHD opened as the game starts and read a hunk at a time while it
+// runs (the game asks for its sectors when it needs them; a read that fails is zeros, counted, and said once a game).
+// The shelf says a CHD on a share may stutter; the README advises keeping it on the console or a USB drive.
 void netfs_set_realtime(bool on);
 bool netfs_realtime();
 

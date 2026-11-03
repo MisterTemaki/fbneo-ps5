@@ -9,9 +9,12 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include "fe_hdd.h"
+
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -32,6 +35,7 @@ struct Driver
 	int players = 0;
 	bool working = false, clone = false, vertical = false, bios = false;
 	bool arcade = false; // an arcade machine (the home consoles' drivers are not listed by this port)
+	std::string disk;    // 2.2: the hard disk image it needs ("kinst": Killer Instinct), "" for none
 };
 
 // BurnLibInit and the callbacks. Paths end without '/': saves (NVRAM, EEPROM, hiscores), samples, blend tables.
@@ -72,13 +76,67 @@ struct RomCheck
 // given): once it turns true the reads stop, and the result is a read error.
 RomCheck CheckRoms(int driver, const ZipFinder& find, const std::atomic<bool>* cancel = nullptr);
 
-// Starts the driver. On failure *error says why (missing ROMs listed).
+// 2.2: the ROM folders a hard disk image is also looked for in, after the set's and its parent's archive folders (the
+// app's: fe::RomRoots; none when not set).
+void SetRomFolders(std::function<std::vector<std::string>()> folders);
+// Where a driver's hard disk image is (fe_hdd.h), the archives found by `find`. Missing with an empty `need` for a driver
+// without a disk. Any thread while no game runs (the driver tables are read under the lock).
+fe::hdd::Lookup FindDisk(int driver, const ZipFinder& find);
+
+// Starts the driver. On failure *error says why (missing ROMs listed; a missing hard disk image and where to put it;
+// "Not enough memory to start the game." when an allocation failed while the driver started).
 // `dips`: the game's saved DIP switches (LoadDips' file), set with the defaults before the driver starts, as
 // FBNeo's frontends do (many drivers read them as they start: the Neo Geo its BIOS, others their region).
 bool Load(int driver, const ZipFinder& find, std::string* error, const std::string& dips = "");
-void Unload(); // writes the NVRAM
+void Unload(); // writes the NVRAM (and the hard disk's changes)
 bool Loaded();
 const Driver& Current();
+
+// ---- the hard disk's changes (2.2: Killer Instinct writes its audits and settings to its disk) ----------------------
+// What happened to the saved disk changes when the game last started (that start only: cleared at each Load).
+struct DiskReport
+{
+	std::string disk, image, diff; // "kinst", the image, its .diff
+	std::string set_aside_as;     // set aside: the .diff's new name
+	std::string put_back_from;    // put back: the set-aside's name
+	std::string why;              // saving off: why (English, for the log)
+	bool put_back = false, set_aside = false, set_aside_failed = false, put_back_failed = false, saving_off = false;
+	bool sha_mismatch = false;
+	int set_asides = 0;           // set-asides of this image found (more than one: the newest went back)
+};
+std::vector<DiskReport> LastStartDisks();
+// the image's lookup at the last Load (a start that failed for want of it: Missing or TooLong)
+fe::hdd::Lookup LastDiskLookup();
+bool HasDisk();          // the running game has a hard disk open
+bool HddDirty();         // changes not written yet (of a disk whose saving is on)
+bool HddSavingOff();     // a disk whose changes are not saved this session
+uint32_t HddReadErrors(); // sectors of the image that could not be read (a share that dropped)
+bool HddOnNetwork();     // the image is on a network share
+// Writes every disk's changes now (the game's thread). True when all were written or there was nothing to write.
+bool HddFlush();
+// The periodic save: the game's thread takes the changes (Take: false when there is nothing to write), any thread
+// writes them from the job's own bytes (Write), then the game's thread says how it went (Done, before the next Take or
+// any Flush / Unload).
+class HddJob
+{
+public:
+	HddJob();
+	~HddJob();
+	bool Take();
+	bool Write(); // true when every disk's file was written
+	void Done(bool ok);
+	bool Empty() const;
+	size_t Bytes() const;
+
+private:
+	struct Impl;
+	std::unique_ptr<Impl> m;
+};
+#ifndef __PROSPERO__
+// The host tests: writes `count` sectors from lba, filled with `fill`, as the game's IDE controller would; reads them.
+void HddTestWrite(uint32_t lba, uint32_t count, uint8_t fill);
+void HddTestRead(uint32_t lba, uint32_t count);
+#endif
 
 // The game's frame rate (nBurnFPS / 100) and the picture's shape on its monitor (4:3, or 3:4 for vertical games).
 double Fps();

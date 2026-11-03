@@ -8,9 +8,10 @@
 //    the blocks that are queued: the running game's read-ahead first, then the prefetch (MSU-1 files, a disc's
 //    spans), so a long prefetch backlog on a slow link never holds up what the game reads next.
 //
-// While a game runs (netfs_realtime) nothing here waits on the network for the emulation thread, with the one
-// exception the plan allows: a miss inside an MSU-1 data file waits for its block. See network-shares-spec.md,
-// "Reads" and "Directory and attribute cache".
+// While a game runs (netfs_realtime) nothing here waits on the network for the emulation thread, with the
+// exceptions netfs.h names: a miss inside an MSU-1 data file waits for its block, and so does a read of a hard disk
+// image (2.2: Killer Instinct's CHD, opened before realtime). See network-shares-spec.md, "Reads" and "Directory and
+// attribute cache".
 //
 // SPDX-License-Identifier: MIT
 #pragma once

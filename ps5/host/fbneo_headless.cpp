@@ -42,8 +42,8 @@
 
 #include "burnint.h"
 
-int FbneoPs5WriteDat(const char* path, const char* commit, const char* date,
-	const std::vector<std::string>& leave_out); // fbneo_dat.cpp
+int FbneoPs5WriteDat(const char* path, const char* commit, const char* date, const std::vector<std::string>& leave_out,
+	const char* last, const char* last_date); // fbneo_dat.cpp
 
 namespace
 {
@@ -128,7 +128,8 @@ int main(int argc, char** argv)
 			if (burn::GetDriver(i, &d) && !d.arcade)
 				leave_out.push_back(d.name);
 		}
-		return FbneoPs5WriteDat(argv[2], argv[3], argv[4], leave_out);
+		// (2.2) argv[5], argv[6]: the last upstream commit taken since the base, and its date (core-base.txt)
+		return FbneoPs5WriteDat(argv[2], argv[3], argv[4], leave_out, argc > 6 ? argv[5] : "", argc > 6 ? argv[6] : "");
 	}
 	if (cmd == "roms" && argc > 2)
 	{

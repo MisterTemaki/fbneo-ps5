@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "fe_games.h"
+#include "fe_hdd.h"
 
 #include "fe_burn.h"
 
@@ -391,6 +392,29 @@ std::vector<std::string> RomRoots()
 	return roots;
 }
 
+bool LookForDisk(GameInfo* g)
+{
+	if (g->disk.empty())
+	{
+		g->disk_state = GameInfo::Disk::None;
+		return true;
+	}
+	// the set's archive ("<parent's archive>#<clone>": the parent's), its parent's, then every ROM folder
+	const size_t hash = g->path.find('#', g->path.find_last_of('/') + 1);
+	const std::string own = hash == std::string::npos ? g->path : g->path.substr(0, hash);
+	const std::string parent = g->parent.empty() ? std::string() : FindSetZip(g->parent);
+	const hdd::Lookup l = hdd::FindImage(g->file_base, g->parent, g->disk, hdd::Folders(own, parent, RomRoots()));
+	g->disk_state = l.result == hdd::Find::Found ? GameInfo::Disk::Found
+		: l.result == hdd::Find::TooLong ? GameInfo::Disk::TooLong : GameInfo::Disk::Missing;
+	g->disk_on_network = l.on_network;
+	g->disk_need = l.need;
+	g->disk_folder = l.folder;
+	OrbisLog("[games] %s: hard disk %s: %s", g->file_base.c_str(), g->disk.c_str(),
+		l.result == hdd::Find::Found ? (l.path + (l.on_network ? " (on a network share)" : "")).c_str()
+		: l.result == hdd::Find::TooLong ? "its path is too long" : ("missing, " + l.need + " expected in " + l.folder).c_str());
+	return l.result == hdd::Find::Found;
+}
+
 std::vector<GameInfo> ScanGames(const ScanProgress& progress)
 {
 	PrepareFolders();
@@ -492,6 +516,9 @@ std::vector<GameInfo> ScanGames(const ScanProgress& progress)
 		g.check_pending = missing < 0; // listed until NetCheck says otherwise
 		g.missing = std::max(0, missing);
 		g.complete = missing <= 0;
+		g.disk = d.disk;
+		if (!g.disk.empty())
+			LookForDisk(&g); // listed with or without it: the shelf says what it needs
 		games.push_back(std::move(g));
 	};
 	auto is_game = [&](const burn::Driver& d) { return d.arcade && !d.bios && !boards.count(d.name); };

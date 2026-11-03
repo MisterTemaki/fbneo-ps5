@@ -609,7 +609,8 @@ static INT32 DrvExit()
 	Mips3Exit();
 	
     delete DrvDisk;
-    
+    DrvDisk = NULL;	// FBNeo PS5: an exit after a start that failed (out of memory) must not delete it twice
+
     BurnFree(AllMem);
 	
     return 0;
