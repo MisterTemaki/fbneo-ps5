@@ -6,7 +6,7 @@
 
 [FinalBurn Neo](https://github.com/finalburnneo/FBNeo) (FBNeo) 1.0.0.3, the arcade emulator, running on a jailbroken
 PS5 as a **native home-screen app** with its own icon and background. It plays the arcade games FBNeo emulates --
-8,379 drivers: Capcom CPS-1, CPS-2 and CPS-3, **Neo Geo MVS/AES**, IGS PGM and PGM2, Cave, Toaplan, Psikyo, Sega
+8,389 drivers: Capcom CPS-1, CPS-2 and CPS-3, **Neo Geo MVS/AES**, IGS PGM and PGM2, Cave, Toaplan, Psikyo, Sega
 System 1/16/18/24/32, X and Y boards, Konami, Taito, Irem, Data East, Midway, Kaneko, Seta, the classics of the 70s
 and 80s, and many more -- from their ROM sets (`.zip` or `.7z`), named as FBNeo names them, on the console, a USB
 drive or a network share (SMB or NFS).
@@ -26,21 +26,27 @@ the ports it comes from:
 - `ps5/proto/native` builds and signs `eboot.bin`;
 - `ps5/installer` is the installer and helper payload.
 
-Everything outside `ps5/` is FBNeo's source, **unchanged**, apart from this README (the original one is
-[README-FBNeo.md](README-FBNeo.md)). The core -- `src/burn` (the drivers), `src/cpu` and the libraries it uses -- is
+Everything outside `ps5/` is FBNeo's source: finalburnneo/FBNeo at commit `658540d` plus, since 2.2, the ten upstream
+commits that bring Killer Instinct 1 and 2 (taken as they are, their authors kept: [`ps5/core-base.txt`](ps5/core-base.txt)),
+apart from this README (the original one is [README-FBNeo.md](README-FBNeo.md)) and one change of the port's own:
+`src/burn/burn_hdd.cpp` (where a game's hard disk image is found, and how the game's writes to it are saved: see
+[Killer Instinct](#killer-instinct-hard-disk-images)), with `d_kinst.cpp`'s exit clearing its disk pointer. The core -- `src/burn` (the drivers), `src/cpu` and the libraries it uses -- is
 compiled as it is, with the object lists of FBNeo's `makefile.burn_rules` and the generated sources its makefiles
 make (the driver list, Musashi's 68000 core, the CPS, Neo Geo, Cave, Psikyo, Toaplan and PGM render functions).
 `ps5/frontend/fe_burn.cpp` is the frontend FBNeo's core needs, written again for this port the way FBNeo's own
 frontends (`src/burner`) and its libretro port host the core: ROM loading from the sets' zips and 7z archives, inputs, DIP
 switches, states, NVRAM, the picture turned the right way up and the sound.
 
-> **Status (2.1):** builds with the ps5-payload-dev SDK into a signed native app, and passes 532 host tests, which
+> **Status (2.2):** builds with the ps5-payload-dev SDK into a signed native app, and passes 684 host tests, which
 > run the same code (FBNeo's core included) on Linux with the PS5 calls simulated: two arcade boards running a tiny
 > test program each (a vertical and a horizontal game) are played through the whole chain -- the shelf, the pad,
-> the core, the video and sound output -- and 26 more boards start, run, save and load a state under
-> AddressSanitizer. The network shares and the `.7z` sets have run only in those tests (a local folder standing in
-> for the share), not yet on a PS5; 2.1's choice of player per controller has run with up to four simulated pads,
-> not yet with several real controllers. If something fails, the logs in `/data/fbneo/logs/` say where.
+> the core, the video and sound output -- and 39 more boards start, run, save and load a state under
+> AddressSanitizer. **Killer Instinct 1 and 2 (new in 2.2) have not run on a PS5 yet**: there are no ROMs or hard
+> disk images here, so they ran on stand-in ROM sets and synthetic CHDs only (the hard disk, the shelf, the saved
+> changes, the start); the new MIPS III core passes its own tests in four builds. The network shares and the `.7z`
+> sets have run only in those tests (a local folder standing in for the share), not yet on a PS5; 2.1's choice of
+> player per controller has run with up to four simulated pads, not yet with several real controllers. If something
+> fails, the logs in `/data/fbneo/logs/` say where.
 
 ## How it works
 
@@ -72,9 +78,35 @@ next to Snes9x PS5 (PPSA99922, helper port 9089), Mesen2 PS5 (PPSA99923, port 90
 
 ## Versions
 
-Every release carries its version in the file name: `FBNeoPS5-v2.1.elf` (`make dist`). When updating, replace the
+Every release carries its version in the file name: `FBNeoPS5-v2.2.elf` (`make dist`). When updating, replace the
 old ELF with the new one in your autoload or Payload Manager. In this README, "`FBNeoPS5.elf`" always means the
 current release's ELF.
+
+**2.2:** **Killer Instinct and Killer Instinct 2** (Rare / Midway, 1994 and 1995; `kinst`, `kinst14`, `kinst13`,
+`kinstp47`, `kinst15ai`, `kinst2`, `kinst213`, `kinst211`, `kinst210`, `kinst214ai`), taken from upstream FBNeo (its
+new MIPS III core, the hard disk module and the Killer Instinct fixes, up to `892a35c8f` of 2026-10-20). These games
+boot from a **hard disk**: besides the ROM zip you need its image, a MAME CHD, in a folder named after the set next to
+the zip -- **`kinst/kinst.chd` next to `kinst.zip`**, `kinst2/kinst2.chd` next to `kinst2.zip`, as MAME keeps them. The
+shelf lists a set without it and says so ("needs kinst/kinst.chd next to the ROM zip"); Cross looks again and starts it
+once it is there. The game writes its audits and settings to that disk: the image is never written, the changes go to
+`/data/fbneo/saves/<set>.diff`. See [Killer Instinct](#killer-instinct-hard-disk-images). **Not tried on a PS5 yet**
+(no ROMs here). Also in 2.2:
+
+- **Revolution X's parent changed upstream:** `revx` (revision 2.0) is the parent now, `revx1` and `revxp5` its clones.
+  Split sets made with 2.1's DAT have the old layout: rebuild them with 2.2's (`revx` shows as incomplete until then).
+- **Updates go where ShadowMount+ runs the app** (from Snes9x PS5 2.11, via Media Player Classic PS5 and Stella PS5):
+  the in-app update and the installer payload write the folder the console really runs FBNeo PS5 from (a USB drive's,
+  an extended drive's, another folder ShadowMount+ mounted), through its mount, instead of a second copy in
+  `/data/homebrew`; an image or a read-only folder is said, not written; when the place can't be told for sure, the
+  update goes to `/data/homebrew/PPSA99924` as in 2.1. See [Updates](#updates).
+- **The C++ runtime is the app's own** (Snes9x PS5 2.11's "lesson 2"): libc++, libc++abi and libunwind are linked
+  before the system's stubs, and every build checks that the app imports nothing of the C++ runtime from the system
+  and loads only its eleven modules (`ps5/tools/check_imports.py`); a failed allocation is a `std::bad_alloc` the code
+  catches (it stopped the app before) -- a Killer Instinct that runs out of memory as it starts says "Not enough memory
+  to start the game." and the shelf goes on. With the debug logs on, `boot.log` says `[boot] exceptions: ok` at start.
+- A thread the system refuses no longer ends the app (no sound then, no covers; the game still runs); the crash report
+  names SIGSYS too; a new version rebuilds everything that carries it (`build/defs.stamp`); the helper's HTTPS refuses a
+  chunk size near 2^64 and a redirect from HTTPS down to HTTP.
 
 **2.1:** **Choose which arcade player each controller plays** (thanks to gitloth, fbneo-ps5#3). The simple way:
 **Choose players** in the pause menu (or at the top of Settings, CONTROLS, CONTROLLERS on the shelf) asks "Player 1:
@@ -226,7 +258,13 @@ From 1.9 on, the app updates itself from this repository's GitHub releases, as
   against the zip's own list (`PPSA99924/manifest.sha256`). Each file is written beside the old one, then all are
   put in place with `eboot.bin` last; files the new version no longer has are removed, and the home screen's
   copy of the art is refreshed. If anything fails before that, nothing has changed.
-- Only `/data/homebrew/PPSA99924/` changes. Games, saves and settings aren't touched.
+- Only the app's folder changes: `/data/homebrew/PPSA99924/`, or (2.2) the folder ShadowMount+ runs the app from when
+  it mounted another one on `/system_ex/app/PPSA99924` (a USB or extended drive's `homebrew/PPSA99924`, a folder of its
+  scan paths): the update is written there, through the mount, so the copy the console runs is the one updated. An app
+  run from an image ShadowMount+ mounted (`.ffpkg`, `.exfat`...) or from a read-only folder can't be updated in place:
+  Settings, Updates says so (update the image or the folder by hand). When the place can't be told for sure (no mount
+  table, a mount that isn't ShadowMount+'s), the update goes to `/data/homebrew/PPSA99924/` as in 2.1. The installer
+  payload follows the same rules. Games, saves and settings aren't touched.
 - **Your autoload:** the app updated this way is newer than the ELF in your autoload. The older ELF sees that and
   leaves the app alone (its notification says so), and its helper still serves the newer app. Put the new ELF in
   your autoload when you can: a new version may come with a new helper.
@@ -281,11 +319,14 @@ enough: FBNeo keeps that version number while its sets change almost every day, 
 **The list of sets: [`ps5/dat/fbneo-ps5-arcade.dat`](ps5/dat/fbneo-ps5-arcade.dat).** FBNeo PS5 doesn't use RetroArch
 or the libretro core: it builds FBNeo's core itself, the arcade drivers only, from FinalBurn Neo 1.0.0.3 as of
 commit [`658540d`](https://github.com/finalburnneo/FBNeo/commit/658540d46c1c0efce9627667c0f9236e7b2be916)
-(2026-10-08). The DAT lists every set it plays: 8,378 sets for its 8,379 drivers (two are named `neogeo`, the
+(2026-10-08), plus (2.2) the Killer Instinct commits up to
+[`892a35c8f`](https://github.com/finalburnneo/FBNeo/commit/892a35c8f7bc864adedde14949037c706178d587) (2026-10-20); the
+DAT's header says "658540d + KI commits up to 892a35c8f". Those commits also made `revx` Revolution X's parent (it was
+a clone): split sets made with 2.1's DAT need rebuilding for it. The DAT lists every set it plays: 8,388 sets for its 8,389 drivers (two are named `neogeo`, the
 BIOS and the cartridge-less system), BIOS and board sets included, each ROM with its name,
 size and CRC, parents and clones, samples. FBNeo's own DAT writer makes it from the same sources the app is built
-from (ClrMamePro / Logiqx XML, like FBNeo's `FBNeo_-_Arcade.dat`; `make dat`). It describes the core of FBNeo PS5 2.1
-exactly, and from now on each release carries it too (`FBNeoPS5-v<version>-arcade.dat`). Load it in ClrMamePro,
+from (ClrMamePro / Logiqx XML, like FBNeo's `FBNeo_-_Arcade.dat`; `make dat`). It describes the core of FBNeo PS5 2.2
+exactly (Killer Instinct's hard disks are in it as `<disk>` entries, with the SHA-1 of MAME's CHDs), and from now on each release carries it too (`FBNeoPS5-v<version>-arcade.dat`). Load it in ClrMamePro,
 RomVault or RomCenter to check or rebuild your sets; merged, split and non-merged sets all work (below). Thanks to
 JamesWestFR for asking ([fbneo-ps5#4](https://github.com/MisterTemaki/fbneo-ps5/issues/4)).
 
@@ -334,7 +375,7 @@ every set found (`[games] ... -> "<name>"`) and the ROMs a set is missing (`[gam
 |---|---|
 | `/data/fbneo/roms` | your ROM sets and BIOS sets (`.zip` or `.7z`), sub-folders included; on a USB drive, `fbneo/roms` |
 | `/data/fbneo/shares.txt` | the network shares (Settings, Network shares; written with examples on the first start) |
-| `/data/fbneo/saves` | NVRAM (`<set>.nvram`, written within 5 seconds of a change and when the game closes) and EEPROMs (`<set>.nv`) |
+| `/data/fbneo/saves` | NVRAM (`<set>.nvram`, written within 5 seconds of a change and when the game closes), EEPROMs (`<set>.nv`), and Killer Instinct's hard disk changes (`<set>.diff`, and `.diff.<id>` set aside: see below) |
 | `/data/fbneo/states` | save states, `<set>.state1` to `.state10` |
 | `/data/fbneo/config` | the DIP switches you changed, per game (`<set>.dip`), the button layouts and players set in a game (`<set>.btn`), and `romcheck.txt` (the ROM check, of the console's sets and the shares') |
 | `/data/fbneo/samples` | sample sets |
@@ -369,6 +410,46 @@ rebuild. For another title ID: `make ps5 TITLE_ID=XXXX00000`.
 registers the title. The installer keeps that folder current on every update, but if the title was registered
 before the art changed, register it again once: select **FBNeo PS5** on the home screen, press **OPTIONS**, choose
 **Delete** (your games, saves and covers in `/data/fbneo/` stay), then send `FBNeoPS5.elf` again.
+
+## Killer Instinct (hard disk images)
+
+Killer Instinct and Killer Instinct 2 boot from a hard disk. FBNeo PS5 2.2 reads its image the way MAME keeps it:
+
+- **Where:** a folder named after the set, next to the ROM zip: **`kinst/kinst.chd`** beside `kinst.zip`,
+  **`kinst2/kinst2.chd`** beside `kinst2.zip`. A clone looks in its own folder first, then in its parent's
+  (`kinst14/kinst.chd`, then `kinst/kinst.chd`), so one CHD in `kinst/` serves every Killer Instinct set. The folders
+  looked in, in order: the one the set's zip is in, the one its parent's zip is in, then every ROM folder (the console,
+  USB drives, extended storage, network shares). Folder and file names may be in any case. `kinst.chd` is looked for
+  first, then an old raw `kinst.img`.
+- **Which file:** MAME's CHD (`kinst.chd`, `kinst2.chd`; the DAT has their SHA-1). Compressed or not, it is read a
+  piece (a hunk) at a time, never opened for writing. A CHD whose SHA-1 is not the driver's starts anyway, with a
+  warning in `boot.log`. A raw image (`.img`, the disk's sectors) gets Killer Instinct 1's geometry (13 heads, 47
+  sectors), as upstream does; **a raw KI2 `.img` is unverified** (MAME's KI2 disk has 16 heads and 52 sectors): prefer
+  the CHD. A path longer than 259 characters is refused, with its own message.
+- **Missing:** the shelf lists the set and says "needs kinst/kinst.chd next to the ROM zip". Cross looks again (copy the
+  CHD while the shelf is open, then press Cross) and starts it, or shows "Hard disk image missing" with the folder it
+  looked in.
+- **The game's changes:** the game writes its audits, high scores and settings to the disk. The image is never changed:
+  the sectors written are kept in `/data/fbneo/saves/<set>.diff` (`kinst.diff`), saved at the pause menu, after a save
+  state, every 5 seconds while they change (on a thread of their own: the game doesn't wait), and when the game ends.
+  Each write is atomic (`kinst.diff.tmp`, then renamed): a crash or a power cut in the middle of one leaves the last
+  `.diff` whole. The game itself may still have been half-way through its own update of the disk when it was closed,
+  as on the real machine. **Delete `kinst.diff` to reset the disk** (the audits and the operator settings) to the
+  image's.
+- **One `.diff` per image:** a `.diff` names the image it was made for (its SHA-1). Started with another image, the
+  old `kinst.diff` is **set aside** -- renamed `kinst.diff.<first 8 hex digits of that image's SHA-1>` (`-2`, `-3`...
+  when the name is taken; `.unknown` for a `.diff` of 2.1, which named no image) -- never deleted, and a notification
+  says so. When that image is used again, its `.diff` is **put back** (the newest one if there are several), and the
+  other one goes aside in turn. A `.diff` of 2.1 at `kinst.diff` is kept as this image's.
+- **When it can't be sure:** if a `.diff` can't be read or checked, or renaming one fails, nothing is written over:
+  saving is off for that game until it ends, and a notification says which ("an old .diff could not be set aside",
+  "this disk's saved changes could not be put back: saving is off for this game"). A save that fails (a full disk)
+  is said once a game.
+- **On a network share:** the CHD is read while the game runs (the game asks for its sectors when it needs them), so a
+  slow or busy network can make it stutter; the shelf says "hard disk on a network share: may stutter". **Keep the CHD
+  on the console or a USB drive** (the zip can stay on the share). A part of the image that can't be read (a share
+  that dropped) is read as zeros, counted, and said once a game. The `.diff` is always on the console.
+- **Untested on a console:** Killer Instinct 1 and 2 ran here on stand-in ROMs and synthetic CHDs only (no ROMs).
 
 ## The game shelf and covers
 
@@ -760,8 +841,10 @@ covers, emu, menu), and the return addresses, which map into `ps5/build/app/fbne
   the IP address). Tested here with a folder of the test machine standing in for the share, and the NFS backend
   against a mock and loopback sockets; **not yet on a PS5**, nor against a real NAS in this port (Beetle PCE PS5,
   NES FCEUmm PS5, Genesis Plus GX PS5 and Snes9x PS5 run the same network code).
-- The heaviest boards (CPS-3, PGM2, Konami GX, Midway's 3D ones) depend on the PS5's CPU running FBNeo's
-  interpreters; not measured on a console yet.
+- The heaviest boards (CPS-3, PGM2, Konami GX, Midway's 3D ones, Killer Instinct's MIPS R4600) depend on the PS5's
+  CPU running FBNeo's interpreters; not measured on a console yet.
+- Killer Instinct 1 and 2 (2.2): not run on a console yet; a raw KI2 `.img` is unverified (use the CHD); a CHD on a
+  network share may stutter.
 
 ## Building
 
@@ -776,7 +859,9 @@ make send PS5_HOST=192.168.0.10  # sends it to elfldr (port 9021)
 make dist                        # build/dist/FBNeoPS5-v<version>.elf + the release zip + the ROM DAT
 make dat                         # ps5/dat/fbneo-ps5-arcade.dat, again (after a core update or a version change)
 make app                         # only build/app/PPSA99924/, to copy by hand
-make test                        # Linux builds (app, installer, helper, headless core) + 532 host tests (ASan/UBSan)
+make test                        # Linux builds (app, installer, helper, headless core) + 684 host tests (ASan/UBSan)
+make test-mips3                  # the MIPS III core alone, four builds (in make test)
+make test-kinst-hdd              # Killer Instinct's hard disk alone, on synthetic CHDs (in make test)
 ```
 
 The first build compiles FBNeo's 1,039 core files (about 15 minutes on 2 cores; `make core-ps5` builds just those).
@@ -788,8 +873,10 @@ The build has three stages:
      console drivers (`ps5/tools/fbneo_sources.py`), with `makefile.sdl2`'s defines for a little-endian 64-bit
      build; the generated sources come from FBNeo's own scripts and tools (`ps5/tools/gen_headers.sh`:
      `gamelist.pl`, `m68kmake`, `ctv_make`, `pgm_sprite_create` and the `*_func.pl` scripts).
-   - It is linked against the SDK's stubs and static libc++, with `ps5-pie.ld` + `ehframe.ld` and every symbol
-     local.
+   - It is linked against static libc++, libc++abi and libunwind first (the app's own C++ runtime), then the SDK's
+     stubs, with `ps5-pie.ld` + `ehframe.ld` and every symbol local; `tools/check_imports.py` then refuses any import
+     of the C++ runtime from the system, any module but the eleven the app loads, and anything only libkernel_sys or
+     libkernel_web has.
    - Then it goes through `ps5-native-tool link` and `self --sign`, exactly like PS5SX2's `link-vk.sh`.
    - `libc.prx` goes with it, generated by `libc_builder` and checked against the published SHA-256
      (`ps5/proto/native/libc.prx.sha256`).
@@ -825,6 +912,8 @@ The build has three stages:
     common drawing; `fe_tabs.h`: the shelf's storage tabs (from NES FCEUmm PS5, Beetle PCE PS5, Genesis Plus GX PS5
     and Snes9x PS5);
   - `fe_7z.cpp`: sets inside a `.7z`, read through the app's stdio calls with FBNeo's LZMA SDK;
+  - `fe_hdd.cpp` (2.2): where a game's hard disk image is (MAME's layout); `src/burn/burn_hdd.cpp` reads it and keeps
+    the game's writes in the `.diff`;
   - `third_party/`: minizip (unzip.c, ioapi.c), stb, Mbed TLS 3.6.7 (`mbedtls/`, its `include/` and `library/` as
     released).
 - **`ps5/netfs/`**: network shares as folders (from NES FCEUmm PS5 1.1, Beetle PCE PS5 1.1.1, Genesis Plus GX PS5
@@ -837,7 +926,9 @@ The build has three stages:
   the host, `ps5/host/netfs_dirbackend.cpp` turns a share into a local folder (`FBNEO_HOST_NETFS_DIR`); netfs's own
   tests are `test-netfs` (an in-memory share), `make test-nfs` (the NFS backend on a mock and on loopback sockets),
   `make test-nfs-server` (a real unfsd), `smb-test` (a real Samba, skipped without `smbd`), `make test-tabs`, and the
-  7z reader's `make test-7z` (the archives in `ps5/tests/7z/`, made by `tests/make_7z_fixtures.py`).
+  7z reader's `make test-7z` (the archives in `ps5/tests/7z/`, made by `tests/make_7z_fixtures.py`). 2.2:
+  `make test-mips3` (the MIPS III core in four builds, `tests/test_mips3.cpp`) and `make test-kinst-hdd` (the hard disk
+  module and the IDE controller on CHDs `tests/make_chd.py` makes, `tests/test_kinst_hdd.cpp`).
 - **`ps5/proto/native/`**: ps5-native-app-boilerplate's tools (BlackBearReloaded, GPL-3.0), taken from PS5SX2 and
   PS5_Vulkan (mihawk-99): `ps5-native-tool`, `app_crt.cpp`, `ps5-pie.ld`, `libc_builder.cpp` and its manifests.
 - **`ps5/app/sce_sys/`**: param.json, icon and backgrounds; `ps5/tools/make_art.py` encodes the background.
@@ -847,7 +938,7 @@ The build has three stages:
   DIP switches saved and read back and in place before a driver starts, a frame's and a save state's time, a driver's palette made at start), the
   stand-in ROM sets (`make_fake_set.py`: every ROM a driver lists, with its name and its CRC, as FBNeo's split
   sets are made), the test programs (`tests/data`: a tiny Z80 program on the Pac-Man board, red screen, green
-  while the joystick or the button is pressed), and the 532 tests: picture, rotation, input and states on a
+  while the joystick or the button is pressed), and the 684 tests: picture, rotation, input and states on a
   vertical and a horizontal game, the library (parents, BIOS sets, incomplete sets, the check's cache), a set with
   a ROM missing, DIP switches, button layouts (a layout per game, a clone using its parent's, Auto's Fighting (R1 R2) for 6-button games), sound latency and pacing by the sound, 720p, install (packed
   files), covers (flyer, parent's flyer, screenshot, 404, the no-cover card's arcade panel with a long title below it), tabs and clones, the CRT shaders (each one, both
@@ -863,7 +954,11 @@ The build has three stages:
   keyboard, the storage tabs, their translations); the `.7z` sets (every method and refusal, a `.7z` set started
   from the shelf, a `.7z` clone on a share, an encrypted set and a block over the limit refused with the reason on
   the screen); the fixes of the 2.0 review (a share that drops or reconnects while the background check runs, Connect
-  again in Settings, a zip directory cut by a read error, the check's cancel, a `.7z` letting go of its block).
+  again in Settings, a zip directory cut by a read error, the check's cancel, a `.7z` letting go of its block); 2.2:
+  Killer Instinct (the CHD's lookup, the shelf's notes and messages in English and German, a CHD copied while the shelf
+  is open, a clone with its parent's CHD on a share, states, the `.diff` written by the periodic save, the pause menu, a
+  save state and the end, set aside and put back, saving off, no thread, out of memory), 15 Midway sets under ASan,
+  the app's imports and C++ runtime, the version stamp, ShadowMount+'s folder and the helper's HTTP limits.
 
 ## License and credits
 
@@ -881,6 +976,10 @@ The build has three stages:
 - **ps5-native-app-boilerplate** (BlackBearReloaded, GPL-3.0-or-later): `ps5-native-tool`, `app_crt.cpp`,
   `app_cpp_runtime.cpp`, `ps5-pie.ld` and the `libc.prx` generator, via PS5SX2 and PS5_Vulkan (mihawk-99).
 - The VideoOut tiling and setup follow the SDK's SDL2 port (zlib license).
+- **Killer Instinct's code from upstream FBNeo** (2.2): the MIPS III core (`src/cpu/mips3`, "based in part on the
+  MAME MIPS III core by Aaron Giles"), the ADSP-2100 core and the Midway sound and IDE code come from MAME, whose parts
+  by Aaron Giles are **BSD-3-Clause** (as their headers say); libchdr (Romain Tisserand, BSD-3-Clause,
+  `src/dep/libs/libchdr/LICENSE.txt`) reads MAME's CHD format. They are part of FBNeo and used under its licence.
 - **minizip** (Gilles Vollant) and **zlib** (FBNeo's copy, for the installer's unpacking too): zlib license.
 - **LZMA SDK** (Igor Pavlov, [7-zip.org/sdk.html](https://www.7-zip.org/sdk.html)), FBNeo's copy in `src/dep/libs/lib7z`
   (25.01): public domain; only its C 7z decoder is built in.

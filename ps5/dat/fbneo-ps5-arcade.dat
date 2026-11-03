@@ -4,14 +4,14 @@
 <datafile>
 	<header>
 		<name>FBNeo PS5 - Arcade Games</name>
-		<description>FBNeo PS5 2.1 Arcade Games (FinalBurn Neo 1.0.0.3, commit 658540d of 2026-10-08)</description>
+		<description>FBNeo PS5 2.2 Arcade Games (FinalBurn Neo 1.0.0.3, commit 658540d of 2026-10-08 + KI commits up to 892a35c8f of 2026-10-20)</description>
 		<category>Standard DatFile</category>
-		<version>2.1</version>
-		<date>2026-10-08</date>
+		<version>2.2</version>
+		<date>2026-10-20</date>
 		<author>FBNeo PS5 (MisterTemaki), with FinalBurn Neo's DAT writer</author>
 		<homepage>https://github.com/MisterTemaki/FBNeo-PS5</homepage>
 		<url>https://github.com/MisterTemaki/FBNeo-PS5</url>
-		<comment>The ROM sets FBNeo PS5 2.1 plays: the 8378 sets of the arcade drivers it compiles (14 of them BIOS and board sets), written by FinalBurn Neo's src/burner/dat.cpp from FinalBurn Neo 1.0.0.3, finalburnneo/FBNeo commit 658540d46c1c0efce9627667c0f9236e7b2be916 (2026-10-08). FBNeo PS5 builds this core itself: not RetroArch, not the libretro core. Left out, as the app does not list them: neocdz.</comment>
+		<comment>The ROM sets FBNeo PS5 2.2 plays: the 8388 sets of the arcade drivers it compiles (14 of them BIOS and board sets), written by FinalBurn Neo's src/burner/dat.cpp from FinalBurn Neo 1.0.0.3, finalburnneo/FBNeo commit 658540d46c1c0efce9627667c0f9236e7b2be916 (2026-10-08) and the Killer Instinct commits taken from it since, up to 892a35c8f7bc864adedde14949037c706178d587 (2026-10-20). FBNeo PS5 builds this core itself: not RetroArch, not the libretro core. Left out, as the app does not list them: neocdz.</comment>
 		<clrmamepro forcenodump="ignore"/>
 	</header>
 	<game name="88games" sourcefile="konami/d_88games.cpp">
@@ -85505,6 +85505,179 @@
 		<video type="raster" orientation="vertical" width="224" height="256" aspectx="3" aspecty="4"/>
 		<driver status="good"/>
 	</game>
+	<game name="kinstp47" cloneof="kinst" romof="kinst" sourcefile="midway/d_kinst.cpp">
+		<comment>Prototype</comment>
+		<description>Killer Instinct (ROM proto ver. 4.7)</description>
+		<year>1994</year>
+		<manufacturer>Rare/Nintendo</manufacturer>
+		<rom name="ki-p47.u98" size="524288" crc="05e67bcb"/>
+		<rom name="u10-l1" merge="u10-l1" size="524288" crc="b6cc155f"/>
+		<rom name="u11-l1" merge="u11-l1" size="524288" crc="0b5e05df"/>
+		<rom name="u12-l1" merge="u12-l1" size="524288" crc="d05ce6ad"/>
+		<rom name="u13-l1" merge="u13-l1" size="524288" crc="7d0954ea"/>
+		<rom name="u33-l1" merge="u33-l1" size="524288" crc="8bbe4f0c"/>
+		<rom name="u34-l1" merge="u34-l1" size="524288" crc="b2e73603"/>
+		<rom name="u35-l1" merge="u35-l1" size="524288" crc="0aaef4fc"/>
+		<rom name="u36-l1" merge="u36-l1" size="524288" crc="0577bb60"/>
+		<disk name="kinst" sha1="81d833236e994528d1482979261401b198d1ca53" />
+		<video type="raster" orientation="horizontal" width="320" height="240" aspectx="4" aspecty="3"/>
+		<driver status="good"/>
+	</game>
+	<game name="kinst13" cloneof="kinst" romof="kinst" sourcefile="midway/d_kinst.cpp">
+		<description>Killer Instinct (ROM ver. 1.3)</description>
+		<year>1994</year>
+		<manufacturer>Rare/Nintendo</manufacturer>
+		<rom name="ki-l13.u98" size="524288" crc="65f7ea31"/>
+		<rom name="u10-l1" merge="u10-l1" size="524288" crc="b6cc155f"/>
+		<rom name="u11-l1" merge="u11-l1" size="524288" crc="0b5e05df"/>
+		<rom name="u12-l1" merge="u12-l1" size="524288" crc="d05ce6ad"/>
+		<rom name="u13-l1" merge="u13-l1" size="524288" crc="7d0954ea"/>
+		<rom name="u33-l1" merge="u33-l1" size="524288" crc="8bbe4f0c"/>
+		<rom name="u34-l1" merge="u34-l1" size="524288" crc="b2e73603"/>
+		<rom name="u35-l1" merge="u35-l1" size="524288" crc="0aaef4fc"/>
+		<rom name="u36-l1" merge="u36-l1" size="524288" crc="0577bb60"/>
+		<disk name="kinst" sha1="81d833236e994528d1482979261401b198d1ca53" />
+		<video type="raster" orientation="horizontal" width="320" height="240" aspectx="4" aspecty="3"/>
+		<driver status="good"/>
+	</game>
+	<game name="kinst14" cloneof="kinst" romof="kinst" sourcefile="midway/d_kinst.cpp">
+		<description>Killer Instinct (ROM ver. 1.4)</description>
+		<year>1994</year>
+		<manufacturer>Rare/Nintendo</manufacturer>
+		<rom name="ki-l14.u98" size="524288" crc="afedb75f"/>
+		<rom name="u10-l1" merge="u10-l1" size="524288" crc="b6cc155f"/>
+		<rom name="u11-l1" merge="u11-l1" size="524288" crc="0b5e05df"/>
+		<rom name="u12-l1" merge="u12-l1" size="524288" crc="d05ce6ad"/>
+		<rom name="u13-l1" merge="u13-l1" size="524288" crc="7d0954ea"/>
+		<rom name="u33-l1" merge="u33-l1" size="524288" crc="8bbe4f0c"/>
+		<rom name="u34-l1" merge="u34-l1" size="524288" crc="b2e73603"/>
+		<rom name="u35-l1" merge="u35-l1" size="524288" crc="0aaef4fc"/>
+		<rom name="u36-l1" merge="u36-l1" size="524288" crc="0577bb60"/>
+		<disk name="kinst" sha1="81d833236e994528d1482979261401b198d1ca53" />
+		<video type="raster" orientation="horizontal" width="320" height="240" aspectx="4" aspecty="3"/>
+		<driver status="good"/>
+	</game>
+	<game name="kinst15ai" cloneof="kinst" romof="kinst" sourcefile="midway/d_kinst.cpp">
+		<comment>Hack</comment>
+		<description>Killer Instinct (ROM ver. 1.5 AnyIDE)</description>
+		<year>1994</year>
+		<manufacturer>Rare/Nintendo</manufacturer>
+		<rom name="ki_l15di.u98" size="524288" crc="230f55fb"/>
+		<rom name="u10-l1" merge="u10-l1" size="524288" crc="b6cc155f"/>
+		<rom name="u11-l1" merge="u11-l1" size="524288" crc="0b5e05df"/>
+		<rom name="u12-l1" merge="u12-l1" size="524288" crc="d05ce6ad"/>
+		<rom name="u13-l1" merge="u13-l1" size="524288" crc="7d0954ea"/>
+		<rom name="u33-l1" merge="u33-l1" size="524288" crc="8bbe4f0c"/>
+		<rom name="u34-l1" merge="u34-l1" size="524288" crc="b2e73603"/>
+		<rom name="u35-l1" merge="u35-l1" size="524288" crc="0aaef4fc"/>
+		<rom name="u36-l1" merge="u36-l1" size="524288" crc="0577bb60"/>
+		<disk name="kinst" sha1="81d833236e994528d1482979261401b198d1ca53" />
+		<video type="raster" orientation="horizontal" width="320" height="240" aspectx="4" aspecty="3"/>
+		<driver status="good"/>
+	</game>
+	<game name="kinst" sourcefile="midway/d_kinst.cpp">
+		<description>Killer Instinct (ROM ver. 1.5d)</description>
+		<year>1994</year>
+		<manufacturer>Rare/Nintendo</manufacturer>
+		<rom name="ki-l15d.u98" size="524288" crc="7b65ca3d"/>
+		<rom name="u10-l1" size="524288" crc="b6cc155f"/>
+		<rom name="u11-l1" size="524288" crc="0b5e05df"/>
+		<rom name="u12-l1" size="524288" crc="d05ce6ad"/>
+		<rom name="u13-l1" size="524288" crc="7d0954ea"/>
+		<rom name="u33-l1" size="524288" crc="8bbe4f0c"/>
+		<rom name="u34-l1" size="524288" crc="b2e73603"/>
+		<rom name="u35-l1" size="524288" crc="0aaef4fc"/>
+		<rom name="u36-l1" size="524288" crc="0577bb60"/>
+		<disk name="kinst" sha1="81d833236e994528d1482979261401b198d1ca53" />
+		<video type="raster" orientation="horizontal" width="320" height="240" aspectx="4" aspecty="3"/>
+		<driver status="good"/>
+	</game>
+	<game name="kinst210" cloneof="kinst2" romof="kinst2" sourcefile="midway/d_kinst.cpp">
+		<description>Killer Instinct II (ROM ver. 1.0)</description>
+		<year>1995</year>
+		<manufacturer>Rare/Nintendo</manufacturer>
+		<rom name="ki2-l10.u98" size="524288" crc="b17b4b3d"/>
+		<rom name="ki2_l1.u10" merge="ki2_l1.u10" size="524288" crc="fdf6ed51"/>
+		<rom name="ki2_l1.u11" merge="ki2_l1.u11" size="524288" crc="f9e70024"/>
+		<rom name="ki2_l1.u12" merge="ki2_l1.u12" size="524288" crc="2994c199"/>
+		<rom name="ki2_l1.u13" merge="ki2_l1.u13" size="524288" crc="3fe6327b"/>
+		<rom name="ki2_l1.u33" merge="ki2_l1.u33" size="524288" crc="6f4dcdcf"/>
+		<rom name="ki2_l1.u34" merge="ki2_l1.u34" size="524288" crc="5db48206"/>
+		<rom name="ki2_l1.u35" merge="ki2_l1.u35" size="524288" crc="7245ce69"/>
+		<rom name="ki2_l1.u36" merge="ki2_l1.u36" size="524288" crc="8920acbb"/>
+		<disk name="kinst2" sha1="e7c9291b4648eae0012ea0cc230731ed4987d1d5" />
+		<video type="raster" orientation="horizontal" width="320" height="240" aspectx="4" aspecty="3"/>
+		<driver status="good"/>
+	</game>
+	<game name="kinst211" cloneof="kinst2" romof="kinst2" sourcefile="midway/d_kinst.cpp">
+		<description>Killer Instinct II (ROM ver. 1.1)</description>
+		<year>1995</year>
+		<manufacturer>Rare/Nintendo</manufacturer>
+		<rom name="ki2-l11.u98" size="524288" crc="0cb8de1e"/>
+		<rom name="ki2_l1.u10" merge="ki2_l1.u10" size="524288" crc="fdf6ed51"/>
+		<rom name="ki2_l1.u11" merge="ki2_l1.u11" size="524288" crc="f9e70024"/>
+		<rom name="ki2_l1.u12" merge="ki2_l1.u12" size="524288" crc="2994c199"/>
+		<rom name="ki2_l1.u13" merge="ki2_l1.u13" size="524288" crc="3fe6327b"/>
+		<rom name="ki2_l1.u33" merge="ki2_l1.u33" size="524288" crc="6f4dcdcf"/>
+		<rom name="ki2_l1.u34" merge="ki2_l1.u34" size="524288" crc="5db48206"/>
+		<rom name="ki2_l1.u35" merge="ki2_l1.u35" size="524288" crc="7245ce69"/>
+		<rom name="ki2_l1.u36" merge="ki2_l1.u36" size="524288" crc="8920acbb"/>
+		<disk name="kinst2" sha1="e7c9291b4648eae0012ea0cc230731ed4987d1d5" />
+		<video type="raster" orientation="horizontal" width="320" height="240" aspectx="4" aspecty="3"/>
+		<driver status="good"/>
+	</game>
+	<game name="kinst213" cloneof="kinst2" romof="kinst2" sourcefile="midway/d_kinst.cpp">
+		<description>Killer Instinct II (ROM ver. 1.3)</description>
+		<year>1995</year>
+		<manufacturer>Rare/Nintendo</manufacturer>
+		<rom name="ki2-l13.u98" size="524288" crc="25ebde3b"/>
+		<rom name="ki2_l1.u10" merge="ki2_l1.u10" size="524288" crc="fdf6ed51"/>
+		<rom name="ki2_l1.u11" merge="ki2_l1.u11" size="524288" crc="f9e70024"/>
+		<rom name="ki2_l1.u12" merge="ki2_l1.u12" size="524288" crc="2994c199"/>
+		<rom name="ki2_l1.u13" merge="ki2_l1.u13" size="524288" crc="3fe6327b"/>
+		<rom name="ki2_l1.u33" merge="ki2_l1.u33" size="524288" crc="6f4dcdcf"/>
+		<rom name="ki2_l1.u34" merge="ki2_l1.u34" size="524288" crc="5db48206"/>
+		<rom name="ki2_l1.u35" merge="ki2_l1.u35" size="524288" crc="7245ce69"/>
+		<rom name="ki2_l1.u36" merge="ki2_l1.u36" size="524288" crc="8920acbb"/>
+		<disk name="kinst2" sha1="e7c9291b4648eae0012ea0cc230731ed4987d1d5" />
+		<video type="raster" orientation="horizontal" width="320" height="240" aspectx="4" aspecty="3"/>
+		<driver status="good"/>
+	</game>
+	<game name="kinst214ai" cloneof="kinst2" romof="kinst2" sourcefile="midway/d_kinst.cpp">
+		<comment>Hack</comment>
+		<description>Killer Instinct II (ROM ver. 1.4 AnyIDE)</description>
+		<year>1995</year>
+		<manufacturer>Rare/Nintendo</manufacturer>
+		<rom name="ki2_l14p.u98" size="524288" crc="d80c937a"/>
+		<rom name="ki2_l1.u10" merge="ki2_l1.u10" size="524288" crc="fdf6ed51"/>
+		<rom name="ki2_l1.u11" merge="ki2_l1.u11" size="524288" crc="f9e70024"/>
+		<rom name="ki2_l1.u12" merge="ki2_l1.u12" size="524288" crc="2994c199"/>
+		<rom name="ki2_l1.u13" merge="ki2_l1.u13" size="524288" crc="3fe6327b"/>
+		<rom name="ki2_l1.u33" merge="ki2_l1.u33" size="524288" crc="6f4dcdcf"/>
+		<rom name="ki2_l1.u34" merge="ki2_l1.u34" size="524288" crc="5db48206"/>
+		<rom name="ki2_l1.u35" merge="ki2_l1.u35" size="524288" crc="7245ce69"/>
+		<rom name="ki2_l1.u36" merge="ki2_l1.u36" size="524288" crc="8920acbb"/>
+		<disk name="kinst2" sha1="e7c9291b4648eae0012ea0cc230731ed4987d1d5" />
+		<video type="raster" orientation="horizontal" width="320" height="240" aspectx="4" aspecty="3"/>
+		<driver status="good"/>
+	</game>
+	<game name="kinst2" sourcefile="midway/d_kinst.cpp">
+		<description>Killer Instinct II (ROM ver. 1.4)</description>
+		<year>1995</year>
+		<manufacturer>Rare/Nintendo</manufacturer>
+		<rom name="ki2-l14.u98" size="524288" crc="27d0285e"/>
+		<rom name="ki2_l1.u10" size="524288" crc="fdf6ed51"/>
+		<rom name="ki2_l1.u11" size="524288" crc="f9e70024"/>
+		<rom name="ki2_l1.u12" size="524288" crc="2994c199"/>
+		<rom name="ki2_l1.u13" size="524288" crc="3fe6327b"/>
+		<rom name="ki2_l1.u33" size="524288" crc="6f4dcdcf"/>
+		<rom name="ki2_l1.u34" size="524288" crc="5db48206"/>
+		<rom name="ki2_l1.u35" size="524288" crc="7245ce69"/>
+		<rom name="ki2_l1.u36" size="524288" crc="8920acbb"/>
+		<disk name="kinst2" sha1="e7c9291b4648eae0012ea0cc230731ed4987d1d5" />
+		<video type="raster" orientation="horizontal" width="320" height="240" aspectx="4" aspecty="3"/>
+		<driver status="good"/>
+	</game>
 	<game name="kingballj" cloneof="kingball" romof="kingball" sourcefile="galaxian/d_galaxian.cpp">
 		<description>King &amp; Balloon (Japan)</description>
 		<year>1980</year>
@@ -143918,7 +144091,7 @@
 		<video type="raster" orientation="vertical" width="236" height="272" aspectx="3" aspecty="4"/>
 		<driver status="preliminary"/>
 	</game>
-	<game name="revxp5" cloneof="revx1" romof="revx1" sourcefile="midway/d_xunit.cpp">
+	<game name="revxp5" cloneof="revx" romof="revx" sourcefile="midway/d_xunit.cpp">
 		<comment>Prototype</comment>
 		<description>Revolution X (prototype, revision 5.0 5/23/94)</description>
 		<year>1994</year>
@@ -143970,8 +144143,59 @@
 		<video type="raster" orientation="horizontal" width="400" height="256" aspectx="4" aspecty="3"/>
 		<driver status="good"/>
 	</game>
-	<game name="revx1" sourcefile="midway/d_xunit.cpp">
+	<game name="revx1" cloneof="revx" romof="revx" sourcefile="midway/d_xunit.cpp">
 		<description>Revolution X (revision 1.0 6/16/94)</description>
+		<year>1994</year>
+		<manufacturer>Midway</manufacturer>
+		<rom name="l1_revolution_x_sound_rom_u2.u2" merge="l1_revolution_x_sound_rom_u2.u2" size="524288" crc="d2ed9f5e"/>
+		<rom name="l1_revolution_x_sound_rom_u3.u3" merge="l1_revolution_x_sound_rom_u3.u3" size="524288" crc="af8f253b"/>
+		<rom name="l1_revolution_x_sound_rom_u4.u4" merge="l1_revolution_x_sound_rom_u4.u4" size="524288" crc="3ccce59c"/>
+		<rom name="l1_revolution_x_sound_rom_u5.u5" merge="l1_revolution_x_sound_rom_u5.u5" size="524288" crc="a0438006"/>
+		<rom name="l1_revolution_x_sound_rom_u6.u6" merge="l1_revolution_x_sound_rom_u6.u6" size="524288" crc="b7b34f60"/>
+		<rom name="l1_revolution_x_sound_rom_u7.u7" merge="l1_revolution_x_sound_rom_u7.u7" size="524288" crc="6795fd88"/>
+		<rom name="l1_revolution_x_sound_rom_u8.u8" merge="l1_revolution_x_sound_rom_u8.u8" size="524288" crc="793a7eb5"/>
+		<rom name="l1_revolution_x_sound_rom_u9.u9" merge="l1_revolution_x_sound_rom_u9.u9" size="524288" crc="14ddbea1"/>
+		<rom name="l1_revolution_x_game_rom_u51.u51" size="524288" crc="9960ac7c"/>
+		<rom name="l1_revolution_x_game_rom_u52.u52" size="524288" crc="fbf55510"/>
+		<rom name="l1_revolution_x_game_rom_u53.u53" size="524288" crc="a045b265"/>
+		<rom name="l1_revolution_x_game_rom_u54.u54" size="524288" crc="24471269"/>
+		<rom name="419_revolution-x_u444.u444" merge="419_revolution-x_u444.u444" size="8192" crc="7df57330"/>
+		<rom name="p5_revolution_x_game_rom_u120.u120" merge="p5_revolution_x_game_rom_u120.u120" size="524288" crc="523af1f0"/>
+		<rom name="p5_revolution_x_game_rom_u121.u121" merge="p5_revolution_x_game_rom_u121.u121" size="524288" crc="78201d93"/>
+		<rom name="p5_revolution_x_game_rom_u122.u122" merge="p5_revolution_x_game_rom_u122.u122" size="524288" crc="2cf36144"/>
+		<rom name="p5_revolution_x_game_rom_u123.u123" merge="p5_revolution_x_game_rom_u123.u123" size="524288" crc="6912e1fb"/>
+		<rom name="p5_revolution_x_game_rom_u110.u110" merge="p5_revolution_x_game_rom_u110.u110" size="524288" crc="e3f7f0af"/>
+		<rom name="p5_revolution_x_game_rom_u111.u111" merge="p5_revolution_x_game_rom_u111.u111" size="524288" crc="49fe1a69"/>
+		<rom name="p5_revolution_x_game_rom_u112.u112" merge="p5_revolution_x_game_rom_u112.u112" size="524288" crc="7e3ba175"/>
+		<rom name="p5_revolution_x_game_rom_u113.u113" merge="p5_revolution_x_game_rom_u113.u113" size="524288" crc="c0817583"/>
+		<rom name="p5_revolution_x_game_rom_u101.u101" merge="p5_revolution_x_game_rom_u101.u101" size="524288" crc="5a08272a"/>
+		<rom name="p5_revolution_x_game_rom_u102.u102" merge="p5_revolution_x_game_rom_u102.u102" size="524288" crc="11d567d2"/>
+		<rom name="p5_revolution_x_game_rom_u103.u103" merge="p5_revolution_x_game_rom_u103.u103" size="524288" crc="d338e63b"/>
+		<rom name="p5_revolution_x_game_rom_u104.u104" merge="p5_revolution_x_game_rom_u104.u104" size="524288" crc="f7b701ee"/>
+		<rom name="p5_revolution_x_game_rom_u91.u91" merge="p5_revolution_x_game_rom_u91.u91" size="524288" crc="52a63713"/>
+		<rom name="p5_revolution_x_game_rom_u92.u92" merge="p5_revolution_x_game_rom_u92.u92" size="524288" crc="fae3621b"/>
+		<rom name="p5_revolution_x_game_rom_u93.u93" merge="p5_revolution_x_game_rom_u93.u93" size="524288" crc="7065cf95"/>
+		<rom name="p5_revolution_x_game_rom_u94.u94" merge="p5_revolution_x_game_rom_u94.u94" size="524288" crc="600d5b98"/>
+		<rom name="p5_revolution_x_game_rom_u81.u81" merge="p5_revolution_x_game_rom_u81.u81" size="524288" crc="729eacb1"/>
+		<rom name="p5_revolution_x_game_rom_u82.u82" merge="p5_revolution_x_game_rom_u82.u82" size="524288" crc="19acb904"/>
+		<rom name="p5_revolution_x_game_rom_u83.u83" merge="p5_revolution_x_game_rom_u83.u83" size="524288" crc="0e223456"/>
+		<rom name="p5_revolution_x_game_rom_u84.u84" merge="p5_revolution_x_game_rom_u84.u84" size="524288" crc="d3de0192"/>
+		<rom name="p5_revolution_x_game_rom_u71.u71" merge="p5_revolution_x_game_rom_u71.u71" size="524288" crc="2b29fddb"/>
+		<rom name="p5_revolution_x_game_rom_u72.u72" merge="p5_revolution_x_game_rom_u72.u72" size="524288" crc="2680281b"/>
+		<rom name="p5_revolution_x_game_rom_u73.u73" merge="p5_revolution_x_game_rom_u73.u73" size="524288" crc="420bde4d"/>
+		<rom name="p5_revolution_x_game_rom_u74.u74" merge="p5_revolution_x_game_rom_u74.u74" size="524288" crc="26627410"/>
+		<rom name="p5_revolution_x_game_rom_u63.u63" merge="p5_revolution_x_game_rom_u63.u63" size="524288" crc="3066e3f3"/>
+		<rom name="p5_revolution_x_game_rom_u64.u64" merge="p5_revolution_x_game_rom_u64.u64" size="524288" crc="c33f5309"/>
+		<rom name="p5_revolution_x_game_rom_u65.u65" merge="p5_revolution_x_game_rom_u65.u65" size="524288" crc="6eee3e71"/>
+		<rom name="p5_revolution_x_game_rom_u66.u66" merge="p5_revolution_x_game_rom_u66.u66" size="524288" crc="b43d6fff"/>
+		<rom name="a-17722.u1" merge="a-17722.u1" size="279" crc="054de7a3"/>
+		<rom name="a-17721.u955" merge="a-17721.u955" size="279" crc="033fe902"/>
+		<rom name="snd-gal16v8a.u17" size="279" status="nodump"/>
+		<video type="raster" orientation="horizontal" width="400" height="256" aspectx="4" aspecty="3"/>
+		<driver status="good"/>
+	</game>
+	<game name="revx" sourcefile="midway/d_xunit.cpp">
+		<description>Revolution X (revision 2.0 9/8/94)</description>
 		<year>1994</year>
 		<manufacturer>Midway</manufacturer>
 		<rom name="l1_revolution_x_sound_rom_u2.u2" size="524288" crc="d2ed9f5e"/>
@@ -143982,10 +144206,10 @@
 		<rom name="l1_revolution_x_sound_rom_u7.u7" size="524288" crc="6795fd88"/>
 		<rom name="l1_revolution_x_sound_rom_u8.u8" size="524288" crc="793a7eb5"/>
 		<rom name="l1_revolution_x_sound_rom_u9.u9" size="524288" crc="14ddbea1"/>
-		<rom name="l1_revolution_x_game_rom_u51.u51" size="524288" crc="9960ac7c"/>
-		<rom name="l1_revolution_x_game_rom_u52.u52" size="524288" crc="fbf55510"/>
-		<rom name="l1_revolution_x_game_rom_u53.u53" size="524288" crc="a045b265"/>
-		<rom name="l1_revolution_x_game_rom_u54.u54" size="524288" crc="24471269"/>
+		<rom name="revx_l2.0_u51.u51" size="524288" crc="2c996003"/>
+		<rom name="revx_l2.0_u52.u52" size="524288" crc="f1d4d6fb"/>
+		<rom name="revx_l2.0_u53.u53" size="524288" crc="59ca7084"/>
+		<rom name="revx_l2.0_u54.u54" size="524288" crc="4f577dd9"/>
 		<rom name="419_revolution-x_u444.u444" size="8192" crc="7df57330"/>
 		<rom name="p5_revolution_x_game_rom_u120.u120" size="524288" crc="523af1f0"/>
 		<rom name="p5_revolution_x_game_rom_u121.u121" size="524288" crc="78201d93"/>
@@ -144020,57 +144244,6 @@
 		<rom name="snd-gal16v8a.u17" size="279" status="nodump"/>
 		<video type="raster" orientation="horizontal" width="400" height="256" aspectx="4" aspecty="3"/>
 		<driver status="good"/>
-	</game>
-	<game name="revx" cloneof="revx1" romof="revx1" sourcefile="midway/d_xunit.cpp">
-		<description>Revolution X (revision 2.0 9/8/94)</description>
-		<year>1994</year>
-		<manufacturer>Midway</manufacturer>
-		<rom name="l1_revolution_x_sound_rom_u2.u2" merge="l1_revolution_x_sound_rom_u2.u2" size="524288" crc="d2ed9f5e"/>
-		<rom name="l1_revolution_x_sound_rom_u3.u3" merge="l1_revolution_x_sound_rom_u3.u3" size="524288" crc="af8f253b"/>
-		<rom name="l1_revolution_x_sound_rom_u4.u4" merge="l1_revolution_x_sound_rom_u4.u4" size="524288" crc="3ccce59c"/>
-		<rom name="l1_revolution_x_sound_rom_u5.u5" merge="l1_revolution_x_sound_rom_u5.u5" size="524288" crc="a0438006"/>
-		<rom name="l1_revolution_x_sound_rom_u6.u6" merge="l1_revolution_x_sound_rom_u6.u6" size="524288" crc="b7b34f60"/>
-		<rom name="l1_revolution_x_sound_rom_u7.u7" merge="l1_revolution_x_sound_rom_u7.u7" size="524288" crc="6795fd88"/>
-		<rom name="l1_revolution_x_sound_rom_u8.u8" merge="l1_revolution_x_sound_rom_u8.u8" size="524288" crc="793a7eb5"/>
-		<rom name="l1_revolution_x_sound_rom_u9.u9" merge="l1_revolution_x_sound_rom_u9.u9" size="524288" crc="14ddbea1"/>
-		<rom name="revx_l2.0_u51.u51" size="524288" crc="2c996003"/>
-		<rom name="revx_l2.0_u52.u52" size="524288" crc="f1d4d6fb"/>
-		<rom name="revx_l2.0_u53.u53" size="524288" crc="59ca7084"/>
-		<rom name="revx_l2.0_u54.u54" size="524288" crc="4f577dd9"/>
-		<rom name="419_revolution-x_u444.u444" merge="419_revolution-x_u444.u444" size="8192" crc="7df57330"/>
-		<rom name="p5_revolution_x_game_rom_u120.u120" merge="p5_revolution_x_game_rom_u120.u120" size="524288" crc="523af1f0"/>
-		<rom name="p5_revolution_x_game_rom_u121.u121" merge="p5_revolution_x_game_rom_u121.u121" size="524288" crc="78201d93"/>
-		<rom name="p5_revolution_x_game_rom_u122.u122" merge="p5_revolution_x_game_rom_u122.u122" size="524288" crc="2cf36144"/>
-		<rom name="p5_revolution_x_game_rom_u123.u123" merge="p5_revolution_x_game_rom_u123.u123" size="524288" crc="6912e1fb"/>
-		<rom name="p5_revolution_x_game_rom_u110.u110" merge="p5_revolution_x_game_rom_u110.u110" size="524288" crc="e3f7f0af"/>
-		<rom name="p5_revolution_x_game_rom_u111.u111" merge="p5_revolution_x_game_rom_u111.u111" size="524288" crc="49fe1a69"/>
-		<rom name="p5_revolution_x_game_rom_u112.u112" merge="p5_revolution_x_game_rom_u112.u112" size="524288" crc="7e3ba175"/>
-		<rom name="p5_revolution_x_game_rom_u113.u113" merge="p5_revolution_x_game_rom_u113.u113" size="524288" crc="c0817583"/>
-		<rom name="p5_revolution_x_game_rom_u101.u101" merge="p5_revolution_x_game_rom_u101.u101" size="524288" crc="5a08272a"/>
-		<rom name="p5_revolution_x_game_rom_u102.u102" merge="p5_revolution_x_game_rom_u102.u102" size="524288" crc="11d567d2"/>
-		<rom name="p5_revolution_x_game_rom_u103.u103" merge="p5_revolution_x_game_rom_u103.u103" size="524288" crc="d338e63b"/>
-		<rom name="p5_revolution_x_game_rom_u104.u104" merge="p5_revolution_x_game_rom_u104.u104" size="524288" crc="f7b701ee"/>
-		<rom name="p5_revolution_x_game_rom_u91.u91" merge="p5_revolution_x_game_rom_u91.u91" size="524288" crc="52a63713"/>
-		<rom name="p5_revolution_x_game_rom_u92.u92" merge="p5_revolution_x_game_rom_u92.u92" size="524288" crc="fae3621b"/>
-		<rom name="p5_revolution_x_game_rom_u93.u93" merge="p5_revolution_x_game_rom_u93.u93" size="524288" crc="7065cf95"/>
-		<rom name="p5_revolution_x_game_rom_u94.u94" merge="p5_revolution_x_game_rom_u94.u94" size="524288" crc="600d5b98"/>
-		<rom name="p5_revolution_x_game_rom_u81.u81" merge="p5_revolution_x_game_rom_u81.u81" size="524288" crc="729eacb1"/>
-		<rom name="p5_revolution_x_game_rom_u82.u82" merge="p5_revolution_x_game_rom_u82.u82" size="524288" crc="19acb904"/>
-		<rom name="p5_revolution_x_game_rom_u83.u83" merge="p5_revolution_x_game_rom_u83.u83" size="524288" crc="0e223456"/>
-		<rom name="p5_revolution_x_game_rom_u84.u84" merge="p5_revolution_x_game_rom_u84.u84" size="524288" crc="d3de0192"/>
-		<rom name="p5_revolution_x_game_rom_u71.u71" merge="p5_revolution_x_game_rom_u71.u71" size="524288" crc="2b29fddb"/>
-		<rom name="p5_revolution_x_game_rom_u72.u72" merge="p5_revolution_x_game_rom_u72.u72" size="524288" crc="2680281b"/>
-		<rom name="p5_revolution_x_game_rom_u73.u73" merge="p5_revolution_x_game_rom_u73.u73" size="524288" crc="420bde4d"/>
-		<rom name="p5_revolution_x_game_rom_u74.u74" merge="p5_revolution_x_game_rom_u74.u74" size="524288" crc="26627410"/>
-		<rom name="p5_revolution_x_game_rom_u63.u63" merge="p5_revolution_x_game_rom_u63.u63" size="524288" crc="3066e3f3"/>
-		<rom name="p5_revolution_x_game_rom_u64.u64" merge="p5_revolution_x_game_rom_u64.u64" size="524288" crc="c33f5309"/>
-		<rom name="p5_revolution_x_game_rom_u65.u65" merge="p5_revolution_x_game_rom_u65.u65" size="524288" crc="6eee3e71"/>
-		<rom name="p5_revolution_x_game_rom_u66.u66" merge="p5_revolution_x_game_rom_u66.u66" size="524288" crc="b43d6fff"/>
-		<rom name="a-17722.u1" merge="a-17722.u1" size="279" crc="054de7a3"/>
-		<rom name="a-17721.u955" merge="a-17721.u955" size="279" crc="033fe902"/>
-		<rom name="snd-gal16v8a.u17" size="279" status="nodump"/>
-		<video type="raster" orientation="horizontal" width="400" height="256" aspectx="4" aspecty="3"/>
-		<driver status="preliminary"/>
 	</game>
 	<game name="rezono" cloneof="rezon" romof="rezon" sourcefile="pst90s/d_seta.cpp">
 		<description>Rezon (earlier)</description>
