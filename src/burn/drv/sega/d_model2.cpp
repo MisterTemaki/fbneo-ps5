@@ -219,7 +219,6 @@ static struct timespec perf_ts_start;
 static INT64 perf_tgp_ahead; // TGP cycles run ahead of the i960 (it waited for the TGP), this second
 static INT32 perf_polys;
 
-static INT32 m2_uart_dbg(INT32 n);
 static void perf_report()
 {
 	if (++perf_frames < 57) return;
@@ -235,20 +234,6 @@ static void perf_report()
 			part_ticks[PART_SND] * ms_per_tick * f, part_ticks[PART_IO] * ms_per_tick * f, part_ticks[PART_3D] * ms_per_tick * f,
 			part_ticks[PART_2D] * ms_per_tick * f, (INT32)(perf_tgp_ahead / perf_frames), perf_polys / perf_frames);
 	}
-	if (getenv("M2_DEBUG")) {
-		char hex[400]; int n = 0;
-		for (INT32 i = 0; i < 0x80; i++) n += snprintf(hex + n, sizeof(hex) - n, "%02x", EEPROMReadByte(i));
-		bprintf(PRINT_IMPORTANT, _T("model2 dbg: eeprom %s\n"), hex);
-		n = 0;
-		for (INT32 i = 0; i < 0x30; i++) n += snprintf(hex + n, sizeof(hex) - n, "%02x", DrvBackupRAM[i]);
-		bprintf(PRINT_IMPORTANT, _T("model2 dbg: backup %s\n"), hex);
-	}
-	if (getenv("M2_DEBUG"))
-		bprintf(PRINT_IMPORTANT, _T("model2 dbg: z80 pc %04x, 68k pc %06x, dpram[20] %02x, i960 ICR %08x PC %08x imm %d lines %d%d%d%d, frame counter %02x\n"), ZetGetPC(-1), SekGetPC(-1), DrvDPRAM[0x20],
-			I960Core()->m_ICR, I960Core()->m_PC, I960Core()->m_immediate_irq, I960Core()->m_irq_line_state[0], I960Core()->m_irq_line_state[1], I960Core()->m_irq_line_state[2], I960Core()->m_irq_line_state[3], DrvWorkRAM[0]),
-		bprintf(PRINT_IMPORTANT, _T("model2 dbg: i960 pc %08x halt %d, tgp pc %04x halt %d, fifo in %d out %d, coproctl %08x, intreq %03x intena %03x, uart0 st %02x cmd %02x, uart1 st %02x cmd %02x\n"),
-			I960GetPC(), i960_halt_line, Mb86233GetPC(), tgp_halt_line, fifo_in.count, fifo_out.count, coproctl, intreq, intena,
-			m2_uart_dbg(0), m2_uart_dbg(1), m2_uart_dbg(2), m2_uart_dbg(3));
 	memset(part_ticks, 0, sizeof(part_ticks));
 	perf_frames = 0;
 	perf_tgp_ahead = 0;
@@ -1198,11 +1183,6 @@ struct m2_uart {
 static m2_uart uart[2]; // 0: main board (i960), 1: sound board (68000)
 static INT32 snd_irq_line; // the 68000's IRQ 2 (the sound board uart's RxRDY)
 
-static INT32 m2_uart_dbg(INT32 n)
-{
-	return (n & 1) ? uart[n >> 1].command : uart[n >> 1].status;
-}
-
 static INT32 uart_tx_enabled(INT32 side)
 {
 	return (uart[side].command & 1) && !uart[side].cts;
@@ -1463,29 +1443,15 @@ static void m2_write32_regs(UINT32 a, UINT32 d, UINT32 mem_mask)
 	// 0x01020000 (ABSEL), 0x01070000 (video sync switch), 0x10800000: nothing
 }
 
-static INT32 m2_trace = -1;
-static void m2_trace_access(const char* what, UINT32 a, UINT32 d)
-{
-	if (m2_trace < 0) m2_trace = getenv("M2_TRACE") ? atoi(getenv("M2_TRACE")) : 0;
-	static INT32 from = -1;
-	if (from < 0) from = getenv("M2_TRACE_FROM") ? atoi(getenv("M2_TRACE_FROM")) : 0;
-	if (m2_trace > 0 && (INT32)framenum >= from) {
-		m2_trace--;
-		bprintf(PRINT_IMPORTANT, _T("model2 trace: %s %08x = %08x (pc %08x, frame %d)\n"), what, a, d, I960GetPC(), framenum);
-	}
-}
-
 static UINT8 m2_read_byte(UINT32 a)
 {
 	const INT32 dev = m2_byte_device(a);
 	UINT8 v = dev ? m2_read8_device(dev, a) : (m2_read32_regs(a & ~3) >> ((a & 3) * 8));
-	m2_trace_access("rb", a, v);
 	return v;
 }
 
 static UINT16 m2_read_word(UINT32 a)
 {
-	m2_trace_access("rw", a, 0);
 	const INT32 dev = m2_byte_device(a);
 	if (dev) return m2_read8_device(dev, a) | (m2_read8_device(dev, a + 1) << 8);
 	return m2_read32_regs(a & ~3) >> ((a & 2) * 8);
@@ -1499,13 +1465,11 @@ static UINT32 m2_read_long(UINT32 a)
 		v = m2_read8_device(dev, a) | (m2_read8_device(dev, a + 1) << 8) | (m2_read8_device(dev, a + 2) << 16) | (m2_read8_device(dev, a + 3) << 24);
 	else
 		v = m2_read32_regs(a);
-	m2_trace_access("rl", a, v);
 	return v;
 }
 
 static void m2_write_byte(UINT32 a, UINT8 d)
 {
-	m2_trace_access("wb", a, d);
 	const INT32 dev = m2_byte_device(a);
 	if (dev) { m2_write8_device(dev, a, d); return; }
 	const INT32 sh = (a & 3) * 8;
@@ -1514,7 +1478,6 @@ static void m2_write_byte(UINT32 a, UINT8 d)
 
 static void m2_write_word(UINT32 a, UINT16 d)
 {
-	m2_trace_access("ww", a, d);
 	const INT32 dev = m2_byte_device(a);
 	if (dev) { m2_write8_device(dev, a, d & 0xff); m2_write8_device(dev, a + 1, d >> 8); return; }
 	const INT32 sh = (a & 2) * 8;
@@ -1523,7 +1486,6 @@ static void m2_write_word(UINT32 a, UINT16 d)
 
 static void m2_write_long(UINT32 a, UINT32 d)
 {
-	m2_trace_access("wl", a, d);
 	const INT32 dev = m2_byte_device(a);
 	if (dev) {
 		for (INT32 i = 0; i < 4; i++)
@@ -1696,25 +1658,7 @@ static UINT8 io_analog(INT32 n)
 	return (n < 3) ? AnalogValue[n] : 0xff;
 }
 
-static INT32 z_trace = -1;
-static void z_trace_access(const char* what, UINT16 a, UINT8 d)
-{
-	if (z_trace < 0) z_trace = getenv("M2_ZTRACE") ? atoi(getenv("M2_ZTRACE")) : 0;
-	if (z_trace > 0) {
-		z_trace--;
-		bprintf(PRINT_IMPORTANT, _T("io trace: %s %04x = %02x (pc %04x)\n"), what, a, d, ZetGetPC(-1));
-	}
-}
-
-static UINT8 __fastcall io_read_t(UINT16 a);
 static UINT8 __fastcall io_read(UINT16 a)
-{
-	UINT8 v = io_read_t(a);
-	z_trace_access("r", a, v);
-	return v;
-}
-
-static UINT8 __fastcall io_read_t(UINT16 a)
 {
 	if (a >= 0x8000 && a <= 0x800f) {
 		const INT32 offset = a & 0x0f;
@@ -1743,7 +1687,6 @@ static UINT8 __fastcall io_read_t(UINT16 a)
 
 static void __fastcall io_write(UINT16 a, UINT8 d)
 {
-	z_trace_access("w", a, d);
 	if (a >= 0x8000 && a <= 0x800f) {
 		const INT32 offset = a & 0x0f;
 		if (offset <= 6) {
@@ -1923,7 +1866,7 @@ static INT32 DrvLoadRoms()
 	// the I/O board's ROM (the board set's first)
 	if (BurnLoadRom(DrvIOROM, 0x80, 1)) return 1;
 
-	BurnByteswap(Drv68KROM, 0x40000);
+	// (the sound ROMs are MAME's ROM_LOAD16_WORD_SWAP: that is the byte order of FBNeo's 68000 memory already)
 
 	main_data_used = (pair[R_MAINDATA] - 1) * 0x400000 + 2 * last_data_len;
 	if (main_data_used < 0x900000 || main_data_used > 0xa00000) {
@@ -2277,6 +2220,8 @@ static INT32 DrvInit()
 	MultiPCMInitChip(1, 10000000 * 180 / 224, DrvPCM2, 1);
 	MultiPCMSetVolumeChip(0, 0.5);
 	MultiPCMSetVolumeChip(1, 0.5);
+	MultiPCMSetMameModeChip(0, 1);
+	MultiPCMSetMameModeChip(1, 1);
 
 	GenericTilesInit();
 

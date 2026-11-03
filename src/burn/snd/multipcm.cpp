@@ -134,6 +134,10 @@ struct multipcm_instance {
 	INT32 samples_from; // "re"sampler
 	INT32 add_to_stream;
 	double volume;
+	// 1: as MAME's multipcm (gew_pcm_device, mamedev/mame b7f483f) in two things, for Sega Model 2: a key on starts
+	// the sample again (FBNeo's: only writing the sample number does), and the left output is the left pan levels'
+	// sum (FBNeo's has them swapped). 0 (after init): FBNeo's own, as Sega System 32 has always had it.
+	INT32 mame_mode;
 };
 static multipcm_instance mpcm_inst[MULTIPCM_CHIPS];
 static multipcm_instance *mpcm = &mpcm_inst[0];
@@ -389,6 +393,23 @@ static void WriteSlot(SLOT *slot,int reg,unsigned char data)
 			{
 				if(data&0x80)       //KeyOn
 				{
+					if (mpcm->mame_mode) {
+						// MAME's retrigger_sample()
+						slot->Base=slot->Sample->Start;
+						if(slot->Base>=0x100000)
+						{
+							if(slot->Pan&8)
+								slot->Base=(slot->Base&0xfffff)|(chip.BankL);
+							else
+								slot->Base=(slot->Base&0xfffff)|(chip.BankR);
+						}
+						slot->offset=0;
+						slot->Prev=0;
+						slot->TL=slot->DstTL<<SHIFT;
+						EG_Calc(slot);
+						slot->EG.state=ATTACK;
+						slot->EG.volume=(0x3ff-0x2a0)<<EG_SHIFT;
+					}
 					slot->Playing=1;
 				}
 				else
@@ -576,6 +597,13 @@ void MultiPCMSetVolumeChip(INT32 nChip, double vol)
 	MultiPCMSelect(0);
 }
 
+void MultiPCMSetMameModeChip(INT32 nChip, INT32 on)
+{
+	MultiPCMSelect(nChip);
+	mpcm->mame_mode = on ? 1 : 0;
+	MultiPCMSelect(0);
+}
+
 void MultiPCMSetVolume(double vol)
 {
 	mpcm->volume = vol;
@@ -604,6 +632,7 @@ void MultiPCMInit(INT32 clock, UINT8 *SndROM, INT32 bAdd)
 	mixer_buffer_right = mixer_buffer_left + ((INT32)chip.Rate);
 
 	mpcm->volume = 1.00;
+	mpcm->mame_mode = 0;
 
 	//Volume+pan table
 	for(i=0;i<0x800;++i)
@@ -801,8 +830,13 @@ void MultiPCMUpdate(INT16 *buffer, INT32 samples_len)
 				break;
 		}
 
-		*lmix++ = BURN_SND_CLIP(smpr); // why are these swapped??
-		*rmix++ = BURN_SND_CLIP(smpl);
+		if (mpcm->mame_mode) {
+			*lmix++ = BURN_SND_CLIP(smpl); // (MAME's gew_pcm_device clamps each output too)
+			*rmix++ = BURN_SND_CLIP(smpr);
+		} else {
+			*lmix++ = BURN_SND_CLIP(smpr); // why are these swapped??
+			*rmix++ = BURN_SND_CLIP(smpl);
+		}
 	}
 
 	// ghetto-tek resampler, #1 in the hood, g!

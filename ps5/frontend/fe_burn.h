@@ -152,7 +152,9 @@ struct PlayerInput
 	bool coin = false, start = false;
 	int8_t stick_x = 0, stick_y = 0; // the left stick, for the games with analog controls (-128..127)
 	int8_t stick2_x = 0, stick2_y = 0; // the right stick (dial / second axis pairs)
-	uint8_t trigger_l = 0, trigger_r = 0; // pedals
+	// How far the pad's trigger (L2/R2) that gives button N is pressed, 0..255; 0 when that button is not on a trigger.
+	// A game's analog button inputs (pedals: Daytona USA's accelerator and brake) take it; the others take button[].
+	uint8_t pressure[kButtons] = {};
 };
 struct Input
 {

@@ -17,3 +17,5 @@ void MultiPCMSetVolumeChip(INT32 nChip, double vol);
 void MultiPCMResetChip(INT32 nChip);
 void MultiPCMUpdateChip(INT32 nChip, INT16 *buffer, INT32 samples);
 void MultiPCMScanChip(INT32 nChip, INT32 nAction, INT32 *pnMin);
+// 1: as MAME's current multipcm in its key on (it starts the sample again) and its channel order (Sega Model 2)
+void MultiPCMSetMameModeChip(INT32 nChip, INT32 on);

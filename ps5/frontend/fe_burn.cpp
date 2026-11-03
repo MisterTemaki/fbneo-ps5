@@ -774,6 +774,8 @@ void ApplyInputs(const burn::Input& in)
 					axis = 0; // the stick's dead zone
 				*x.sval = uint16_t(Clamp16(x.type == BIT_ANALOG_REL ? axis * 8 : axis * 16));
 			}
+			else if (x.kind == Kind::Button && p.pressure[x.button])
+				*x.sval = uint16_t(p.pressure[x.button] * 0x3ff / 255); // a pedal on a trigger: how far it is pressed
 			else
 				*x.sval = on ? 0xffff : 0x0001; // a digital button on an analog input (FBNeo's frontends do the same)
 		}

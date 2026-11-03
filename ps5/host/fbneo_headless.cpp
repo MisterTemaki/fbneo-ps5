@@ -17,11 +17,15 @@
 //       (.zip, else .7z) in <rom dir>: "missing N read_error 0|1 stamps <set><stamp>;..."; --cancelled: with its cancel
 //       flag already set (NetCheck stopping), which must end as a read error, not as ROMs missing
 //   fbneo_headless bench <rom dir> <set> <frames> the time a frame takes (drawn), and a save state's: its time and size
-//   fbneo_headless run <rom dir> <set> <frames> [out.ppm] [--state] [--dips] [--press N]
+//   fbneo_headless run <rom dir> <set> <frames> [out.ppm] [--state] [--dips] [--drive] [--wav out.wav]
+//           [--shots <prefix> <every>]
 //       runs the set for N frames (no input but coin+start pressed at frames 60 and 90 and fire 1 every 8 frames
 //       after 120), writes the last picture as a PPM, prints the picture size, the sound's level and a picture
 //       checksum; --state also saves a state halfway, runs on, loads it back and checks that the same frames
-//       follow (the same picture checksum); --dips lists the DIP switches.
+//       follow (the same picture checksum); --dips lists the DIP switches. --drive: a driving game's inputs instead
+//       (coin at 400, start at 500, 800, 1000 and 1200, fire 1 held from 1300 as a trigger half then fully pressed,
+//       the stick swinging left and right from 1500, fire 3 (shift up) at 1700); --wav writes the sound (48 kHz stereo);
+//       --shots writes every <every>th picture as <prefix><frame>.ppm.
 //
 // SPDX-License-Identifier: MIT
 
@@ -83,6 +87,51 @@ burn::Input InputFor(uint64_t frame)
 	p.button[0] = frame >= 120 && (frame / 8) % 2 == 0;
 	p.right = frame >= 150 && (frame / 30) % 2 == 0;
 	return in;
+}
+
+burn::Input DriveInputFor(uint64_t frame)
+{
+	burn::Input in;
+	burn::PlayerInput& p = in.player[0];
+	p.coin = frame >= 400 && frame < 406;
+	p.start = (frame >= 500 && frame < 506) || (frame >= 800 && frame < 806) || (frame >= 1000 && frame < 1006) ||
+		(frame >= 1200 && frame < 1206);
+	if (frame >= 1300)
+	{
+		p.pressure[0] = frame < 1450 ? 128 : 255;
+		p.button[0] = true;
+	}
+	if (frame >= 1500)
+	{
+		const int phase = int(frame % 240);
+		p.stick_x = int8_t(phase < 120 ? (phase - 60) : (180 - phase)); // -60..60
+	}
+	p.button[2] = frame >= 1700 && frame < 1706;
+	return in;
+}
+
+bool WriteWav(const char* path, const std::vector<int16_t>& pcm)
+{
+	FILE* f = fopen(path, "wb");
+	if (!f)
+		return false;
+	const uint32_t data = uint32_t(pcm.size() * 2), rate = 48000;
+	auto u32 = [&](uint32_t v) { fwrite(&v, 4, 1, f); };
+	auto u16 = [&](uint16_t v) { fwrite(&v, 2, 1, f); };
+	fwrite("RIFF", 1, 4, f);
+	u32(36 + data);
+	fwrite("WAVEfmt ", 1, 8, f);
+	u32(16);
+	u16(1);
+	u16(2);
+	u32(rate);
+	u32(rate * 4);
+	u16(4);
+	u16(16);
+	fwrite("data", 1, 4, f);
+	u32(data);
+	fwrite(pcm.data(), 2, pcm.size(), f);
+	return fclose(f) == 0;
 }
 } // namespace
 
@@ -417,12 +466,26 @@ int main(int argc, char** argv)
 		const int drv = burn::FindDriver(argv[3]);
 		const long frames = atol(argv[4]);
 		const char* ppm = argc > 5 && argv[5][0] != '-' ? argv[5] : nullptr;
-		bool state = false, dips = false;
+		bool state = false, dips = false, drive = false;
+		const char* wav = nullptr;
+		const char* shots = nullptr;
+		long shot_every = 0;
 		for (int i = 5; i < argc; i++)
 		{
-			state = state || std::string(argv[i]) == "--state";
-			dips = dips || std::string(argv[i]) == "--dips";
+			const std::string a = argv[i];
+			state = state || a == "--state";
+			dips = dips || a == "--dips";
+			drive = drive || a == "--drive";
+			if (a == "--wav" && i + 1 < argc)
+				wav = argv[++i];
+			if (a == "--shots" && i + 2 < argc)
+			{
+				shots = argv[++i];
+				shot_every = atol(argv[++i]);
+			}
 		}
+		auto input = [&](long f) { return drive ? DriveInputFor(uint64_t(f)) : InputFor(uint64_t(f)); };
+		std::vector<int16_t> pcm;
 		if (drv < 0)
 		{
 			fprintf(stderr, "no driver %s\n", argv[3]);
@@ -459,13 +522,24 @@ int main(int argc, char** argv)
 				printf("STATE SAVE FAILED\n");
 				return 4;
 			}
-			burn::RunFrame(InputFor(uint64_t(f)), true);
+			burn::RunFrame(input(f), true);
 			int n = 0;
 			const int16_t* s = burn::Sound(&n);
 			for (int i = 0; i < n * 2; i++)
 				sum2 += double(s[i]) * s[i];
 			samples += n;
+			if (wav)
+				pcm.insert(pcm.end(), s, s + n * 2);
+			if (shots && shot_every > 0 && (f + 1) % shot_every == 0)
+			{
+				int sw = 0, sh = 0;
+				const uint32_t* spx = burn::Picture(&sw, &sh);
+				if (spx && !WritePpm((std::string(shots) + std::to_string(f + 1) + ".ppm").c_str(), spx, sw, sh))
+					return 5;
+			}
 		}
+		if (wav && !WriteWav(wav, pcm))
+			return 5;
 		int w = 0, h = 0;
 		const uint32_t* px = burn::Picture(&w, &h);
 		const uint64_t hash = px ? Hash(px, size_t(w) * h) : 0;
@@ -478,7 +552,7 @@ int main(int argc, char** argv)
 				return 4;
 			}
 			for (long f = half; f < frames; f++)
-				burn::RunFrame(InputFor(uint64_t(f)), true);
+				burn::RunFrame(input(f), true);
 			px = burn::Picture(&w, &h);
 			replay_hash = px ? Hash(px, size_t(w) * h) : 0;
 		}
