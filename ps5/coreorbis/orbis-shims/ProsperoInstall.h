@@ -35,12 +35,17 @@ enum class InstallResult
 	Updated,
 	Failed,
 	NewerInstalled, // the app folder holds a newer version (updated from the app): left as it is
+	CantWrite, // the console runs the app from an image or a read-only folder (AppInstallPlace().reason)
 };
 // The installed app's version (its param.json's contentVersion), "" when there is none.
 std::string InstalledVersion();
 
-// /data/homebrew/<TITLE_ID> (FBNEO_PS5_HOMEBREW overrides /data/homebrew for the host tests).
+// Where the app goes (2.2): the folder the console runs it from when ShadowMount+ mounted one (written through its
+// mount, ProsperoAppPlace.h), else /data/homebrew/<TITLE_ID> (FBNEO_PS5_HOMEBREW overrides /data/homebrew for the
+// host tests).
 std::string AppInstallDir();
+struct AppPlace;
+const AppPlace& AppInstallPlace();
 InstallResult InstallApp();
 
 // /user/appmeta/<TITLE_ID> (FBNEO_PS5_APPMETA overrides /user/appmeta for the host tests): where the home screen

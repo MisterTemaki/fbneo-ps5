@@ -13,6 +13,7 @@
 #include "ProsperoJailbreak.h"
 
 #include "OrbisPaths.h"
+#include "ProsperoAppPlace.h"
 #include "ProsperoNotify.h"
 #include "ProsperoUpdate.h"
 #include "fe_coverworker.h"
@@ -232,6 +233,21 @@ std::string EnvOr(const char* name, const char* fallback)
 	return v && *v ? v : fallback;
 }
 
+// 2.2: where the update goes (Media Player Classic PS5 1.5's ShadowMount+ fix, as Stella PS5 has it; ProsperoAppPlace.h):
+// the folder the console runs the app from -- ShadowMount+'s mount of it on /system_ex/app/<TITLE_ID>, written through
+// the mount --, else /data/homebrew/<TITLE_ID>. Up to 2.1 an update always went to /data/homebrew/<TITLE_ID>: for an app
+// that ShadowMount+ runs from a USB or extended drive (or another folder) it made a second copy there and left the copy
+// the console runs as it was. Looked up again before each check and install: the helper may have started (autoloaded)
+// before ShadowMount+ mounted the app. (2.2: on the updater's thread, at the start of each check and install --
+// it reads and writes in the app's folder, which may be on a slow drive -- not in the request the app waits 5 s for.)
+void RefreshPlace(bool log)
+{
+	const AppPlace p = FindAppPlace(FBNEO_TITLE_ID, EnvOr("FBNEO_PS5_HOMEBREW", "/data/homebrew") + "/" FBNEO_TITLE_ID);
+	if (log)
+		OrbisLog("[update] %s", p.log.c_str());
+	update::SetPlace(p.dir, p.writable ? std::string() : p.reason);
+}
+
 void InitUpdater()
 {
 	update::Config c;
@@ -239,7 +255,7 @@ void InitUpdater()
 	c.title_id = FBNEO_TITLE_ID;
 	c.version = FBNEO_PS5_VERSION;
 	c.app_name = "FBNeo PS5";
-	c.app_dir = EnvOr("FBNEO_PS5_HOMEBREW", "/data/homebrew") + "/" FBNEO_TITLE_ID;
+	c.app_dir = EnvOr("FBNEO_PS5_HOMEBREW", "/data/homebrew") + "/" FBNEO_TITLE_ID; // RefreshPlace sets it
 	c.appmeta_dir = EnvOr("FBNEO_PS5_APPMETA", "/user/appmeta") + "/" FBNEO_TITLE_ID;
 	c.api_url = EnvOr("FBNEO_UPDATE_API", "");
 	g_update_http = new fe::TlsHttp;
@@ -253,6 +269,7 @@ void InitUpdater()
 		ProsperoNotify("FBNeo PS5 %s is available: Settings, SYSTEM, Updates.", v.c_str());
 		ProsperoNotifyFlush();
 	});
+	update::SetPlaceLookup([] { RefreshPlace(true); });
 }
 
 // One updater request from the app: "status", "check", "autocheck", "install", "ack". The answer: the status.

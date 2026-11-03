@@ -792,6 +792,12 @@ void NetCheck::Add()
 	m_i->thread.join(); // a pass that has just ended
 	m_i->stop = false;
 	m_i->thread = ps5::BigThread([this] { m_i->Run(); }, 256 * 1024);
+	if (!m_i->thread.joinable())
+	{
+		// 2.2: no thread (the system refused it): the sets stay listed unchecked, and the next Add tries again
+		m_i->busy = false;
+		OrbisLog("[games] no thread for the background check: the sets on shares stay unchecked for now");
+	}
 }
 
 void NetCheck::Stop()

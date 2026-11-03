@@ -411,6 +411,7 @@ Release g_found;
 bool g_busy = false;
 bool g_notify = false;
 std::function<void(const std::string&)> g_on_newer;
+std::function<void()> g_place_lookup; // set once at the start, before any thread
 std::atomic<size_t> g_bytes{0}, g_files{0}, g_files_total{0};
 
 std::string ApiUrl()
@@ -422,6 +423,8 @@ std::string ApiUrl()
 
 void* CheckMain(void*)
 {
+	if (g_place_lookup)
+		g_place_lookup();
 	std::vector<uint8_t> data;
 	const std::string url = ApiUrl();
 	OrbisLog("[update] checking %s", url.c_str());
@@ -434,6 +437,9 @@ void* CheckMain(void*)
 		why = status < 0 ? "Couldn't reach GitHub (is the console online?)." : "GitHub answered " + std::to_string(status) + ".";
 	else if (!ParseRelease(std::string(data.begin(), data.end()), g_config.title_id, r, &why))
 		why = "The newest release has no " + g_config.title_id + " zip (" + why + ").";
+	// 2.2: the "newer version" notification is sent after the lock is let go: it joins the notification thread, and
+	// the helper's single request loop asks GetStatus (the same lock) for the app, whose request gives up after 5 s
+	std::function<void(const std::string&)> tell;
 	{
 		std::lock_guard<std::mutex> l(g_mu);
 		g_busy = false;
@@ -450,20 +456,35 @@ void* CheckMain(void*)
 		g_status.error.clear();
 		g_status.phase = CompareVersions(r.version, g_config.version) > 0 ? Phase::Available : Phase::UpToDate;
 		if (g_status.phase == Phase::Available && g_notify && g_on_newer)
-			g_on_newer(r.version);
+			tell = g_on_newer;
 		OrbisLog("[update] newest release %s (%s, %llu bytes, sha-256 %s); this is %s: %s", r.tag.c_str(),
 			r.zip_name.c_str(), (unsigned long long)r.size, r.sha256.empty() ? "not given" : r.sha256.c_str(),
 			g_config.version.c_str(), g_status.phase == Phase::Available ? "newer" : "up to date");
 	}
+	if (tell)
+		tell(r.version);
 	return nullptr;
 }
 
 void* InstallMain(void*)
 {
+	if (g_place_lookup)
+		g_place_lookup(); // the folder as it is now (2.2: here, not in the helper's request)
 	Release r;
+	Config c; // 2.2: a copy, taken under the lock (the helper's request loop sets the version meanwhile)
 	{
 		std::lock_guard<std::mutex> l(g_mu);
+		if (!g_config.cant_install.empty())
+		{
+			// said before anything is downloaded
+			OrbisLog("[update] not installed: %s", g_config.cant_install.c_str());
+			g_busy = false;
+			g_status.phase = Phase::Failed;
+			g_status.error = g_config.cant_install;
+			return nullptr;
+		}
 		r = g_found;
+		c = g_config;
 		g_status.phase = Phase::Downloading;
 		g_status.done = 0;
 		g_status.total = r.size;
@@ -487,7 +508,7 @@ void* InstallMain(void*)
 		}
 		g_files = 0;
 		g_files_total = 0;
-		why = InstallZip(zip, r.sha256, g_config, &g_files, &g_files_total);
+		why = InstallZip(zip, r.sha256, c, &g_files, &g_files_total);
 	}
 	std::lock_guard<std::mutex> l(g_mu);
 	g_busy = false;
@@ -501,7 +522,7 @@ void* InstallMain(void*)
 	{
 		g_status.phase = Phase::Done;
 		g_status.error.clear();
-		OrbisLog("[update] %s %s installed in %s", g_config.app_name.c_str(), r.version.c_str(), g_config.app_dir.c_str());
+		OrbisLog("[update] %s %s installed in %s", c.app_name.c_str(), r.version.c_str(), c.app_dir.c_str());
 	}
 	return nullptr;
 }
@@ -615,6 +636,8 @@ bool ParseRelease(const std::string& json, const std::string& title_id, Release&
 std::string InstallZip(const std::vector<uint8_t>& zip, const std::string& expect_sha256, const Config& c,
 	std::atomic<size_t>* files_done, std::atomic<size_t>* files_total)
 {
+	if (!c.cant_install.empty())
+		return c.cant_install; // an image, a read-only folder...: nothing is written there
 	if (!expect_sha256.empty())
 	{
 		const std::string got = Sha256Hex(zip.data(), zip.size());
@@ -723,6 +746,21 @@ void Init(const Config& config, Fetch fetch)
 	g_fetch = std::move(fetch);
 }
 
+void SetPlaceLookup(std::function<void()> lookup)
+{
+	std::lock_guard<std::mutex> l(g_mu);
+	g_place_lookup = std::move(lookup);
+}
+
+void SetPlace(const std::string& app_dir, const std::string& cant_install)
+{
+	std::lock_guard<std::mutex> l(g_mu);
+	if (g_busy && (g_status.phase == Phase::Downloading || g_status.phase == Phase::Installing))
+		return; // the install under way keeps the folder it started with
+	g_config.app_dir = app_dir;
+	g_config.cant_install = cant_install;
+}
+
 void SetCurrentVersion(const std::string& version)
 {
 	std::lock_guard<std::mutex> l(g_mu);
@@ -768,6 +806,14 @@ bool StartInstall()
 	std::lock_guard<std::mutex> l(g_mu);
 	if (g_busy || !g_fetch || g_status.phase != Phase::Available)
 		return false;
+	if (!g_config.cant_install.empty())
+	{
+		// said before anything is downloaded
+		OrbisLog("[update] not installed: %s", g_config.cant_install.c_str());
+		g_status.phase = Phase::Failed;
+		g_status.error = g_config.cant_install;
+		return false;
+	}
 	g_busy = true;
 	if (!Spawn(InstallMain))
 	{

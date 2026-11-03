@@ -24,7 +24,7 @@
 PS5_PAYLOAD_SDK ?= /opt/ps5-payload-sdk
 PS5_HOST ?= ps5
 PS5_PORT ?= 9021
-VERSION ?= 2.1
+VERSION ?= 2.2
 TITLE_ID ?= PPSA99924
 # where the app looks for its updates (Settings, SYSTEM, Updates): this repository's GitHub releases
 UPDATE_REPO ?= MisterTemaki/FBNeo-PS5
@@ -108,10 +108,12 @@ GLUE_SRC := frontend/fe_burn.cpp core/burn_frontend.cpp
 # minizip (zlib licence) for the ROM-set zips, built as C with FBNeo's zlib
 EMU_C_SRC := frontend/third_party/unzip.c frontend/third_party/ioapi.c
 # the payloads: the helper, and the installer (= helper + install, with zlib's inflate for the compressed eboot)
-# (the helper also downloads the covers in the background: fe_coverworker.cpp, with the app's HTTPS code)
+# (the helper also downloads the covers in the background: fe_coverworker.cpp, with the app's HTTPS code; 2.2:
+# ProsperoAppPlace.cpp, where the console runs the app from, reads the mount table there -- statfs / getfsstat, from
+# libkernel_sys, which only a payload may load: the app's eboot never links it, tools/check_imports.py checks)
 HELPER_SRC := coreorbis/orbis-shims/orbis_paths.cpp coreorbis/orbis-shims/ProsperoNotify.cpp \
 	coreorbis/orbis-shims/ProsperoHelper.cpp coreorbis/orbis-shims/ProsperoMigrate.cpp coreorbis/orbis-shims/ProsperoCrash.cpp \
-	coreorbis/orbis-shims/ProsperoUpdate.cpp \
+	coreorbis/orbis-shims/ProsperoUpdate.cpp coreorbis/orbis-shims/ProsperoAppPlace.cpp \
 	frontend/fe_http.cpp frontend/fe_coverfetch.cpp frontend/fe_coverworker.cpp frontend/fe_tlshttp.cpp
 # the helper's own HTTPS (fe_tlshttp.cpp): Mbed TLS 3.6 (Apache-2.0), with fe_mbedtls_config.h on its default settings
 MBEDTLS := frontend/third_party/mbedtls
@@ -123,6 +125,18 @@ INFLATE_C_SRC := $(addprefix $(ROOT)/src/dep/libs/zlib/,adler32.c crc32.c inffas
 INCS := -Inetfs -Icoreorbis/include-orbis -Icoreorbis/orbis-shims -Ifrontend -isystem $(ROOT)/src/dep/libs/zlib
 GLUE_INCS = $(CORE_INCS) -Ifrontend -Ifrontend/third_party -Icoreorbis/include-orbis
 DEFS := -DFBNEO_PS5_VERSION='"$(VERSION)"' -DFBNEO_CORE_VERSION='"$(CORE_VERSION)"' -DFBNEO_TITLE_ID='"$(TITLE_ID)"' -DFBNEO_UPDATE_REPO='"$(UPDATE_REPO)"'
+# 2.2 (Snes9x PS5 2.10's): every object built with DEFS depends on this file, which changes only when one of those values
+# changes. Up to 2.1 a new VERSION (or TITLE_ID, UPDATE_REPO) rebuilt nothing: a release built over an earlier build kept
+# the old version in the eboot and the payloads (the version the app tells the helper, the installer's notification, the
+# shelf's line). The file is written while the Makefile is read (by make -n too), only when its text differs ...
+DEFS_STAMP := build/defs.stamp
+DEFS_TEXT := $(VERSION) $(TITLE_ID) $(UPDATE_REPO) $(CORE_VERSION)
+ifneq ($(shell cat $(DEFS_STAMP) 2>/dev/null),$(DEFS_TEXT))
+$(shell mkdir -p build && printf '%s\n' '$(DEFS_TEXT)' >$(DEFS_STAMP))
+endif
+# ... and made again when something removed it after the Makefile was read (make clean ps5: clean deletes build/)
+$(DEFS_STAMP):
+	@mkdir -p $(dir $@) && printf '%s\n' '$(DEFS_TEXT)' >$@
 MINIZIP_FLAGS := -DNOUNCRYPT -I$(ROOT)/src/dep/libs/zlib -w
 PORT_WARN := -Wall -Wextra -Werror -Wno-unused-parameter -Wno-missing-field-initializers
 GLUE_WARN := -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -Wno-write-strings
@@ -131,18 +145,26 @@ GLUE_WARN := -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers
 %/port/frontend/fe_covers.o: EXTRA_FLAGS = -Wno-error -Wno-sign-compare -Wno-unused-but-set-variable -Wno-implicit-fallthrough
 # the UI fonts (PS5SX2's: PCSX2's Roboto Regular and PromptFont; Font Awesome's brands) built into fe_text.o
 %/port/frontend/fe_text.o: EXTRA_FLAGS = -DFE_FONT_DIR='"$(abspath frontend/assets/fonts)"' -Wno-error -Wno-sign-compare -Wno-unused-function
-%/port/frontend/fe_text.o: frontend/assets/fonts/Roboto-Regular.ttf frontend/assets/fonts/promptfont.otf \
-	frontend/assets/fonts/fa-brands-400.otf
 # the helper's HTTPS client: Mbed TLS's headers, and Mozilla's CA list built in
 %/port/frontend/fe_tlshttp.o: EXTRA_FLAGS = $(MBEDTLS_FLAGS) -DCACERT_PEM='"$(abspath frontend/data/cacert.pem)"'
-%/port/frontend/fe_tlshttp.o: frontend/data/cacert.pem frontend/fe_mbedtls_config.h
 # the helper payload is installer_main.cpp without the install step
 %/port/installer/helper_main.o: EXTRA_FLAGS = -DFBNEO_HELPER_ONLY
+
+# What an object is built from besides its own source and headers, for both builds. 2.2 (Snes9x PS5 2.10's): explicit
+# targets. Up to 2.1 these were pattern rules without a recipe (%/port/frontend/fe_text.o: frontend/assets/...), which add
+# no prerequisite to the rule that builds the object: a new font, CA list or 7z header left the old one in the eboot.
+PS5_OUT := build/ps5
+HOST_OUT := build/host
+define OBJ_DEPS
+$(PS5_OUT)/port/$(1).o $(HOST_OUT)/port/$(1).o: $(2)
+endef
+$(eval $(call OBJ_DEPS,frontend/fe_text,frontend/assets/fonts/Roboto-Regular.ttf frontend/assets/fonts/promptfont.otf frontend/assets/fonts/fa-brands-400.otf))
+$(eval $(call OBJ_DEPS,frontend/fe_tlshttp,frontend/data/cacert.pem frontend/fe_mbedtls_config.h))
+$(eval $(call OBJ_DEPS,frontend/fe_7z,$(wildcard $(LIB7Z)/*.h)))
 
 # ---------------- PS5 ----------------
 PS5_CC  := $(PS5_PAYLOAD_SDK)/bin/prospero-clang
 PS5_CXX := $(PS5_PAYLOAD_SDK)/bin/prospero-clang++
-PS5_OUT := build/ps5
 # The PS5's CPU is Zen 2 (PS5SX2 builds with the same -march). The core at -O2: -O3 makes it much bigger for little.
 PS5_OPT := -O3 -fPIC -march=znver2 -fno-strict-aliasing
 PS5_CORE_OPT := -O2 -fPIC -march=znver2 -fno-strict-aliasing -Wno-c++11-narrowing
@@ -176,7 +198,7 @@ $(PS5_OUT)/inflate/%.o: $(ROOT)/%.c
 	@mkdir -p $(dir $@)
 	$(PS5_CC) $(PS5_OPT) -I$(ROOT)/src/dep/libs/zlib -w -c -o $@ $<
 
-$(PS5_OUT)/port/%.o: %.cpp coreorbis/include-orbis/*.h coreorbis/orbis-shims/*.h frontend/*.h netfs/*.h
+$(PS5_OUT)/port/%.o: %.cpp coreorbis/include-orbis/*.h coreorbis/orbis-shims/*.h frontend/*.h netfs/*.h $(DEFS_STAMP)
 	@mkdir -p $(dir $@)
 	$(PS5_CXX) -std=c++17 $(PS5_OPT) $(DEFS) $(INCS) $(PORT_WARN) $(EXTRA_FLAGS) -c -o $@ $<
 
@@ -194,11 +216,11 @@ $(PS5_OUT)/lib7z/%.o: $(LIB7Z)/%.c $(wildcard $(LIB7Z)/*.h)
 $(PS5_OUT)/lib7z/names.ok: $(PS5_LIB7Z_OBJ) $(PS5_EMU_OBJ) $(PS5_LIBSMB2_OBJ) $(PS5_LIBNFS_OBJ) $(PS5_CORE_OUT)/libfbneo.a
 	$(call LIB7Z_NAMES_CHECK,$(PS5_PAYLOAD_SDK)/bin/llvm-nm,$(PS5_LIB7Z_OBJ),$(PS5_EMU_OBJ) $(PS5_LIBSMB2_OBJ) $(PS5_LIBNFS_OBJ) $(PS5_CORE_OUT)/libfbneo.a)
 
-$(PS5_OUT)/glue/%.o: %.cpp frontend/fe_burn.h frontend/fe_7z.h | $(GEN_STAMP)
+$(PS5_OUT)/glue/%.o: %.cpp frontend/fe_burn.h frontend/fe_7z.h $(DEFS_STAMP) | $(GEN_STAMP)
 	@mkdir -p $(dir $@)
 	$(PS5_CXX) -std=gnu++17 $(PS5_CORE_OPT) $(DEFS) $(CORE_DEFS) $(GLUE_INCS) $(GLUE_WARN) -fsigned-char -c -o $@ $<
 
-$(PS5_OUT)/port/installer/helper_main.o: installer/installer_main.cpp coreorbis/include-orbis/*.h coreorbis/orbis-shims/*.h
+$(PS5_OUT)/port/installer/helper_main.o: installer/installer_main.cpp coreorbis/include-orbis/*.h coreorbis/orbis-shims/*.h $(DEFS_STAMP)
 	@mkdir -p $(dir $@)
 	$(PS5_CXX) -std=c++17 $(PS5_OPT) $(DEFS) $(INCS) $(PORT_WARN) $(EXTRA_FLAGS) -c -o $@ $<
 
@@ -206,7 +228,7 @@ $(PS5_OUT)/port/installer/helper_main.o: installer/installer_main.cpp coreorbis/
 $(PS5_OUT)/FBNeoPS5-helper.elf: $(PS5_HELPER_OBJ)
 	$(PS5_CXX) -o $@ $^ $(PS5_PAYLOAD_LIBS)
 
-$(PS5_OUT)/helper_data.o: coreorbis/orbis-shims/helper_data.cpp coreorbis/orbis-shims/ProsperoJailbreak.h $(PS5_OUT)/FBNeoPS5-helper.elf
+$(PS5_OUT)/helper_data.o: coreorbis/orbis-shims/helper_data.cpp coreorbis/orbis-shims/ProsperoJailbreak.h $(PS5_OUT)/FBNeoPS5-helper.elf $(DEFS_STAMP)
 	$(PS5_CXX) -std=c++17 $(PS5_OPT) $(DEFS) $(INCS) $(PORT_WARN) -DHELPER_ELF='"$(abspath $(PS5_OUT)/FBNeoPS5-helper.elf)"' -c -o $@ $<
 
 # 3. the installer + helper, with the app folder built in; eboot.bin as tools/pack_file.py packs it (zlib)
@@ -222,7 +244,7 @@ APP_DATA_DEFS = -DAPP_EBOOT_Z='"$(abspath build/app/eboot.bin.z)"' -DAPP_PARAM='
 	-DAPP_LIBC='"$(abspath $(APP_OUT)/sce_module/libc.prx)"'
 
 $(PS5_OUT)/install_data.o: coreorbis/orbis-shims/install_data.cpp coreorbis/orbis-shims/ProsperoInstall.h $(APP_FILES) \
-		build/app/eboot.bin.z build/app/pic0.dds.z
+		build/app/eboot.bin.z build/app/pic0.dds.z $(DEFS_STAMP)
 	$(PS5_CXX) -std=c++17 $(PS5_OPT) $(DEFS) $(INCS) $(PORT_WARN) $(APP_DATA_DEFS) -c -o $@ $<
 
 $(PS5_OUT)/FBNeoPS5.elf: $(PS5_INSTALLER_OBJ) $(PS5_OUT)/install_data.o
@@ -256,8 +278,11 @@ LIBC_BUILDER := $(NATIVE)/build/host/libc-builder
 LLD ?= ld.lld
 NATIVE_CLANG = PS5_PAYLOAD_SDK=$(PS5_PAYLOAD_SDK) sh $(NATIVE)/tooling/prospero-clang18
 SDK_LIB := $(PS5_PAYLOAD_SDK)/target/lib
-# every system-module stub but the two PS5SX2 leaves out (link-vk.sh)
-APP_STUBS = $(filter-out %/libScePosixForWebKit.so %/libSceGLSlimVSH.so,$(sort $(wildcard $(SDK_LIB)/*.so)))
+# every system-module stub but the two PS5SX2 leaves out (link-vk.sh), and not libkernel_sys / libkernel_web either
+# (2.2, Snes9x PS5 2.10's): a title can't load them (Media Player Classic PS5 1.5 picked libkernel_sys up through statfs
+# and crashed at launch); with them left out such a symbol is a link error. tools/check_imports.py checks the result.
+APP_STUBS = $(filter-out %/libScePosixForWebKit.so %/libSceGLSlimVSH.so %/libkernel_sys.so %/libkernel_web.so,\
+	$(sort $(wildcard $(SDK_LIB)/*.so)))
 
 $(NATIVE_TOOL): $(NATIVE)/tooling/native/native_app_builder.cpp $(NATIVE)/tooling/native/elf_object.cpp \
 		$(NATIVE)/tooling/native/self_container.cpp $(NATIVE)/tooling/native/sce_module_writer.cpp
@@ -282,22 +307,35 @@ $(APP_OUT)/sce_module/libc.prx: build/app/libc.prx
 
 app: $(APP_FILES)
 
+# app_cpp_runtime.cpp (operator new / delete) with exceptions (2.2, Snes9x PS5 2.10's, as Stella PS5 1.0.2): a failed
+# allocation throws std::bad_alloc, as the C++ standard says, instead of stopping the app with SIGILL; the eboot's C++
+# runtime is whole (below), so the throw reaches the catch the code has for it (a Killer Instinct start that runs out of
+# memory, a damaged state), or std::terminate, which the crash log reports
+APP_CRT_EH_app_crt := -fno-exceptions
+APP_CRT_EH_app_cpp_runtime := -fexceptions
 build/app/app_crt.o build/app/app_cpp_runtime.o: build/app/%.o: $(NATIVE)/tooling/native/%.cpp
 	@mkdir -p $(dir $@)
-	$(NATIVE_CLANG) -std=c++20 -O2 -Wall -Wextra -fno-exceptions -fno-rtti -ffunction-sections -fdata-sections \
+	$(NATIVE_CLANG) -std=c++20 -O2 -Wall -Wextra $(APP_CRT_EH_$*) -fno-rtti -ffunction-sections -fdata-sections \
 		-c -o $@ $<
 
 EBOOT_OBJS = build/app/app_crt.o build/app/app_cpp_runtime.o $(PS5_EMU_OBJ) $(PS5_LIBSMB2_OBJ) $(PS5_LIBNFS_OBJ) \
 	$(PS5_LIB7Z_OBJ) $(PS5_OUT)/helper_data.o
+# 2.2 (Snes9x PS5 2.10's, "lesson 2"): the C++ runtime is the eboot's own, whole: libc++, libc++abi (__cxa_throw, the
+# personality routine, the type_info vtables) and libunwind (which finds the FDEs through ehframe.ld's
+# __eh_frame_hdr_start), named before the system stubs. Up to 2.1 they came after them, and libSceLibcInternal's stub won
+# the personality routine, __cxa_get_globals and the type_info / std exception vtables while __cxa_throw and the
+# unwinder were static: the mix Stella PS5 1.0 crashed with at its first throw. tools/check_imports.py refuses any C++
+# runtime import, any module outside the allow-list and any symbol only libkernel_sys / libkernel_web has.
 build/app/fbneo-pie.elf: $(EBOOT_OBJS) $(PS5_CORE_OUT)/libfbneo.a $(NATIVE)/tooling/native/ps5-pie.ld \
 		$(NATIVE)/tooling/native/ehframe.ld $(NATIVE)/tooling/native/app-symbols.map $(NATIVE)/tooling/native/localize.map \
-		$(PS5_OUT)/lib7z/names.ok
+		$(PS5_OUT)/lib7z/names.ok tools/check_imports.py
 	$(LLD) -m elf_x86_64 -pie -z max-page-size=0x4000 --hash-style=gnu \
 		-T $(NATIVE)/tooling/native/ps5-pie.ld -T $(NATIVE)/tooling/native/ehframe.ld --eh-frame-hdr \
 		--version-script $(NATIVE)/tooling/native/app-symbols.map --version-script $(NATIVE)/tooling/native/localize.map \
 		-e _start --no-dynamic-linker $(NETFS_WRAP_LLD) -o $@ $(EBOOT_OBJS) $(PS5_CORE_OUT)/libfbneo.a \
-		--as-needed $(APP_STUBS) -L $(SDK_LIB) \
-		$(SDK_LIB)/libc++.a $(SDK_LIB)/libc++abi.a $(SDK_LIB)/libunwind.a $(SDK_LIB)/libc.a -lpthread
+		$(SDK_LIB)/libc++.a $(SDK_LIB)/libc++abi.a $(SDK_LIB)/libunwind.a \
+		--as-needed $(APP_STUBS) -L $(SDK_LIB) $(SDK_LIB)/libc.a -lpthread
+	python3 tools/check_imports.py $@ $(SDK_LIB) || { rm -f $@; exit 1; }
 
 build/app/eboot.elf: build/app/fbneo-pie.elf $(NATIVE_TOOL)
 	$(NATIVE_TOOL) link --in $< --out $@ --stub-dir $(SDK_LIB) --module-sdk 0x02000009 \
@@ -326,7 +364,6 @@ $(APP_OUT)/sce_sys/%.dds: app/sce_sys/%.dds
 # ---------------- host ----------------
 HOST_CC ?= gcc
 HOST_CXX ?= g++
-HOST_OUT := build/host
 HOST_SAN ?= -fsanitize=address,undefined -fno-omit-frame-pointer
 # no _FORTIFY_SOURCE: it turns fread/fgets/read into __fread_chk/..., which --wrap (netfs) does not see
 HOST_OPT := -O1 -g -mavx2 -fno-strict-aliasing -U_FORTIFY_SOURCE
@@ -361,7 +398,7 @@ $(HOST_OUT)/inflate/%.o: $(ROOT)/%.c
 	@mkdir -p $(dir $@)
 	$(HOST_CC) $(HOST_OPT) -I$(ROOT)/src/dep/libs/zlib -w -c -o $@ $<
 
-$(HOST_OUT)/port/%.o: %.cpp coreorbis/include-orbis/*.h coreorbis/orbis-shims/*.h frontend/*.h netfs/*.h
+$(HOST_OUT)/port/%.o: %.cpp coreorbis/include-orbis/*.h coreorbis/orbis-shims/*.h frontend/*.h netfs/*.h $(DEFS_STAMP)
 	@mkdir -p $(dir $@)
 	$(HOST_CXX) -std=c++17 $(HOST_OPT) $(HOST_SAN) $(DEFS) $(INCS) $(PORT_WARN) $(EXTRA_FLAGS) -c -o $@ $<
 
@@ -380,11 +417,11 @@ $(HOST_OUT)/lib7z/%.o: $(LIB7Z)/%.c $(wildcard $(LIB7Z)/*.h)
 $(HOST_OUT)/lib7z/names.ok: $(HOST_LIB7Z_OBJ) $(HOST_EMU_OBJ) $(HOST_LIBSMB2_OBJ) $(HOST_LIBNFS_OBJ) $(HOST_CORE_OUT)/libfbneo.a
 	$(call LIB7Z_NAMES_CHECK,nm,$(HOST_LIB7Z_OBJ),$(HOST_EMU_OBJ) $(HOST_LIBSMB2_OBJ) $(HOST_LIBNFS_OBJ) $(HOST_CORE_OUT)/libfbneo.a)
 
-$(HOST_OUT)/glue/%.o: %.cpp frontend/fe_burn.h frontend/fe_7z.h | $(GEN_STAMP)
+$(HOST_OUT)/glue/%.o: %.cpp frontend/fe_burn.h frontend/fe_7z.h $(DEFS_STAMP) | $(GEN_STAMP)
 	@mkdir -p $(dir $@)
 	$(HOST_CXX) -std=gnu++17 $(HOST_OPT) $(HOST_SAN) $(DEFS) $(CORE_DEFS) $(GLUE_INCS) $(GLUE_WARN) -fsigned-char -c -o $@ $<
 
-$(HOST_OUT)/port/installer/helper_main.o: installer/installer_main.cpp coreorbis/include-orbis/*.h coreorbis/orbis-shims/*.h
+$(HOST_OUT)/port/installer/helper_main.o: installer/installer_main.cpp coreorbis/include-orbis/*.h coreorbis/orbis-shims/*.h $(DEFS_STAMP)
 	@mkdir -p $(dir $@)
 	$(HOST_CXX) -std=c++17 $(HOST_OPT) $(HOST_SAN) $(DEFS) $(INCS) $(PORT_WARN) $(EXTRA_FLAGS) -c -o $@ $<
 
@@ -403,11 +440,11 @@ HOST_APP_DEFS = -DAPP_EBOOT_Z='"$(abspath $(HOST_OUT)/fake-eboot.bin.z)"' -DAPP_
 
 $(HOST_OUT)/install_data.o: coreorbis/orbis-shims/install_data.cpp coreorbis/orbis-shims/ProsperoInstall.h \
 		$(HOST_OUT)/fake-eboot.bin.z tests/fake-libc.prx app/sce_sys/param.json app/sce_sys/icon0.png \
-		$(HOST_OUT)/pic0.dds.z
+		$(HOST_OUT)/pic0.dds.z $(DEFS_STAMP)
 	@mkdir -p $(dir $@)
 	$(HOST_CXX) -std=c++17 $(HOST_OPT) $(DEFS) $(INCS) $(PORT_WARN) $(HOST_APP_DEFS) -c -o $@ $<
 
-$(HOST_OUT)/helper_data.o: coreorbis/orbis-shims/helper_data.cpp coreorbis/orbis-shims/ProsperoJailbreak.h $(HOST_OUT)/fbneo-ps5-helper
+$(HOST_OUT)/helper_data.o: coreorbis/orbis-shims/helper_data.cpp coreorbis/orbis-shims/ProsperoJailbreak.h $(HOST_OUT)/fbneo-ps5-helper $(DEFS_STAMP)
 	@mkdir -p $(dir $@)
 	$(HOST_CXX) -std=c++17 $(HOST_OPT) $(DEFS) $(INCS) $(PORT_WARN) -DHELPER_ELF='"$(abspath $(HOST_OUT)/fbneo-ps5-helper)"' -c -o $@ $<
 
@@ -426,10 +463,10 @@ $(HOST_OUT)/fbneo-ps5-host: $(HOST_EMU_OBJ) $(HOST_LIBSMB2_OBJ) $(HOST_LIBNFS_OB
 HOST_DAT_OBJ := $(HOST_OUT)/dat/fbneo/src/burner/dat.o $(HOST_OUT)/dat/fbneo/src/burner/misc.o $(HOST_OUT)/dat/host/fbneo_dat.o
 HOST_DAT_FLAGS = -O1 -g1 $(HOST_CORE_SAN) $(CORE_CXXFLAGS) $(DEFS) $(CORE_DEFS) $(CORE_INCS) -I$(ROOT)/src/intf \
 	-I$(ROOT)/src/intf/input -include host/fbneo_dat.h
-$(HOST_OUT)/dat/fbneo/%.o: $(ROOT)/%.cpp host/fbneo_dat.h | $(GEN_STAMP)
+$(HOST_OUT)/dat/fbneo/%.o: $(ROOT)/%.cpp host/fbneo_dat.h $(DEFS_STAMP) | $(GEN_STAMP)
 	@mkdir -p $(dir $@)
 	$(HOST_CXX) $(HOST_DAT_FLAGS) -c -o $@ $<
-$(HOST_OUT)/dat/host/%.o: host/%.cpp host/fbneo_dat.h | $(GEN_STAMP)
+$(HOST_OUT)/dat/host/%.o: host/%.cpp host/fbneo_dat.h $(DEFS_STAMP) | $(GEN_STAMP)
 	@mkdir -p $(dir $@)
 	$(HOST_CXX) $(HOST_DAT_FLAGS) -c -o $@ $<
 

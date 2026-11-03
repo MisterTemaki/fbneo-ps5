@@ -118,6 +118,11 @@ std::vector<std::string> OrbisRomRoots()
 		if (OrbisIsDir(buf))
 			roots.push_back(buf);
 	}
+#ifndef __PROSPERO__
+	// the host tests (2.2): a folder that stands for a USB drive's ROM folder, there or not as the test makes it
+	if (const char* usb = getenv("FBNEO_HOST_USB_ROOT"); usb && *usb && OrbisIsDir(usb))
+		roots.push_back(usb);
+#endif
 	return roots;
 }
 
@@ -261,5 +266,15 @@ void OrbisLogClose()
 	{
 		fclose(s_log);
 		s_log = nullptr;
+	}
+}
+
+void OrbisLogSync()
+{
+	std::lock_guard<std::mutex> lock(s_log_mutex);
+	if (s_log)
+	{
+		fflush(s_log);
+		fsync(fileno(s_log));
 	}
 }

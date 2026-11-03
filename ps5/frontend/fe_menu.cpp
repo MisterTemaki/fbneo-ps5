@@ -15,6 +15,7 @@
 
 #include "OrbisPaths.h"
 #include "ProsperoJailbreak.h"
+#include "ProsperoPlaceText.h"
 #include "ProsperoUpdate.h"
 #include "ProsperoCrt.h"
 #include "ProsperoInput.h"
@@ -575,6 +576,67 @@ void Background(bool over_game)
 void BiosScreen(bool over_game);
 bool ChoosePlayersScreen(bool over_game);
 
+namespace
+{
+// 2.2 (Snes9x PS5 2.10): the helper's reason for an update that can't be installed, in the interface's language when it
+// is one of ProsperoPlaceText.h's (the folder taken out of the English text and put into the translation); any other as
+// it came.
+std::string UpdateErrorText(const std::string& e)
+{
+	for (const char* t : placetext::kAll)
+	{
+		const std::string tmpl = t;
+		const size_t at = tmpl.find("%s");
+		const std::string head = tmpl.substr(0, at), tail = tmpl.substr(at + 2);
+		if (e.size() > head.size() + tail.size() && e.compare(0, head.size(), head) == 0 &&
+			e.compare(e.size() - tail.size(), tail.size(), tail) == 0)
+		{
+			char buf[1024];
+			snprintf(buf, sizeof(buf), T(t), e.substr(head.size(), e.size() - head.size() - tail.size()).c_str());
+			return buf;
+		}
+	}
+	return e;
+}
+
+// The text in at most `lines` lines of max_px, cut between words; what doesn't fit ends the last line with "...".
+std::vector<std::string> WrapText(const std::string& text, int scale, int max_px, int lines)
+{
+	std::vector<std::string> out;
+	size_t at = 0;
+	while (at < text.size() && int(out.size()) < lines)
+	{
+		while (at < text.size() && text[at] == ' ')
+			at++;
+		if (int(out.size()) == lines - 1)
+		{
+			out.push_back(FitText(text.substr(at), scale, max_px));
+			break;
+		}
+		size_t end = at, best = std::string::npos;
+		while (end <= text.size())
+		{
+			const size_t sp = text.find(' ', end);
+			const size_t stop = sp == std::string::npos ? text.size() : sp;
+			if (TextWidth(text.substr(at, stop - at).c_str(), scale) > max_px)
+				break;
+			best = stop;
+			if (sp == std::string::npos)
+				break;
+			end = sp + 1;
+		}
+		if (best == std::string::npos) // one word longer than the line
+		{
+			out.push_back(FitText(text.substr(at), scale, max_px));
+			break;
+		}
+		out.push_back(text.substr(at, best - at));
+		at = best;
+	}
+	return out;
+}
+} // namespace
+
 void SettingsScreen(bool over_game)
 {
 	NavReader nav;
@@ -587,7 +649,14 @@ void SettingsScreen(bool over_game)
 		Background(over_game);
 		DrawOptionBox("Settings", rows, sel, over_game);
 		if (sel == S_UPDATES && g_upd.st.phase == update::Phase::Failed && !g_upd.st.error.empty())
-			DrawText(80, H - 130, FitText(g_upd.st.error, 2, W - 160).c_str(), 2, kAccent);
+		{
+			// two lines (2.2, Snes9x PS5 2.10's: the folder-place reasons are about 1950 px at this size; the advice at
+			// their end was cut off on one line)
+			const std::vector<std::string> lines = WrapText(UpdateErrorText(g_upd.st.error), 2, W - 160, 2);
+			ps5video::FillRect(0, H - 148, W, 68, kBg); // over the box's bottom edge, which the two lines would cross
+			for (size_t i = 0; i < lines.size(); i++)
+				DrawText(80, H - 142 + int(i) * 30, lines[i].c_str(), 2, kAccent);
+		}
 		else if (sel == S_UPDATES && !g_upd.helper)
 			DrawText(80, H - 130, T("Updates are downloaded by the helper: send the payload, then open Settings again."), 2, kDim);
 		if (!over_game)
