@@ -131,6 +131,10 @@ enum class FrameResult
 // match); the others are paced by the sound. The one hot key: L3 + R3 opens the pause menu (states, DIP switches,
 // the machine's service button and test switch...); L2 and R2 are buttons like the others (1.7).
 FrameResult RunFrame();
+// 2.3: whether a frame of a game paced by the sound goes undrawn (its picture drawn on a thread of its own): that thread
+// still drawing the last one, the sound queued less than the wait for it (its expected rest) plus half the target, and
+// the last frame drawn (never two in a row). Sound in frames of 48 kHz.
+bool SkipDrawing(bool picture_busy, int queued, int expected_wait, int target, bool last_skipped);
 
 void Pause(); // nothing runs between frames; kept for the menus' symmetry
 void Resume();

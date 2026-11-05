@@ -309,6 +309,27 @@ secs=$(python3 -c "print(round($end - $start, 2))")
 expect "[ $rc = 0 ]" "exit code 0 (got $rc)"
 expect "grep -q 'running ddonpach .*57.550 fps (paced by the sound)' $T/root/logs/boot.log" "DoDonPachi (57.55 Hz) is paced by the sound"
 expect "python3 -c 'import sys; sys.exit(0 if 5.0 <= $secs <= 10.5 else 1)'" "300 frames took ${secs}s (~5.4 s at 57.55 fps)"
+expect "grep -q 'the picture of the games paced by the sound is drawn on a thread of its own' $T/root/logs/boot.log && grep -q 'picture on its thread [0-9.]* ms a frame' $T/root/logs/boot.log" "2.3: a game paced by the sound draws its picture on a thread of its own (logged with its times)"
+expect "! grep -q 'frame [0-9]* not drawn:' $T/root/logs/boot.log" "no frame left undrawn (the host tests: no skips unless asked)"
+nosan "$T"
+# 2.3: the picture's thread slower than a frame, faster than two (15 ms more each, FBNEO_HOST_PICTURE_DELAY_MS) with skips allowed
+# (FBNEO_HOST_DRAW_SKIPS=1, as on the console): frames go undrawn while the sound is low, never two in a row, and the
+# sound has fewer gaps than when the game waits for every picture
+T=$(newroot t7c)
+addset ddonpach "$T/root/roms"
+rc=$(FBNEO_HOST_REALTIME=1 FBNEO_HOST_PICTURE_DELAY_MS=15 FBNEO_HOST_DRAW_SKIPS=1 run "$T" "0:0;$(QUITAT 300)" "" "$T/root/roms/ddonpach.zip")
+B=$T/root/logs/boot.log
+o=$(grep -o 'frame [0-9]* not drawn' $B | grep -o '[0-9]*' | python3 -c "
+import sys
+f = [int(x) for x in sys.stdin.read().split()]
+print('%d %s' % (len(f), 'apart' if all(b - a > 1 for a, b in zip(f, f[1:])) else 'TWO-IN-A-ROW'))")
+expect "[ $rc = 0 ] && [ \"\${o% *}\" -gt 0 ] && [ \"\${o#* }\" = apart ] && grep -q 'frames not drawn in this game: [0-9]*' $B" "a slow picture: frames not drawn while the sound is low, never two in a row ($o)"
+T=$(newroot t7d)
+addset ddonpach "$T/root/roms"
+rc=$(FBNEO_HOST_REALTIME=1 FBNEO_HOST_PICTURE_DELAY_MS=15 run "$T" "0:0;$(QUITAT 300)" "" "$T/root/roms/ddonpach.zip")
+r1=$(grep -o 'silence refills [0-9]*' $B | tail -1 | grep -o '[0-9]*$')
+r2=$(grep -o 'silence refills [0-9]*' $T/root/logs/boot.log | tail -1 | grep -o '[0-9]*$')
+expect "[ $rc = 0 ] && ! grep -q 'frame [0-9]* not drawn:' $T/root/logs/boot.log && [ ${r1:-99} -lt ${r2:-0} ]" "without skips the game waits for each picture: sound gaps (silence refills) ${r2:-?}, against ${r1:-?} with skips"
 nosan "$T"
 fi
 

@@ -48,7 +48,7 @@ switches, states, NVRAM, the picture turned the right way up and the sound.
 > 2.1 GHz Xeon) with a real set -- the attract mode with its 3D, a coin, Start, the circuit and transmission choices, a
 > race steered with the stick, the sound commands all received once and in order, the music and the voices played,
 > save states replayed exactly, the game's own TGP and memory tests GOOD -- not yet again on a PS5. The favorites
-> (new in 2.3) have run only in the host tests. The 2.3 build passes 803 host tests
+> (new in 2.3) have run only in the host tests. The 2.3 build passes 808 host tests
 > (2.2's 718, the new CPU, renderer, Daytona USA stand-in, controls and favorites tests included) and the app's import
 > and system-call checks. Everything else is as 2.2 had it:
 >
@@ -536,8 +536,16 @@ Daytona USA (2.3) is the original Model 2 board's game, as MAME emulates it (`mo
 - **Sound:** the music, the voices ("Gentlemen, start your engines!") and the effects, all on the two MultiPCM chips
   (the YM3438 is not used by the game), in stereo. The sound board's 68000 takes each byte the main board sends once
   and at once, as MAME's UART does (2.3's first test build let it read a byte again after an interrupt: the music was
-  missing and a voice repeated). Not compared with MAME's sound or a real cabinet.
-- **Speed:** full speed on a PS5 (a first 2.3 test build: about 57.3 frames a second, 8.5 ms a frame). On the test machine (2 cores at 2.1 GHz) a race frame takes about 1.5 ms for
+  missing and a voice repeated). Each write of the 68000 to a MultiPCM takes effect where it happens in the frame, as
+  MAME's stream update makes it (the car's engine is a pair of slots whose pitch the game changes about 30 times a
+  frame: 2.3's first test builds applied only the frame's last value, a step 57.5 times a second), and the chips'
+  44.6 kHz is resampled to 48 kHz linearly (FBNeo's MultiPCM repeats the nearest sample; Sega System 32 keeps that).
+  Not compared with MAME's sound or a real cabinet by ear.
+- **Speed:** full speed on a PS5 without a shader (a first 2.3 test build: about 57.3 frames a second, 8.5 ms a
+  frame). With the default CRT Easymode style shader (about 7 ms a frame on a PS5) the race fell to about 54 frames a
+  second and the sound had gaps: the picture of a game paced by the sound is now drawn on a thread of its own while
+  the next frame runs (the shader on 4 threads there), and a frame whose picture would make the sound run low goes
+  undrawn instead (never two in a row; `boot.log` counts them). The 60 Hz games draw as before. On the test machine (2 cores at 2.1 GHz) a race frame takes about 1.5 ms for
   the i960, 0.7 to 1.4 for the TGP, 0.5 for the sound board, 0.3 for the I/O board, 0.5 for the geometrizer, 7 to 9 ms
   for the 3D on one thread (4.5 on two), 1.7 for the tilemaps -- about 11 ms of a 17.4 ms frame with two threads. With
   the debug logs on, `boot.log` has these numbers once a second (`model2: ms a frame ...`).
@@ -931,7 +939,8 @@ plus the previous session's `.prev.log` files. They record every step:
 - frames per second, queued audio and underruns, and the shader's time per frame, every minute in a game; since 2.3
   also the slowest frame of that minute (and the core's part of it) and the **silence refills**: when the game runs
   late the queued sound runs low, and the app then adds silence at once (`[emu] audio: ... ms of silence added`, the
-  first 20 logged), heard as a short gap.
+  first 20 logged), heard as a short gap; and the picture's time a frame (for a game paced by the sound: on its own
+  thread, how long the game waited for it, the frames not drawn).
 
 If the app dies on a signal (the PS5's "Game or App Error" screen), a `== CRASH ==` block is written at the end of
 `boot.log`: the signal, the address, the **stage** each part of the program was in (`stage[...]`: boot, shelf,
@@ -970,7 +979,7 @@ make send PS5_HOST=192.168.0.10  # sends it to elfldr (port 9021)
 make dist                        # build/dist/FBNeoPS5-v<version>.elf + the release zip + the ROM DAT
 make dat                         # ps5/dat/fbneo-ps5-arcade.dat, again (after a core update or a version change)
 make app                         # only build/app/PPSA99924/, to copy by hand
-make test                        # Linux builds (app, installer, helper, headless core) + 803 host tests (ASan/UBSan)
+make test                        # Linux builds (app, installer, helper, headless core) + 808 host tests (ASan/UBSan)
 make test-mips3                  # the MIPS III core alone, four builds (in make test)
 make test-kinst-hdd              # Killer Instinct's hard disk alone, on synthetic CHDs (in make test)
 make test-cpus                   # 2.3: the i960KB and MB86234 cores against MAME's own (in make test)
@@ -1066,7 +1075,7 @@ The build has three stages:
   DIP switches saved and read back and in place before a driver starts, a frame's and a save state's time, a driver's palette made at start), the
   stand-in ROM sets (`make_fake_set.py`: every ROM a driver lists, with its name and its CRC, as FBNeo's split
   sets are made), the test programs (`tests/data`: a tiny Z80 program on the Pac-Man board, red screen, green
-  while the joystick or the button is pressed), and the 803 tests: picture, rotation, input and states on a
+  while the joystick or the button is pressed), and the 808 tests: picture, rotation, input and states on a
   vertical and a horizontal game, the library (parents, BIOS sets, incomplete sets, the check's cache), a set with
   a ROM missing, DIP switches, button layouts (a layout per game, a clone using its parent's, Auto's Fighting (R1 R2) for 6-button games), sound latency and pacing by the sound, 720p, install (packed
   files), covers (flyer, parent's flyer, screenshot, 404, the no-cover card's arcade panel with a long title below it), tabs and clones, the CRT shaders (each one, both

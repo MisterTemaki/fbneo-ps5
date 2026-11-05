@@ -269,7 +269,9 @@ public:
 	{
 		if (n <= 0)
 			return;
-		if (m_count <= 1 || n < 8)
+		const int limit = m_limit.load();
+		const int count = limit > 0 ? std::min(m_count, limit) : m_count;
+		if (count <= 1 || n < 8)
 		{
 			fn(0, n);
 			return;
@@ -278,13 +280,14 @@ public:
 			std::lock_guard<std::mutex> lock(m_lock);
 			m_fn = &fn;
 			m_n = n;
-			m_chunks = std::min(n, m_count * 6);
+			m_chunks = std::min(n, count * 6);
 			m_next = 0;
 			m_pending = m_count - 1;
+			m_active = count - 1; // the workers that take chunks (the others only answer)
 			m_gen++;
 		}
 		m_cv.notify_all();
-		Work(&fn, n, std::min(n, m_count * 6));
+		Work(&fn, n, std::min(n, count * 6));
 		std::unique_lock<std::mutex> lock(m_lock);
 		m_done.wait(lock, [this] { return m_pending == 0; });
 		m_fn = nullptr;
@@ -300,7 +303,8 @@ private:
 		m_count = 1;
 		for (unsigned i = 1; i < n; i++)
 		{
-			ps5::BigThread t([this] { Worker(); }, 256 * 1024);
+			const int index = int(i) - 1;
+			ps5::BigThread t([this, index] { Worker(index); }, 256 * 1024);
 			if (!t.joinable())
 				break;
 			m_threads.push_back(std::move(t));
@@ -319,13 +323,14 @@ private:
 				(*fn)(i0, i1);
 		}
 	}
-	void Worker()
+	void Worker(int index)
 	{
 		uint64_t seen = 0;
 		for (;;)
 		{
 			const std::function<void(int, int)>* fn;
 			int n, chunks;
+			bool active;
 			{
 				std::unique_lock<std::mutex> lock(m_lock);
 				m_cv.wait(lock, [&] { return m_gen != seen; });
@@ -333,8 +338,9 @@ private:
 				fn = m_fn;
 				n = m_n;
 				chunks = m_chunks;
+				active = index < m_active;
 			}
-			if (fn)
+			if (fn && active)
 				Work(fn, n, chunks);
 			{
 				std::lock_guard<std::mutex> lock(m_lock);
@@ -350,8 +356,11 @@ private:
 	uint64_t m_gen = 0;
 	int m_pending = 0;
 	const std::function<void(int, int)>* m_fn = nullptr;
-	int m_n = 0, m_chunks = 0;
+	int m_n = 0, m_chunks = 0, m_active = 0;
 	std::atomic<int> m_next{0};
+
+public:
+	std::atomic<int> m_limit{0};
 };
 
 void ParallelFor(int n, const std::function<void(int, int)>& fn)
@@ -1871,6 +1880,11 @@ T& Use(Shader s, A... args)
 	return *static_cast<T*>(c->obj.get());
 }
 } // namespace
+
+void SetThreadLimit(int n)
+{
+	Pool::Get().m_limit = n;
+}
 
 const char* Name(Shader s)
 {

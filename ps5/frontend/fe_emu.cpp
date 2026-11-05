@@ -24,6 +24,7 @@
 #include "OrbisPaths.h"
 #include "ProsperoAudio.h"
 #include "ProsperoCrash.h"
+#include "ProsperoCrt.h"
 #include "ProsperoInput.h"
 #include "ProsperoSce.h"
 #include "ProsperoThread.h"
@@ -42,7 +43,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <condition_variable>
 #include <ctime>
+#include <mutex>
 #include <new>
 #include <vector>
 
@@ -766,31 +769,47 @@ void TakePicture()
 	g.new_frame = true;
 }
 
-void ShowOverlays(ps5video::Rect* damage)
+// What the overlays show (taken on the game's thread; drawn by whichever thread draws the picture)
+struct Overlay
 {
-	const fe::Settings& cfg = fe::Config();
-	const double now = Now();
+	bool fps = false;
+	double fps_shown = 0;
+	std::string osd; // empty: none now
+};
+
+Overlay TakeOverlay()
+{
+	Overlay o;
+	o.fps = fe::Config().show_fps;
+	o.fps_shown = g.fps_shown;
+	if (!g.osd.empty() && Now() < g.osd_until)
+		o.osd = g.osd;
+	return o;
+}
+
+void DrawOverlay(const Overlay& o, ps5video::Rect* damage)
+{
 	bool drawn = false;
-	if (cfg.show_fps)
+	if (o.fps)
 	{
 		char buf[32];
-		snprintf(buf, sizeof(buf), "%.1f fps", g.fps_shown);
+		snprintf(buf, sizeof(buf), "%.1f fps", o.fps_shown);
 		const int w = fe::TextWidth(buf, 3);
 		ps5video::FillRect(ps5video::kWidth - w - 60, 20, w + 40, 50, ps5video::Rgb(0, 0, 0));
 		fe::DrawText(ps5video::kWidth - w - 40, 28, buf, 3, ps5video::Rgb(255, 255, 255));
 		drawn = true;
 	}
-	if (!g.osd.empty() && now < g.osd_until)
+	if (!o.osd.empty())
 	{
 		// one line per '\n' (the players message), the last one where a single line goes
 		std::vector<std::string> lines;
 		int w = 0;
-		for (size_t a = 0; a <= g.osd.size();)
+		for (size_t a = 0; a <= o.osd.size();)
 		{
-			size_t b = g.osd.find('\n', a);
+			size_t b = o.osd.find('\n', a);
 			if (b == std::string::npos)
-				b = g.osd.size();
-			lines.push_back(fe::FitText(g.osd.substr(a, b - a), 3, kOsdWidth));
+				b = o.osd.size();
+			lines.push_back(fe::FitText(o.osd.substr(a, b - a), 3, kOsdWidth));
 			w = std::max(w, fe::TextWidth(lines.back().c_str(), 3));
 			a = b + 1;
 		}
@@ -805,6 +824,191 @@ void ShowOverlays(ps5video::Rect* damage)
 	if (!drawn && g.overlay_was_drawn)
 		ps5video::InvalidateFrame(); // clear what the overlay left outside the picture
 	g.overlay_was_drawn = drawn;
+}
+
+void ShowOverlays(ps5video::Rect* damage)
+{
+	DrawOverlay(TakeOverlay(), damage);
+}
+
+// ---- 2.3: the picture of a game paced by the sound, drawn on a thread of its own -------------------------------------
+// A game not at 60 Hz (Daytona USA's 57.52) is paced by its sound: one frame must take less than 1/fps. The picture
+// (the shader, the overlays, the copy to the scan-out buffer and its flip, which waits for the flip before it) took the
+// game's thread 8-9 ms of Daytona's 17.4 ms frame on a PS5, after the core's 9-10 ms: the race ran at ~54 fps and the
+// sound ran dry (gaps). Here the game's thread hands frame N to this thread and goes on with frame N+1 while it is
+// drawn. When that thread is still drawing the last one: the game's thread waits for it, unless the sound queued is
+// low, then this frame is not drawn (never two in a row; counted in the log). The 60 Hz games (paced by the flips'
+// vsync) draw on the game's thread as before. Every other user of the screen (the pause menu, the end of the game)
+// waits until this thread is done (PictureIdle).
+struct Picture
+{
+	ps5::BigThread thread;
+	std::mutex lock;
+	std::condition_variable work, idle;
+	bool busy = false;
+	// the job
+	std::vector<uint32_t> frame;
+	int fw = 0, fh = 0;
+	double aspect = 1.0;
+	int scale = 0, shader = 0;
+	bool smooth = false, scanlines = false;
+	Overlay overlay;
+	// for the log (under the lock)
+	double draw_ms = 0, draw_max_ms = 0, wait_ms = 0;
+	uint64_t draws = 0, skips = 0, skips_total = 0;
+	bool last_skipped = false;
+	double last_ms = 0, handed_at = 0; // the last drawing's time; when this one was handed over
+};
+Picture* g_picture = nullptr;
+bool g_picture_refused = false;
+std::atomic<double> g_inline_draw_ms{0}; // (the 60 Hz games: drawn on the game's thread, for the log)
+double g_inline_draw_max_ms = 0;
+uint64_t g_inline_draws = 0;
+
+#ifndef __PROSPERO__
+// the host tests: FBNEO_HOST_PICTURE_DELAY_MS (the picture's thread that much slower), FBNEO_HOST_DRAW_SKIPS=1 (frames
+// may go undrawn: off by default, so that the tests' screen dumps stay the same frames however fast the machine is)
+double HostPictureDelayMs()
+{
+	const char* e = getenv("FBNEO_HOST_PICTURE_DELAY_MS");
+	return e ? atof(e) : 0.0;
+}
+bool HostDrawSkips()
+{
+	const char* e = getenv("FBNEO_HOST_DRAW_SKIPS");
+	return e && atoi(e) != 0;
+}
+#endif
+
+void PictureLoop(Picture* p)
+{
+	for (;;)
+	{
+		{
+			std::unique_lock<std::mutex> lk(p->lock);
+			p->work.wait(lk, [p] { return p->busy; });
+		}
+		const double t0 = Now();
+		// the shader on 4 threads at most here (this one and 3): the game's thread and the core's 3 workers run meanwhile
+		ps5crt::SetThreadLimit(4);
+		ps5video::Rect r = p->frame.empty() ? ps5video::Rect{0, 0, 0, 0} :
+			ps5video::DrawFrame(p->frame.data(), p->fw, p->fh, p->fh, p->aspect, ps5video::Scale(p->scale), p->smooth,
+				p->scanlines, p->shader);
+		ps5crt::SetThreadLimit(0);
+		DrawOverlay(p->overlay, &r);
+		ps5video::Present(r.x, r.y, r.w, r.h, false);
+#ifndef __PROSPERO__
+		if (const double d = HostPictureDelayMs(); d > 0)
+			usleep(useconds_t(d * 1000.0));
+#endif
+		const double ms = (Now() - t0) * 1000.0;
+		{
+			std::lock_guard<std::mutex> lk(p->lock);
+			p->draw_ms += ms;
+			p->draw_max_ms = std::max(p->draw_max_ms, ms);
+			p->last_ms = ms;
+			p->draws++;
+			p->busy = false;
+		}
+		p->idle.notify_all();
+	}
+}
+
+// the thread, the first time a game paced by the sound runs (it lives as long as the app); null: draw on the game's
+Picture* PictureThread()
+{
+	if (g_picture || g_picture_refused)
+		return g_picture;
+	Picture* p = new (std::nothrow) Picture;
+	if (p)
+	{
+		p->thread = ps5::BigThread([p] { PictureLoop(p); }, 256 * 1024);
+		if (!p->thread.joinable())
+		{
+			delete p;
+			p = nullptr;
+		}
+	}
+	if (!p)
+	{
+		g_picture_refused = true;
+		OrbisLog("[emu] no thread for the picture (the system refused it): drawn on the game's thread");
+		return nullptr;
+	}
+	g_picture = p;
+	OrbisLog("[emu] the picture of the games paced by the sound is drawn on a thread of its own");
+	return p;
+}
+
+// waits until the picture's thread has drawn what it was given (before anything else uses the screen)
+void PictureIdle()
+{
+	if (!g_picture)
+		return;
+	std::unique_lock<std::mutex> lk(g_picture->lock);
+	g_picture->idle.wait(lk, [] { return !g_picture->busy; });
+}
+
+} // namespace
+
+// 2.3: whether a frame of a game paced by the sound goes undrawn (fe_emu.h): waiting for the picture's thread would let
+// the sound run low (a frame not drawn costs less than a gap in the sound)
+bool emu::SkipDrawing(bool picture_busy, int queued, int expected_wait, int target, bool last_skipped)
+{
+	return picture_busy && !last_skipped && queued < expected_wait + target / 2;
+}
+
+namespace
+{
+double FrameAspect();
+
+// hands this frame to the picture's thread (true), or draws nothing (a skip); false: no thread, the caller draws
+bool PictureSubmit()
+{
+	Picture* p = PictureThread();
+	if (!p)
+		return false;
+	const fe::Settings& cfg = fe::Config();
+	std::unique_lock<std::mutex> lk(p->lock);
+	if (p->busy)
+	{
+		bool may_skip = cfg.audio && ps5audio::Available();
+#ifndef __PROSPERO__
+		may_skip = may_skip && HostDrawSkips();
+#endif
+		// the rest of its drawing, expected: as long as the last one took, less the time since it was handed over
+		const double rest_ms = std::max(0.0, p->last_ms - (Now() - p->handed_at) * 1000.0);
+		const int rest = int(rest_ms * ps5audio::kRate / 1000.0);
+		if (may_skip && emu::SkipDrawing(true, ps5audio::Queued(), rest, kTargetQueued, p->last_skipped))
+		{
+			p->skips++;
+			p->skips_total++;
+			p->last_skipped = true;
+			if (p->skips_total <= 20)
+				OrbisLog("[emu] frame %llu not drawn: the picture's thread was still drawing the last one, %d ms of sound "
+						 "queued", (unsigned long long)g.frames, ps5audio::Queued() * 1000 / ps5audio::kRate);
+			g.new_frame = true; // (drawn with the next one)
+			return true;
+		}
+		const double t0 = Now();
+		p->idle.wait(lk, [p] { return !p->busy; });
+		p->wait_ms += (Now() - t0) * 1000.0;
+	}
+	p->last_skipped = false;
+	p->frame.assign(g.frame.begin(), g.frame.end());
+	p->fw = g.fw;
+	p->fh = g.fh;
+	p->aspect = FrameAspect();
+	p->scale = cfg.scale;
+	p->smooth = cfg.smooth;
+	p->scanlines = cfg.scanlines;
+	p->shader = cfg.shader;
+	p->overlay = TakeOverlay();
+	p->handed_at = Now();
+	p->busy = true;
+	lk.unlock();
+	p->work.notify_one();
+	return true;
 }
 
 // ---- the hard disk's changes (2.2) --------------------------------------------------------------------------------------
@@ -1261,6 +1465,14 @@ void CloseGame()
 	if (!g.loaded)
 		return;
 	FBNEO_STAGE(Emu, "close game");
+	PictureIdle();
+	if (g_picture && g_picture->skips_total)
+		OrbisLog("[emu] frames not drawn in this game: %llu", (unsigned long long)g_picture->skips_total);
+	if (g_picture)
+	{
+		g_picture->skips_total = 0;
+		g_picture->last_skipped = false;
+	}
 	OrbisLog("[emu] inputs the game got: %s", burn::InputReport().c_str());
 	HddFlushNow("game's end", false); // the periodic writer done first, then the hard disk's changes
 	NvCollect(true); // the periodic NVRAM writer done first: Unload writes what changed since
@@ -1293,6 +1505,7 @@ std::string SystemName()
 
 void Pause()
 {
+	PictureIdle();
 	HddFlushNow("pause menu", true); // the hard disk's changes, at once
 }
 
@@ -1555,6 +1768,7 @@ int GamePlayers()
 
 void RedrawLastFrame()
 {
+	PictureIdle();
 	DrawLast();
 }
 
@@ -1580,7 +1794,10 @@ FrameResult RunFrame()
 	g.prev_p1 = raw;
 	const uint32_t menu_combo = SCE_PAD_BUTTON_L3 | SCE_PAD_BUTTON_R3;
 	if ((raw & menu_combo) == menu_combo && (pressed & menu_combo))
+	{
+		PictureIdle(); // the last frame drawn before the menu draws
 		return FrameResult::OpenMenu;
+	}
 
 	// the machine's service and test buttons: held for a few frames after the pause menu's Service / Test
 	g.service = g.service_frames > 0;
@@ -1612,6 +1829,17 @@ FrameResult RunFrame()
 	HostDiskWrites();
 #endif
 	TakePicture();
+	// 2.3: a game paced by the sound hands its picture to the picture's thread before its sound goes out (whether this
+	// frame may go undrawn depends on the sound queued before it); the 60 Hz games draw after it, as before
+	bool want_draw = g.new_frame || (!g.osd.empty() && Now() < g.osd_until + 0.1) || cfg.show_fps;
+	if (want_draw && !g.vsynced)
+	{
+		g.new_frame = false;
+		if (PictureSubmit())
+			want_draw = false; // (handed over, or not drawn: then g.new_frame again, for the next frame)
+		else
+			g.new_frame = true;
+	}
 	FlushAudio();
 	g.frames++;
 	g.fps_frames++;
@@ -1630,12 +1858,20 @@ FrameResult RunFrame()
 		g.fps_frames = 0;
 		g.fps_since = now;
 	}
-	if (g.new_frame || (!g.osd.empty() && now < g.osd_until + 0.1) || cfg.show_fps)
+	if (want_draw)
 	{
 		g.new_frame = false;
-		ps5video::Rect r = DrawLast();
-		ShowOverlays(&r);
-		ps5video::Present(r.x, r.y, r.w, r.h, g.vsynced);
+		{
+			PictureIdle(); // (a game whose rate changed to 60 Hz: the picture's thread done first)
+			const double t0 = Now();
+			ps5video::Rect r = DrawLast();
+			ShowOverlays(&r);
+			ps5video::Present(r.x, r.y, r.w, r.h, g.vsynced);
+			const double ms = (Now() - t0) * 1000.0;
+			g_inline_draw_ms = g_inline_draw_ms + ms;
+			g_inline_draw_max_ms = std::max(g_inline_draw_max_ms, ms);
+			g_inline_draws++;
+		}
 	}
 
 	// -- pacing on the sound: the games not at 60 Hz, or a ring filling up
@@ -1672,12 +1908,30 @@ FrameResult RunFrame()
 	{
 		g.stats_reports++;
 		g.next_stats = now + (g.stats_reports < 3 ? 5.0 : 60.0);
+		PictureIdle(); // (the shader's time is the picture thread's)
 		const double shader_ms = ps5video::TakeShaderMs();
+		// the picture: drawn on its own thread (draw + present a frame, the game's thread waiting for it, frames not
+		// drawn) or on the game's
+		char pic[160];
+		if (g_picture && g_picture->draws + g_picture->skips > 0)
+		{
+			snprintf(pic, sizeof pic, "picture on its thread %.1f ms a frame (slowest %.1f), the game waited %.1f ms in all, "
+				"%llu frame(s) not drawn", g_picture->draw_ms / double(std::max<uint64_t>(1, g_picture->draws)),
+				g_picture->draw_max_ms, g_picture->wait_ms, (unsigned long long)g_picture->skips);
+			g_picture->draw_ms = g_picture->draw_max_ms = g_picture->wait_ms = 0;
+			g_picture->draws = g_picture->skips = 0;
+		}
+		else
+			snprintf(pic, sizeof pic, "picture %.1f ms a frame (slowest %.1f)",
+				g_inline_draws ? g_inline_draw_ms / double(g_inline_draws) : 0.0, g_inline_draw_max_ms);
+		g_inline_draw_ms = 0;
+		g_inline_draw_max_ms = 0;
+		g_inline_draws = 0;
 		OrbisLog("[emu] frame %llu, %.1f fps, audio queued %d (%.0f ms), underruns %llu, shader %.1f ms; slowest frame "
-				 "%.1f ms (core %.1f ms), silence refills %llu (%.0f ms)",
+				 "%.1f ms (core %.1f ms), silence refills %llu (%.0f ms); %s",
 			(unsigned long long)g.frames, g.fps_shown, ps5audio::Queued(), ps5audio::Queued() * 1000.0 / ps5audio::kRate,
 			(unsigned long long)ps5audio::Underruns(), shader_ms, g.slowest_ms, g.slowest_core_ms,
-			(unsigned long long)g.refills, g.refill_frames * 1000.0 / ps5audio::kRate);
+			(unsigned long long)g.refills, g.refill_frames * 1000.0 / ps5audio::kRate, pic);
 		g.slowest_ms = g.slowest_core_ms = 0;
 	}
 	return FrameResult::Continue;
