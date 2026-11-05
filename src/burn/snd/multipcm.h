@@ -19,3 +19,6 @@ void MultiPCMUpdateChip(INT32 nChip, INT16 *buffer, INT32 samples);
 void MultiPCMScanChip(INT32 nChip, INT32 nAction, INT32 *pnMin);
 // 1: as MAME's current multipcm in its key on (it starts the sample again) and its channel order (Sega Model 2)
 void MultiPCMSetMameModeChip(INT32 nChip, INT32 on);
+// 2.3 (Model 2): the chip's sound made up to out_pos (0..nBurnSoundLen) of this frame, before a write (MAME's stream
+// update); MultiPCMUpdateChip at the frame's end makes the rest
+void MultiPCMSyncChip(INT32 nChip, INT32 out_pos);

@@ -138,6 +138,10 @@ struct multipcm_instance {
 	// the sample again (FBNeo's: only writing the sample number does), and the left output is the left pan levels'
 	// sum (FBNeo's has them swapped). 0 (after init): FBNeo's own, as Sega System 32 has always had it.
 	INT32 mame_mode;
+	// FBNeo PS5 2.3 (Model 2): the chip's samples made so far this frame (MultiPCMSyncChip: as MAME's stream update
+	// before each write), and the last sample of the last frame (the linear resampler of mame_mode)
+	INT32 rendered;
+	INT16 last_l, last_r;
 };
 static multipcm_instance mpcm_inst[MULTIPCM_CHIPS];
 static multipcm_instance *mpcm = &mpcm_inst[0];
@@ -571,6 +575,12 @@ void MultiPCMScanChip(INT32 nChip, INT32 nAction, INT32 *pnMin)
 		ba.szName = "chip";
 		BurnAcb(&ba);
 	}
+	if (mpcm->mame_mode) {
+		// (Model 2 only: the resampler's last samples; a frame boundary, so nothing was made of this frame yet)
+		SCAN_VAR(mpcm->last_l);
+		SCAN_VAR(mpcm->last_r);
+		if (nAction & ACB_WRITE) mpcm->rendered = 0;
+	}
 	RebuildSlotPointers();
 	MultiPCMSelect(0);
 }
@@ -637,6 +647,8 @@ void MultiPCMInit(INT32 clock, UINT8 *SndROM, INT32 bAdd)
 
 	mpcm->volume = 1.00;
 	mpcm->mame_mode = 0;
+	mpcm->rendered = 0;
+	mpcm->last_l = mpcm->last_r = 0;
 
 	//Volume+pan table
 	for(i=0;i<0x800;++i)
@@ -766,14 +778,13 @@ void MultiPCMUpdateChip(INT32 nChip, INT16 *buffer, INT32 samples_len)
 	MultiPCMSelect(0);
 }
 
-void MultiPCMUpdate(INT16 *buffer, INT32 samples_len)
+// the chip's samples [from, to) of this frame, into the mixer buffer
+static void MultiPCMRender(INT32 from, INT32 to)
 {
-	INT32 samples = (samples_from * samples_len) / nBurnSoundLen;
+	INT16 *lmix = mixer_buffer_left + from;
+	INT16 *rmix = mixer_buffer_right + from;
 
-	INT16 *lmix = mixer_buffer_left;
-	INT16 *rmix = mixer_buffer_right;
-
-	for (INT32 i = 0; i < samples; i++)
+	for (INT32 i = from; i < to; i++)
 	{
 		signed int smpl=0;
 		signed int smpr=0;
@@ -843,10 +854,58 @@ void MultiPCMUpdate(INT16 *buffer, INT32 samples_len)
 		}
 	}
 
-	// ghetto-tek resampler, #1 in the hood, g!
-	lmix = mixer_buffer_left;
-	rmix = mixer_buffer_right;
+}
 
+// FBNeo PS5 2.3: the chip brought up to out_pos (of nBurnSoundLen) of this frame before a write, as MAME's
+// multipcm_device::write_slot updates its stream first: the writes then take effect where they happen in the frame,
+// not all at its start
+void MultiPCMSyncChip(INT32 nChip, INT32 out_pos)
+{
+	MultiPCMSelect(nChip);
+	if (pBurnSoundOut && nBurnSoundLen > 0) {
+		if (out_pos > nBurnSoundLen) out_pos = nBurnSoundLen;
+		const INT32 target = (samples_from * out_pos) / nBurnSoundLen;
+		if (target > mpcm->rendered) {
+			MultiPCMRender(mpcm->rendered, target);
+			mpcm->rendered = target;
+		}
+	}
+	MultiPCMSelect(0);
+}
+
+void MultiPCMUpdate(INT16 *buffer, INT32 samples_len)
+{
+	INT32 samples = (samples_from * samples_len) / nBurnSoundLen;
+
+	if (mpcm->rendered < samples)
+		MultiPCMRender(mpcm->rendered, samples);
+	mpcm->rendered = 0;
+
+	INT16 *lmix = mixer_buffer_left;
+	INT16 *rmix = mixer_buffer_right;
+
+	if (mpcm->mame_mode && samples > 0) {
+		// FBNeo PS5 2.3 (Model 2): linear between the chip's samples (the last frame's last one before the first),
+		// where FBNeo's resampler takes the nearest one -- MAME's sound system resamples too, it doesn't repeat samples
+		for (INT32 j = 0; j < samples_len; j++)
+		{
+			const INT32 pos = (INT32)(((INT64)samples * j * 256) / samples_len);
+			const INT32 k = pos >> 8, f = pos & 0xff;
+			const INT32 l0 = k ? lmix[k - 1] : mpcm->last_l, r0 = k ? rmix[k - 1] : mpcm->last_r;
+			const INT32 lv = (l0 * (256 - f) + lmix[k] * f) >> 8;
+			const INT32 rv = (r0 * (256 - f) + rmix[k] * f) >> 8;
+			INT32 l = (add_to_stream) ? (lv * mpcm->volume) + buffer[0] : (lv * mpcm->volume);
+			INT32 r = (add_to_stream) ? (rv * mpcm->volume) + buffer[1] : (rv * mpcm->volume);
+			buffer[0] = BURN_SND_CLIP(l);
+			buffer[1] = BURN_SND_CLIP(r);
+			buffer += 2;
+		}
+		mpcm->last_l = lmix[samples - 1];
+		mpcm->last_r = rmix[samples - 1];
+		return;
+	}
+
+	// ghetto-tek resampler, #1 in the hood, g!
 	for (INT32 j = 0; j < samples_len; j++)
 	{
 		INT32 k = (samples_from * j) / nBurnSoundLen;

@@ -1745,13 +1745,21 @@ static UINT16 __fastcall snd_read_word(UINT32 a)
 	return snd_read_byte(a | 1);
 }
 
+// the sound made so far this frame, in output samples: where the 68000 is in it (MAME's stream update on a write)
+static INT32 snd_out_pos()
+{
+	const INT64 pos = (INT64)SekTotalCycles() * nBurnSoundLen / (M2_SND_LINE * M2_LINES);
+	return pos < 0 ? 0 : pos > nBurnSoundLen ? nBurnSoundLen : (INT32)pos;
+}
+
 static void __fastcall snd_write_byte(UINT32 a, UINT8 d)
 {
 	if ((a & 0xfffffc) == 0xc20000) { if (a & 1) uart_write(1, (a >> 1) & 1, d, snd_time_now()); return; }
-	if ((a & 0xfffff8) == 0xc40000) { if (a & 1) MultiPCMWriteChip(0, (a >> 1) & 3, d); return; }
-	if ((a & 0xfffff8) == 0xc60000) { if (a & 1) MultiPCMWriteChip(1, (a >> 1) & 3, d); return; }
-	if ((a & 0xfffffe) == 0xc50000) { if (a & 1) mpcm_bank_w(0, d); return; }
-	if ((a & 0xfffffe) == 0xc70000) { if (a & 1) mpcm_bank_w(1, d); return; }
+	// a MultiPCM write (or bank) takes effect where it happens in the frame: the chip's sound made up to there first
+	if ((a & 0xfffff8) == 0xc40000) { if (a & 1) { MultiPCMSyncChip(0, snd_out_pos()); MultiPCMWriteChip(0, (a >> 1) & 3, d); } return; }
+	if ((a & 0xfffff8) == 0xc60000) { if (a & 1) { MultiPCMSyncChip(1, snd_out_pos()); MultiPCMWriteChip(1, (a >> 1) & 3, d); } return; }
+	if ((a & 0xfffffe) == 0xc50000) { if (a & 1) { MultiPCMSyncChip(0, snd_out_pos()); mpcm_bank_w(0, d); } return; }
+	if ((a & 0xfffffe) == 0xc70000) { if (a & 1) { MultiPCMSyncChip(1, snd_out_pos()); mpcm_bank_w(1, d); } return; }
 	if ((a & 0xfffff8) == 0xd00000) { if (a & 1) BurnYM2612Write(0, (a >> 1) & 3, d); return; }
 }
 
