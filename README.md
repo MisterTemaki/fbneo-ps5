@@ -1044,7 +1044,8 @@ The build has three stages:
   (`tests/test_cpus.cpp`: the i960KB and the MB86234 on known-answer programs, and random programs that must end the
   same on the port's cores and on MAME's own `i960.cpp` and `mb86233.cpp`, kept unmodified in `tests/mame_ref/` on a
   stand-in `emu.h`) and `make test-model2-video` (`tests/test_model2_video.cpp`: MAME's rasterizer and the port's poly
-  manager on synthetic polygons, in one part, by bands and on threads, against a golden checksum).
+  manager on synthetic polygons, in one part, by bands and on threads, against a golden checksum; the geometrizer's
+  commands with counts and indexes that run past its memories, where each stops, under ASan).
 - **Sega Model 2** (2.3): `src/cpu/i960/` and `src/cpu/mb86233/` are MAME's interpreters (their instruction code made
   from MAME's sources by `ps5/tools/mame_port/port_i960.py` and `port_mb86233.py`, which stop if MAME's code is not as
   they expect), behind FBNeo-style interfaces (`src/cpu/i960_intf.cpp`, `mb86233_intf.cpp`: paged memory with MAME's
@@ -1085,7 +1086,8 @@ The build has three stages:
   Model 2 CPUs against MAME's and the renderer's golden picture, Daytona USA's four stand-in sets under ASan and UBSan
   with a state round trip, the controls followed from the pad to the picture through stand-in programs for the I/O
   board's Z80 and the i960 (`tests/make_model2_standin.py`: the steering, a pedal half and fully pressed, coin and
-  start), the I/O board's ROM missing or in the game's zip, the Link ID set back to Single, the DAT, and in the app the
+  start), the I/O board's ROM missing or in the game's zip, the Link ID set back to Single, the first start's factory
+  settings (a synthetic block) made Single and USA with one reset, the DAT, and in the app the
   Driving layout, a trigger's pressure on the accelerator, buttons 7 and 8, no worker threads allowed.
 
 ## License and credits

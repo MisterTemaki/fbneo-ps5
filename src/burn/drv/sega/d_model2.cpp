@@ -30,11 +30,6 @@
 #include <math.h>
 #include <time.h>
 
-// (burn.h has no code for Model 2 yet: the next free one of the Sega family, kept here)
-#ifndef HARDWARE_SEGA_MODEL2
-#define HARDWARE_SEGA_MODEL2 (HARDWARE_PREFIX_SEGA | 0x000d0000)
-#endif
-
 // ---------------------------------------------------------------------------------------------------------------------
 // timing: the screen is MAME's raw params (32 MHz / 2, 656 x 424): a line is 41 us, 1025 i960 cycles, 410 68000 cycles,
 // 164 Z80 cycles; vblank starts at line 384. The TGP's cycles are MAME's clock / 3 (16.67 MHz): 2/3 of the i960's.
@@ -1007,9 +1002,9 @@ static UINT32 copro_atan_r()
 
 	UINT32 im = copro_atan_base[3] & 0x7fffff;
 	UINT32 index = ie <= 0x17 ? (im | 0x800000) >> ie : 0;
-	// (MAME: only 0x4000 becomes 0x3fff; an exponent byte of 0x80-0x88 gives up to 0xffffff, read far past the table.
-	// The port keeps it in the table: the last entry)
-	if (index >= 0x4000)
+	// (MAME's 0x4000 -> 0x3fff. An index of 0x10000 or more reads past the 0x10000-word table: the port makes it 0x3fff
+	// too. That is only for an exponent byte of 0x81-0x88 (ie <= 7); MAME reads past the table then)
+	if (index == 0x4000 || index >= 0x10000)
 		index = 0x3fff;
 
 	UINT32 result = tables[index | 0x4000];
@@ -1206,10 +1201,9 @@ static void uart_update_lines(INT32 side)
 		sound_ready();
 	else {
 		const INT32 line = uart_rxrdy(1);
-		// MAME's i8251 rxrdy callback: the 68000's IRQ 2 follows at once (when the 68000 is open: in the frame; the
-		// frame also sets it at each line)
-		if (line != snd_irq_line && SekGetActive() >= 0)
-			SekSetIRQLine(2, line ? CPU_IRQSTATUS_ACK : CPU_IRQSTATUS_NONE);
+		// MAME's i8251 rxrdy callback: the 68000's IRQ 2 follows at once (the frame also sets it at each line)
+		if (line != snd_irq_line)
+			SekSetIRQLine(0, 2, line ? CPU_IRQSTATUS_ACK : CPU_IRQSTATUS_NONE);
 		snd_irq_line = line;
 	}
 }
@@ -2383,12 +2377,34 @@ static INT32 DrvFrame()
 	if (pBurnDraw)
 		DrvDraw();
 
-	// the first start with a blank EEPROM: once the game has written its factory settings (Link ID Master), Single
-	// and a reset
+#if !defined(__PROSPERO__)
+	// (host tests only: FBNEO_HOST_M2_FACTORY=<file of 128 bytes> writes them to a blank EEPROM at frame 8, as the
+	// game writes its factory settings at its first start)
+	static INT32 host_factory_done = 0;
+	if (io_eeprom_was_blank && framenum == 8 && !host_factory_done) {
+		const char *path = getenv("FBNEO_HOST_M2_FACTORY");
+		FILE *f = path ? fopen(path, "rb") : NULL;
+		UINT8 b[0x80];
+		if (f) {
+			if (fread(b, 1, 0x80, f) == 0x80) {
+				for (INT32 i = 0; i < 0x80; i++) EEPROMWriteByte(i, b[i]);
+				host_factory_done = 1;
+			}
+			fclose(f);
+		}
+	}
+#endif
+
+	// the first start with a blank EEPROM: once the game has written its factory settings (Link ID Master, country
+	// JPN), Single, USA and a reset
 	if (io_eeprom_was_blank && (framenum & 31) == 0 && !settings_blank_at_start()) {
 		io_eeprom_was_blank = 0;
-		if (settings_force_single(1))
+		bprintf(PRINT_IMPORTANT, _T("model2: the factory settings written: Link ID %d, country %d, byte 0x7c %d\n"),
+			EEPROMReadByte(SETTINGS_LINK_ID), EEPROMReadByte(SETTINGS_COUNTRY), EEPROMReadByte(SETTINGS_COUNTRY2));
+		if (settings_force_single(1)) {
+			bprintf(PRINT_IMPORTANT, _T("model2: the first start's settings changed: reset\n"));
 			DrvDoReset();
+		}
 	}
 
 	perf_report();

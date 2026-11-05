@@ -2585,7 +2585,7 @@ done
 fi
 
 if want 46; then
-echo "== 46. Daytona USA (2.3) on stand-in sets: the four sets and the I/O board's, states, the controls to the picture, the board ROM, Link ID"
+echo "== 46. Daytona USA (2.3) on stand-in sets: the four sets and the I/O board's, states, the controls to the picture, the board ROM, Link ID, the first start's settings"
 H46=$WORK/h46 && rm -rf "$H46" && mkdir -p "$H46"
 # a. each set starts, runs and replays a state under ASan and UBSan (stand-in ROMs: the CPUs run what the pattern
 #    decodes to)
@@ -2665,6 +2665,52 @@ print('link %d crc %s rest %s' % (b[0x0b], 'ok' if c == b[8] | (b[9] << 8) else 
 PY
 )
 expect "[ '$o' = 'link 0 crc ok rest kept' ] && grep -q 'Link ID Master: set to Single' $H46/link.txt" "Link ID Master in the saved EEPROM: Single, the CRC made again, the rest kept, its country (JPN) too ($o)"
+# d2. the first start (a blank EEPROM): the game writes its factory settings (here a synthetic block through the
+#    host-only FBNEO_HOST_M2_FACTORY, at frame 8), the driver makes them Single and USA (byte 0x7c: 1 -> 0), the CRC
+#    made again, and resets once; a block with nothing to change is kept, no reset
+fact46() { # <link> <country> <0x7c> <out>
+python3 - "$@" <<'PY'
+import sys
+link, country, b7c, out = int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]
+b = bytearray(128)
+b[0:8] = b'SEGA\x40\x82\x02\x00'
+for i in range(10, 128):
+    b[i] = (i * 5 + 3) & 0xff
+b[0x0b], b[0x1b], b[0x7c] = link, country, b7c
+c = 0
+for x in b[0x0a:0x80]:
+    c ^= x << 8
+    for _ in range(8):
+        c = ((c << 1) ^ 0x1021) & 0xffff if c & 0x8000 else (c << 1) & 0xffff
+b[8], b[9] = c & 0xff, c >> 8
+open(out, 'wb').write(b)
+PY
+}
+first46() { # <link> <country> <0x7c> -> "link L country C 7c X crc ok|BAD rest kept|CHANGED resets N"
+	fact46 "$1" "$2" "$3" "$H46/factory.bin"
+	rm -f "$H46/fbneo-headless/daytona.nv"*
+	FBNEO_HOST_M2_FACTORY="$H46/factory.bin" TMPDIR=$H46 "$HEADLESS" run "$SETS/daytona-prog" daytona 40 >/dev/null 2>"$H46/first.txt"
+	python3 - "$H46/fbneo-headless/daytona.nv" "$(grep -c "the first start's settings changed: reset" "$H46/first.txt")" <<'PY'
+import sys
+b = open(sys.argv[1], 'rb').read()
+c = 0
+for x in b[0x0a:0x80]:
+    c ^= x << 8
+    for _ in range(8):
+        c = ((c << 1) ^ 0x1021) & 0xffff if c & 0x8000 else (c << 1) & 0xffff
+same = b[0:8] == b'SEGA\x40\x82\x02\x00' and all(b[i] == (i * 5 + 3) & 0xff for i in range(10, 128) if i not in (0x0b, 0x1b, 0x7c))
+print('link %d country %d 7c %d crc %s rest %s resets %s' % (b[0x0b], b[0x1b], b[0x7c], 'ok' if c == b[8] | (b[9] << 8) else 'BAD',
+    'kept' if same else 'CHANGED', sys.argv[2]))
+PY
+}
+o=$(first46 1 1 1)
+expect "[ '$o' = 'link 0 country 0 7c 0 crc ok rest kept resets 1' ] && grep -q 'factory settings written: Link ID 1, country 1, byte 0x7c 1' $H46/first.txt && grep -q 'Link ID Master: set to Single' $H46/first.txt" "the first start, factory settings Link ID Master and JPN: Single, USA, the CRC made again, the rest kept, one reset ($o)"
+o=$(first46 0 1 1)
+expect "[ '$o' = 'link 0 country 0 7c 0 crc ok rest kept resets 1' ]" "the first start, factory settings already Single, JPN: USA, the CRC made again, one reset ($o)"
+o=$(first46 0 2 1)
+expect "[ '$o' = 'link 0 country 2 7c 1 crc ok rest kept resets 0' ]" "the first start, factory settings Single and EXPORT: kept as they are, no reset ($o)"
+o=$(first46 0 1 5)
+expect "[ '$o' = 'link 0 country 0 7c 5 crc ok rest kept resets 1' ]" "the first start, JPN with byte 0x7c other than 1: USA, byte 0x7c kept, one reset ($o)"
 # e. the DAT has the four sets and the board set, the device ROM in it
 D46=dat/fbneo-ps5-arcade.dat
 expect "grep -q '<game name=\"daytona\" romof=\"model1io\" ' $D46 && grep -q '<game name=\"daytonase\" cloneof=\"daytona\" romof=\"daytona\" ' $D46 && grep -q '<game name=\"daytona93\" cloneof=\"daytona\"' $D46 && grep -q '<game name=\"daytonas\" cloneof=\"daytona\"' $D46 && grep -q '<game isbios=\"yes\" name=\"model1io\" ' $D46 && grep -q '<rom name=\"epr-14869c.25\" size=\"65536\" crc=\"24b68e64\"/>' $D46" "the DAT: daytona (romof model1io), its clones, the model1io board set with epr-14869c.25"

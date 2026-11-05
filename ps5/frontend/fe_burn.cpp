@@ -694,8 +694,8 @@ void ScanInputs()
 	g.inputs.clear();
 	g.buttons = 0;
 	g.analog = false;
-	// Sega Model 2 (d_model2.cpp's HARDWARE_SEGA_MODEL2: HARDWARE_PREFIX_SEGA | 0x000d0000): Daytona USA's pedals
-	g.pressure = (BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == (HARDWARE_PREFIX_SEGA | 0x000d0000);
+	// Sega Model 2: Daytona USA's pedals
+	g.pressure = (BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == HARDWARE_SEGA_MODEL2;
 	for (int p = 0; p < burn::kMaxPlayers; p++)
 		g.seen[p] = g.seen_fire[p] = 0;
 	for (UINT32 i = 0; i < 1024; i++)

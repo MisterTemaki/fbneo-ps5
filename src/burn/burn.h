@@ -629,6 +629,7 @@ int BurnComputeSHA1(const UINT8 *buffer, int buffer_size, char *hash_str);
 #define HARDWARE_SEGA_MISC								(HARDWARE_PREFIX_SEGA | 0x000a0000)
 #define HARDWARE_SEGA_SYSTEM24							(HARDWARE_PREFIX_SEGA | 0x000b0000)
 #define HARDWARE_SEGA_SYSTEM32							(HARDWARE_PREFIX_SEGA | 0x000c0000)
+#define HARDWARE_SEGA_MODEL2							(HARDWARE_PREFIX_SEGA | 0x000d0000)
 
 #define HARDWARE_SEGA_PCB_MASK							(0x0f)
 #define HARDWARE_SEGA_5358								(0x01)
