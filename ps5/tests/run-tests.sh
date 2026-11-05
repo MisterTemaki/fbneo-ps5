@@ -2642,6 +2642,7 @@ b[0:8] = b'SEGA\x40\x82\x02\x00'
 for i in range(10, 128):
     b[i] = (i * 7) & 0xff
 b[0x0b] = 1
+b[0x1b] = b[0x7c] = 1 # (country JPN: a saved choice, kept)
 c = 0
 for x in b[0x0a:0x80]:
     c ^= x << 8
@@ -2659,11 +2660,11 @@ for x in b[0x0a:0x80]:
     c ^= x << 8
     for _ in range(8):
         c = ((c << 1) ^ 0x1021) & 0xffff if c & 0x8000 else (c << 1) & 0xffff
-same = all(b[i] == (i * 7) & 0xff for i in range(10, 128) if i != 0x0b)
+same = all(b[i] == ((i * 7) & 0xff if i not in (0x1b, 0x7c) else 1) for i in range(10, 128) if i != 0x0b)
 print('link %d crc %s rest %s' % (b[0x0b], 'ok' if c == b[8] | (b[9] << 8) else 'BAD', 'kept' if same else 'CHANGED'))
 PY
 )
-expect "[ '$o' = 'link 0 crc ok rest kept' ] && grep -q 'Link ID Master: set to Single' $H46/link.txt" "Link ID Master in the saved EEPROM: Single, the CRC made again, the rest kept ($o)"
+expect "[ '$o' = 'link 0 crc ok rest kept' ] && grep -q 'Link ID Master: set to Single' $H46/link.txt" "Link ID Master in the saved EEPROM: Single, the CRC made again, the rest kept, its country (JPN) too ($o)"
 # e. the DAT has the four sets and the board set, the device ROM in it
 D46=dat/fbneo-ps5-arcade.dat
 expect "grep -q '<game name=\"daytona\" romof=\"model1io\" ' $D46 && grep -q '<game name=\"daytonase\" cloneof=\"daytona\" romof=\"daytona\" ' $D46 && grep -q '<game name=\"daytona93\" cloneof=\"daytona\"' $D46 && grep -q '<game name=\"daytonas\" cloneof=\"daytona\"' $D46 && grep -q '<game isbios=\"yes\" name=\"model1io\" ' $D46 && grep -q '<rom name=\"epr-14869c.25\" size=\"65536\" crc=\"24b68e64\"/>' $D46" "the DAT: daytona (romof model1io), its clones, the model1io board set with epr-14869c.25"

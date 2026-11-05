@@ -41,11 +41,14 @@ make (the driver list, Musashi's 68000 core, the CPS, Neo Geo, Cave, Psikyo, Toa
 frontends (`src/burner`) and its libretro port host the core: ROM loading from the sets' zips and 7z archives, inputs, DIP
 switches, states, NVRAM, the picture turned the right way up and the sound.
 
-> **Status (2.3):** **Daytona USA (new in 2.3) has not run on a PS5 yet.** On the test machine (Linux, a 2-core
-> 2.1 GHz Xeon) it runs from a real set as it should: the attract mode with its 3D, a coin, Start, the circuit and
-> transmission choices, a race steered with the stick, the music and effects, save states replayed exactly, and the
-> game's own TGP and memory tests say GOOD; how fast the PS5 runs it is not known yet (the 3D is drawn on three worker
-> threads there). The favourites (new in 2.3) have run only in the host tests. The 2.3 build passes 791 host tests
+> **Status (2.3):** **Daytona USA (new in 2.3) ran on a PS5** from a first 2.3 test build: full speed (about 57.3 of
+> its 57.5 frames a second, 8.5 ms a frame, no sound underruns), but with the race music missing, a voice repeating,
+> "Gentlemen, start your engines" never heard and the game in Japanese. Those are fixed in this build (the sound
+> board's serial link; the country set to USA on the first start) and checked on the test machine (Linux, a 2-core
+> 2.1 GHz Xeon) with a real set -- the attract mode with its 3D, a coin, Start, the circuit and transmission choices, a
+> race steered with the stick, the sound commands all received once and in order, the music and the voices played,
+> save states replayed exactly, the game's own TGP and memory tests GOOD -- not yet again on a PS5. The favourites
+> (new in 2.3) have run only in the host tests. The 2.3 build passes TESTCOUNT host tests
 > (2.2's 718, the new CPU, renderer, Daytona USA stand-in, controls and favourites tests included) and the app's import
 > and system-call checks. Everything else is as 2.2 had it:
 >
@@ -117,8 +120,8 @@ view buttons Square, Triangle, Circle, Cross** (the new **Driving** layout, Auto
   the same game. The list is `/data/fbneo/favourites.txt`, one set name a line (a clone is its own entry), the same for
   every storage tab: a set moved from USB to the internal drive stays a favourite, and so does one whose zip isn't there
   today.
-- **Not yet run on a PS5:** Daytona USA was played on the test machine only (Status, above), and the favourites have
-  run only in the host tests.
+- **On a PS5:** a first 2.3 test build of Daytona USA ran at full speed; its sound and language problems are fixed
+  since, on the test machine only (Status, above). The favourites have run only in the host tests.
 
 **2.2:** **Killer Instinct and Killer Instinct 2** (Rare / Midway, 1994 and 1995; `kinst`, `kinst14`, `kinst13`,
 `kinstp47`, `kinst15ai`, `kinst2`, `kinst213`, `kinst211`, `kinst210`, `kinst214ai`), taken from upstream FBNeo (its
@@ -519,14 +522,21 @@ Daytona USA (2.3) is the original Model 2 board's game, as MAME emulates it (`mo
   Single as it starts, the settings' checksum made again; on the very first start (no saved settings yet) the game
   starts once more right after it has written its factory settings, which say Master. MAME stops at NETWORK CHECKING
   instead, until the test menu says Single.
+- **English:** the ROM is the Japanese one (MAME: "Japan, Revision A"; the clones too), whose factory setting is
+  COUNTRY JPN: the game in Japanese. On the first start (no saved settings yet) FBNeo PS5 sets it to **USA** (English)
+  along with the Link ID; the test menu's GAME SYSTEM changes it (USA, JPN, EXPORT), and a saved choice is kept. If
+  you ran a 2.3 test build before, your saved settings say JPN: set COUNTRY to USA once there (or delete
+  `/data/fbneo/saves/daytona.nv`, which holds only these settings).
 - **Not emulated:** the drive board (the wheel's force feedback: the game writes to it and reads nothing back), the
   link board, the lamps and coin counters.
 - **Saves:** the game's settings and records are in the I/O board's EEPROM (`/data/fbneo/saves/daytona.nv`) and the
   main board's backup RAM (`daytona.nvram`); save states have everything.
 - **The picture:** 496 x 384 at 57.52 Hz (the sound sets the pace, as for the other games that don't run at 60 Hz).
-- **Sound:** the music, the engine and the effects in stereo, both channels (the sound board's 68000 takes each byte
-  the main board sends at once, as MAME's UART does). Not compared with MAME's sound or a real cabinet.
-- **Speed:** not measured on a PS5 yet. On the test machine (2 cores at 2.1 GHz) a race frame takes about 1.5 ms for
+- **Sound:** the music, the voices ("Gentlemen, start your engines!") and the effects, all on the two MultiPCM chips
+  (the YM3438 is not used by the game), in stereo. The sound board's 68000 takes each byte the main board sends once
+  and at once, as MAME's UART does (2.3's first test build let it read a byte again after an interrupt: the music was
+  missing and a voice repeated). Not compared with MAME's sound or a real cabinet.
+- **Speed:** full speed on a PS5 (a first 2.3 test build: about 57.3 frames a second, 8.5 ms a frame). On the test machine (2 cores at 2.1 GHz) a race frame takes about 1.5 ms for
   the i960, 0.7 to 1.4 for the TGP, 0.5 for the sound board, 0.3 for the I/O board, 0.5 for the geometrizer, 7 to 9 ms
   for the 3D on one thread (4.5 on two), 1.7 for the tilemaps -- about 11 ms of a 17.4 ms frame with two threads. With
   the debug logs on, `boot.log` has these numbers once a second (`model2: ms a frame ...`).
@@ -939,7 +949,8 @@ covers, emu, menu), and the return addresses, which map into `ps5/build/app/fbne
   interpreters; not measured on a console yet. Killer Instinct's MIPS R4600 (2.2) runs at full speed on a PS5.
 - Killer Instinct 1 and 2 (2.2): run on a PS5 from the console's drive; a raw KI2 `.img` is unverified (use the CHD); a
   CHD on a network share may stutter.
-- Daytona USA (2.3): not run on a PS5 yet; one cabinet (no link play), no force feedback, no lamps. MAME's i960 is kept
+- Daytona USA (2.3): runs at full speed on a PS5 (this build's sound and language fixes checked on the test machine
+  only); one cabinet (no link play), no force feedback, no lamps. MAME's i960 is kept
   as it is, quirks included (its `addc` never sets the carry out of the top bit).
 
 ## Building

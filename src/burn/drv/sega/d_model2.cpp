@@ -1883,13 +1883,19 @@ static INT32 DrvLoadRoms()
 	return 0;
 }
 
-// ---- the game's settings in the I/O board's EEPROM: Link ID "Single" --------------------------------------------------
+// ---- the game's settings in the I/O board's EEPROM: Link ID "Single", country USA --------------------------------------
 // Daytona USA keeps its settings (Link ID, cabinet, country, difficulty...) in the I/O board's 93C45: "SEGA", a version,
 // a CRC-16 (XMODEM: polynomial 0x1021, from 0) of bytes 0x0a-0x7f at 0x08 (little endian), then the settings; byte
 // 0x0b is the Link ID (0 Single, 1 Master, 2 Slave). The game's factory setting is Master, and a Master waits for the
 // other cabinets at "NETWORK CHECKING" -- the link board is not emulated (as in MAME, which stops there until the test
 // menu says Single). So the port keeps the Link ID at Single: in a saved EEPROM when the game starts, and on the very
 // first start (a blank EEPROM) the game is reset once, right after it has written its factory settings.
+// Byte 0x1b is the country (0 USA, 1 JPN, 2 EXPORT; 0x7c follows it, as the test menu writes them), and the factory
+// setting of this ROM (MAME: "Japan, Revision A") is JPN: the game in Japanese. On the first start the port makes it
+// USA (English) with the Link ID; a saved EEPROM keeps its country, which the test menu (GAME SYSTEM) changes.
+#define SETTINGS_LINK_ID    0x0b
+#define SETTINGS_COUNTRY    0x1b
+#define SETTINGS_COUNTRY2   0x7c
 static INT32 io_eeprom_was_blank = 0;
 
 static UINT16 settings_crc(const UINT8 *b)
@@ -1908,15 +1914,32 @@ static INT32 settings_valid(const UINT8 *b)
 	return memcmp(b, "SEGA", 4) == 0 && (b[8] | (b[9] << 8)) == settings_crc(b);
 }
 
-// 1 when the Link ID was changed to Single
-static INT32 settings_force_single()
+// 1 when a setting was changed: the Link ID to Single; with first_start (the factory settings just written), a JPN
+// country to USA too
+static INT32 settings_force_single(INT32 first_start)
 {
 	UINT8 b[0x80];
 	for (INT32 i = 0; i < 0x80; i++) b[i] = EEPROMReadByte(i);
-	if (!settings_valid(b) || b[0x0b] == 0)
+	if (!settings_valid(b))
 		return 0;
-	const UINT8 was = b[0x0b];
-	b[0x0b] = 0;
+	const INT32 country = first_start && b[SETTINGS_COUNTRY] == 1;
+	if (b[SETTINGS_LINK_ID] == 0 && !country)
+		return 0;
+	if (country) {
+		b[SETTINGS_COUNTRY] = 0;
+		if (b[SETTINGS_COUNTRY2] == 1)
+			b[SETTINGS_COUNTRY2] = 0;
+		bprintf(PRINT_IMPORTANT, _T("model2: the factory settings say country JPN: set to USA (English; the test menu changes it)\n"));
+	}
+	if (b[SETTINGS_LINK_ID] == 0) {
+		const UINT16 c = settings_crc(b);
+		b[8] = c & 0xff;
+		b[9] = c >> 8;
+		for (INT32 i = 0; i < 0x80; i++) EEPROMWriteByte(i, b[i]);
+		return 1;
+	}
+	const UINT8 was = b[SETTINGS_LINK_ID];
+	b[SETTINGS_LINK_ID] = 0;
 	const UINT16 c = settings_crc(b);
 	b[8] = c & 0xff;
 	b[9] = c >> 8;
@@ -2158,7 +2181,7 @@ static INT32 DrvInit()
 	EEPROMInit(&eeprom_interface_93C46); // (loads <saves>/<set>.nv when there is one)
 	io_eeprom_was_blank = settings_blank_at_start();
 	if (!io_eeprom_was_blank)
-		settings_force_single();
+		settings_force_single(0);
 
 	// sound: MAME's routes (YM3438 0.30, each MultiPCM 0.5, of the board's output). The MultiPCM make their words at
 	// 10 MHz / 224 (44.64 kHz, the board's measured WORDCLK); FBNeo's core divides its clock by 180.
@@ -2364,7 +2387,7 @@ static INT32 DrvFrame()
 	// and a reset
 	if (io_eeprom_was_blank && (framenum & 31) == 0 && !settings_blank_at_start()) {
 		io_eeprom_was_blank = 0;
-		if (settings_force_single())
+		if (settings_force_single(1))
 			DrvDoReset();
 	}
 
