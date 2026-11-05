@@ -83,6 +83,15 @@ Every release carries its version in the file name: `FBNeoPS5-v2.2.elf` (`make d
 old ELF with the new one in your autoload or Payload Manager. In this README, "`FBNeoPS5.elf`" always means the
 current release's ELF.
 
+**2.3:** **Favourites** (thanks to dsb2020, fbneo-ps5#5), as FB Neo had them on the PS4: on the shelf, **Circle**
+adds the selected game to your favourites ("Added to favourites"), and Circle again takes it out ("Removed from
+favourites"). A favourite's card and its line on the shelf wear a gold star. **L3 / R3** then show **Favourites** right
+after "All games": only your favourite games of the storage tab, with the letter tabs as for any maker. Favourites
+shows only while the tab has at least one; taking the last one out while you look at them goes back to All games, on
+the same game. The list is `/data/fbneo/favourites.txt`, one set name a line (a clone is its own entry), the same for
+every storage tab: a set moved from USB to the internal drive stays a favourite, and so does one whose zip isn't there
+today. The favourites have run only in the host tests, not yet on a PS5.
+
 **2.2:** **Killer Instinct and Killer Instinct 2** (Rare / Midway, 1994 and 1995; `kinst`, `kinst14`, `kinst13`,
 `kinstp47`, `kinst15ai`, `kinst2`, `kinst213`, `kinst211`, `kinst210`, `kinst214ai`), taken from upstream FBNeo (its
 new MIPS III core, the hard disk module and the Killer Instinct fixes, up to `892a35c8f` of 2026-10-20). These games
@@ -386,6 +395,7 @@ every set found (`[games] ... -> "<name>"`) and the ROMs a set is missing (`[gam
 | `/data/fbneo/covers` | covers: downloaded ones in `covers/FBNeo/`, your own as `<set>.png`; `wanted.txt` |
 | `/data/fbneo/logs` | `boot.log` (the app), `installer.log` (installer/helper), `helper.log` (the helper the app starts), and the previous session's `.prev.log` files |
 | `/data/fbneo/fbneo-ps5.ini` | the menu settings |
+| `/data/fbneo/favourites.txt` | your favourite games (2.3): one set name a line (Circle on the shelf) |
 
 ### The home-screen app
 
@@ -480,6 +490,14 @@ wordmark: **github.com/MisterTemaki**.
   Classics (the 70s and 80s: Pac-Man, Galaxian and their kind) and Other; the letter tabs then show that maker's
   games (the letter is kept when the maker has games under it, else the nearest one). The shelf remembers the
   maker and the letter (and starts on the last game played).
+- **Favourites (2.3):** **Circle** adds the selected game to your favourites, or takes it out (a short message
+  says which: "Added to favourites", "Removed from favourites"); a favourite's card and its line show a gold star.
+  "Favourites" is then the first maker after "All games" (L3 / R3): the storage tab's favourite games, by letter as
+  for any maker, shown while the tab has one (take the last one out there and the shelf goes back to All games, on
+  the same game). The shelf remembers it like the other makers. The list is `/data/fbneo/favourites.txt`: a set's
+  name a line (`sf2ce`; a clone is its own entry), shared by the storage tabs (the same set on USB and on the internal
+  drive is one favourite), written whole on each change (a `.tmp`, then renamed over the old one). Names of sets you
+  don't have are kept; you can edit the file by hand while FBNeo PS5 is closed.
 - **Clones:** the other versions of a game (other regions, revisions, bootlegs) are listed after it; Settings,
   **Show clones**, hides them (a clone still shows when its parent isn't listed, so no game disappears).
 - **Automatic covers, in the background:** the art comes from libretro-thumbnails' **FBNeo - Arcade Games**
@@ -626,8 +644,9 @@ of a `.7z` set can be either. Its ROMs are found by the CRCs and names its direc
 | Up / Down | previous / next letter tab (#, A-Z) |
 | L1 / R1 | previous / next storage tab (Internal, USB, Network); up to 2.0 they skipped 10 games |
 | L2 / R2 | skip 10 games; up to 2.0 they changed the maker |
-| L3 / R3 (the sticks pressed) | previous / next maker (All games, Capcom, Neo Geo, ...) |
+| L3 / R3 (the sticks pressed) | previous / next maker (All games, Favourites, Capcom, Neo Geo, ...) |
 | Cross | play |
+| Circle | add the game to the favourites, or take it out (2.3) |
 | Triangle | settings |
 | Square | download this game's cover again (the cover it has stays until the new one has arrived); on the Network tab: scan the shares again |
 | OPTIONS | quit FBNeo PS5 (asks first) |
@@ -913,6 +932,7 @@ The build has three stages:
   - `fe_emu.cpp`: the running game on the PS5 -- pads and button layouts, pacing, the resampler,
     the picture and its overlays;
   - `fe_games.cpp`: the library (sets, parents, BIOS sets, the ROM check and its cache, the tabs);
+  - `fe_favs.cpp` (2.3): the favourites (`favourites.txt`);
   - `fe_shelf.cpp`, `fe_covers.cpp`, `fe_prefetch.cpp`, `fe_http.cpp`: the 3D shelf and covers;
   - `fe_coverworker.cpp`, `fe_coverfetch.cpp`: the helper's background downloads, and the fetch code the app and
     the helper share;
