@@ -856,15 +856,17 @@ static void MultiPCMRender(INT32 from, INT32 to)
 
 }
 
-// FBNeo PS5 2.3: the chip brought up to out_pos (of nBurnSoundLen) of this frame before a write, as MAME's
+// FBNeo PS5 2.3: the chip brought up to pos / frame_len of this frame before a write, as MAME's
 // multipcm_device::write_slot updates its stream first: the writes then take effect where they happen in the frame,
-// not all at its start
-void MultiPCMSyncChip(INT32 nChip, INT32 out_pos)
+// not all at its start. The chip's sample is worked out from the caller's time at once (not through nBurnSoundLen):
+// the chip's sound is the same at any output rate.
+void MultiPCMSyncChip(INT32 nChip, INT64 pos, INT64 frame_len)
 {
 	MultiPCMSelect(nChip);
-	if (pBurnSoundOut && nBurnSoundLen > 0) {
-		if (out_pos > nBurnSoundLen) out_pos = nBurnSoundLen;
-		const INT32 target = (samples_from * out_pos) / nBurnSoundLen;
+	if (pBurnSoundOut && nBurnSoundLen > 0 && frame_len > 0) {
+		if (pos < 0) pos = 0;
+		if (pos > frame_len) pos = frame_len;
+		const INT32 target = (INT32)((samples_from * pos) / frame_len);
 		if (target > mpcm->rendered) {
 			MultiPCMRender(mpcm->rendered, target);
 			mpcm->rendered = target;

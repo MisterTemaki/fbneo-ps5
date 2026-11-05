@@ -545,6 +545,31 @@ test-tabs: $(TABS_TEST)
 
 test: test-nfs test-tabs
 
+# 2.3: the CRT shaders' thread pool with a thread limit (the picture thread's 4 of the console's 6): the same picture,
+# and For() waits only for the workers it uses (tests/test_crt_pool.cpp)
+CRT_POOL_TEST := $(HOST_OUT)/test-crt-pool
+$(CRT_POOL_TEST): tests/test_crt_pool.cpp coreorbis/orbis-shims/ProsperoCrt.cpp coreorbis/orbis-shims/ProsperoCrt.h \
+		coreorbis/orbis-shims/ProsperoThread.h
+	@mkdir -p $(dir $@)
+	$(HOST_CXX) -std=c++17 $(HOST_OPT) $(HOST_SAN) $(PORT_WARN) -Icoreorbis/orbis-shims -o $@ tests/test_crt_pool.cpp \
+		coreorbis/orbis-shims/ProsperoCrt.cpp -lpthread
+
+test-crt-pool: $(CRT_POOL_TEST)
+	$(CRT_POOL_TEST)
+
+test: test-crt-pool
+
+# 2.3: the frame pacing's decisions (frontend/fe_pacing.h, header only): when a frame goes undrawn
+PACING_TEST := $(HOST_OUT)/test-pacing
+$(PACING_TEST): tests/test_pacing.cpp frontend/fe_pacing.h
+	@mkdir -p $(dir $@)
+	$(HOST_CXX) -std=c++17 $(HOST_OPT) $(HOST_SAN) $(PORT_WARN) -Ifrontend -o $@ tests/test_pacing.cpp
+
+test-pacing: $(PACING_TEST)
+	$(PACING_TEST)
+
+test: test-pacing
+
 # 2.0: the 7z reader (fe_7z.cpp on FBNeo's lib7z) on the archives in tests/7z/ (tests/make_7z_fixtures.py made them)
 SEVENZIP_TEST := $(HOST_OUT)/test-7z
 $(SEVENZIP_TEST): tests/test_7z.cpp $(HOST_OUT)/port/frontend/fe_7z.o $(HOST_LIB7Z_OBJ) $(HOST_ZLIB_OBJ)
@@ -645,5 +670,5 @@ clean:
 # the SMB backend against a real Samba (adds `smb-test`, run before the other tests; skipped without smbd)
 include tests/smb/smb.mk
 
-.PHONY: ps5 core-ps5 core-host host headless dat test test-nfs test-nfs-server test-tabs test-7z test-mips3 test-kinst-hdd test-cpus test-model2-video send app dist clean
+.PHONY: ps5 core-ps5 core-host host headless dat test test-nfs test-nfs-server test-tabs test-crt-pool test-pacing test-7z test-mips3 test-kinst-hdd test-cpus test-model2-video send app dist clean
 .SECONDARY:

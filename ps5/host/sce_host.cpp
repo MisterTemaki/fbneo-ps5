@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <deque>
 #include <mutex>
 #include <chrono>
 #include <thread>
@@ -198,15 +199,31 @@ int sceKernelCreateEqueue(SceKernelEqueue* eq, const char*)
 	*eq = reinterpret_cast<SceKernelEqueue>(0x1);
 	return 0;
 }
+// the flips submitted and not yet waited for, when each was submitted (FBNEO_HOST_REALTIME: its vblank follows that)
+namespace
+{
+std::mutex g_flip_lock;
+std::deque<std::chrono::steady_clock::time_point> g_flip_times;
+const std::chrono::steady_clock::time_point g_vblank_t0 = std::chrono::steady_clock::now();
+} // namespace
+
 int sceKernelWaitEqueue(SceKernelEqueue, void*, int, int* out, unsigned int*)
 {
+	std::chrono::steady_clock::time_point submitted = std::chrono::steady_clock::now();
+	{
+		std::lock_guard<std::mutex> lk(g_flip_lock);
+		if (!g_flip_times.empty())
+		{
+			submitted = g_flip_times.front();
+			g_flip_times.pop_front();
+		}
+	}
 	if (getenv("FBNEO_HOST_REALTIME"))
 	{
-		// a flip completes at the next 60 Hz vblank, like on the console
-		static const auto t0 = std::chrono::steady_clock::now();
+		// a flip completes at the first 60 Hz vblank after it was submitted, like on the console: one whose vblank has
+		// passed already is waited for no more
 		const auto period = std::chrono::microseconds(16667);
-		const auto since = std::chrono::steady_clock::now() - t0;
-		const auto next = t0 + (since / period + 1) * period;
+		const auto next = g_vblank_t0 + ((submitted - g_vblank_t0) / period + 1) * period;
 		std::this_thread::sleep_until(next);
 	}
 	if (out)
@@ -285,6 +302,10 @@ int sceVideoOutRegisterBuffers2(int, int, int, SceVideoOutBuffers* buffers, int 
 int sceVideoOutSubmitFlip(int, int idx, uint32_t, int64_t)
 {
 	const uint64_t n = g_flips.fetch_add(1);
+	{
+		std::lock_guard<std::mutex> lk(g_flip_lock);
+		g_flip_times.push_back(std::chrono::steady_clock::now());
+	}
 	if (g_dumps.count(n))
 		Dump(idx, n);
 	if (const char* m = getenv("FBNEO_HOST_MAX_FLIPS"))

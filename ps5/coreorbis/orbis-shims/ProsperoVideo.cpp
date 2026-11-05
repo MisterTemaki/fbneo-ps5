@@ -24,11 +24,13 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cerrno>
 #include <cstdlib>
 #include <cmath>
 #include <cstring>
 #include <ctime>
+#include <mutex>
 #include <vector>
 
 namespace ps5video
@@ -559,9 +561,11 @@ Rect ComputeRect(int base_h, double aspect, Scale scale)
 	return Rect{(kWidth - dw) / 2, (kHeight - dh) / 2, dw, dh};
 }
 
+// (2.3: DrawFrame may run on the picture thread of a game paced by the sound, TakeShaderMs and SkipFrame on the game's)
+std::mutex s_shader_lock;
 double s_shader_ms = 0;
 int s_shader_frames = 0;
-uint64_t s_frame_no = 0;
+std::atomic<uint64_t> s_frame_no{0};
 
 void Setup(int w, int h, int base_h, double aspect, Scale scale, bool smooth, bool scanlines, int shader)
 {
@@ -645,8 +649,14 @@ void InvalidateFrame()
 	s_geom.src_w = 0;
 }
 
+void SkipFrame()
+{
+	s_frame_no++;
+}
+
 double TakeShaderMs()
 {
+	std::lock_guard<std::mutex> lk(s_shader_lock);
 	const double ms = s_shader_frames ? s_shader_ms / s_shader_frames : 0.0;
 	s_shader_ms = 0;
 	s_shader_frames = 0;
@@ -670,13 +680,14 @@ Rect DrawFrame(const uint32_t* argb, int w, int h, int base_h, double aspect, Sc
 	}
 
 	const Rect& d = s_geom.dst;
-	s_frame_no++;
+	const uint64_t frame_no = ++s_frame_no;
 	if (shader > 0 && shader < int(ps5crt::Shader::Count))
 	{
 		timespec t0, t1;
 		clock_gettime(CLOCK_MONOTONIC, &t0);
-		ps5crt::Render(ps5crt::Shader(shader), argb, w, h, g.surface, kWidth, d.x, d.y, d.w, d.h, s_frame_no);
+		ps5crt::Render(ps5crt::Shader(shader), argb, w, h, g.surface, kWidth, d.x, d.y, d.w, d.h, frame_no);
 		clock_gettime(CLOCK_MONOTONIC, &t1);
+		std::lock_guard<std::mutex> lk(s_shader_lock);
 		s_shader_ms += (t1.tv_sec - t0.tv_sec) * 1e3 + (t1.tv_nsec - t0.tv_nsec) / 1e6;
 		s_shader_frames++;
 		return cleared ? Rect{0, 0, kWidth, kHeight} : d;

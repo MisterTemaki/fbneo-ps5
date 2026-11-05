@@ -44,6 +44,7 @@
 #include <atomic>
 #include <cmath>
 #include <condition_variable>
+#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <memory>
@@ -256,6 +257,11 @@ inline V3 At(const V3* row, const ColPos& p)
 }
 
 // ---- threads ---------------------------------------------------------------------------------------------------
+std::atomic<int> s_limit{0}; // (SetThreadLimit: kept here, so that setting it doesn't start the pool)
+#ifndef __PROSPERO__
+std::atomic<uint64_t> s_fors{0}, s_answers{0}; // (the host tests: For() calls on threads, and the workers' answers)
+#endif
+
 class Pool
 {
 public:
@@ -269,7 +275,7 @@ public:
 	{
 		if (n <= 0)
 			return;
-		const int limit = m_limit.load();
+		const int limit = s_limit.load();
 		const int count = limit > 0 ? std::min(m_count, limit) : m_count;
 		if (count <= 1 || n < 8)
 		{
@@ -282,10 +288,15 @@ public:
 			m_n = n;
 			m_chunks = std::min(n, count * 6);
 			m_next = 0;
-			m_pending = m_count - 1;
-			m_active = count - 1; // the workers that take chunks (the others only answer)
+			// only the first count - 1 workers take part (and are waited for); the others sleep on (2.3: with a
+			// limit, the picture's thread of a game paced by the sound must not wait for workers it doesn't use)
+			m_pending = count - 1;
+			m_active = count - 1;
 			m_gen++;
 		}
+#ifndef __PROSPERO__
+		s_fors++;
+#endif
 		m_cv.notify_all();
 		Work(&fn, n, std::min(n, count * 6));
 		std::unique_lock<std::mutex> lock(m_lock);
@@ -298,6 +309,11 @@ private:
 	{
 		unsigned n = std::thread::hardware_concurrency();
 		n = std::clamp(n == 0 ? 4u : n, 1u, 6u);
+#ifndef __PROSPERO__
+		// the host tests: FBNEO_HOST_SHADER_THREADS=<n> (the console's 6 on a machine with fewer cores)
+		if (const char* e = getenv("FBNEO_HOST_SHADER_THREADS"); e && atoi(e) > 0)
+			n = unsigned(std::clamp(atoi(e), 1, 16));
+#endif
 		// m_count is the caller plus the threads that really started: For() waits for that many, so a thread the
 		// system refused must not be counted (it would never answer, and the frame would wait forever)
 		m_count = 1;
@@ -330,20 +346,22 @@ private:
 		{
 			const std::function<void(int, int)>* fn;
 			int n, chunks;
-			bool active;
 			{
+				// a new job this worker takes part in (index < m_active: the others sleep on, and are not waited for)
 				std::unique_lock<std::mutex> lock(m_lock);
-				m_cv.wait(lock, [&] { return m_gen != seen; });
+				m_cv.wait(lock, [&] { return m_gen != seen && index < m_active; });
 				seen = m_gen;
 				fn = m_fn;
 				n = m_n;
 				chunks = m_chunks;
-				active = index < m_active;
 			}
-			if (fn && active)
+			if (fn)
 				Work(fn, n, chunks);
 			{
 				std::lock_guard<std::mutex> lock(m_lock);
+#ifndef __PROSPERO__
+				s_answers++;
+#endif
 				if (--m_pending == 0)
 					m_done.notify_one();
 			}
@@ -358,9 +376,6 @@ private:
 	const std::function<void(int, int)>* m_fn = nullptr;
 	int m_n = 0, m_chunks = 0, m_active = 0;
 	std::atomic<int> m_next{0};
-
-public:
-	std::atomic<int> m_limit{0};
 };
 
 void ParallelFor(int n, const std::function<void(int, int)>& fn)
@@ -1883,8 +1898,16 @@ T& Use(Shader s, A... args)
 
 void SetThreadLimit(int n)
 {
-	Pool::Get().m_limit = n;
+	s_limit = n;
 }
+
+#ifndef __PROSPERO__
+void HostPoolStats(uint64_t* fors, uint64_t* answers)
+{
+	*fors = s_fors.load();
+	*answers = s_answers.load();
+}
+#endif
 
 const char* Name(Shader s)
 {

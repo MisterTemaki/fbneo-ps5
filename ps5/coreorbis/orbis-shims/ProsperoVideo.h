@@ -54,8 +54,10 @@ struct Rect
 // picture instead (ProsperoCrt.h).
 Rect DrawFrame(const uint32_t* argb, int w, int h, int base_h, double aspect, Scale scale, bool smooth, bool scanlines,
 	int shader = 0);
-// The shader's average drawing time since the last call, in ms (0 when no shader drew).
+// The shader's average drawing time since the last call, in ms (0 when no shader drew). Any thread.
 double TakeShaderMs();
+// 2.3: a frame not drawn (a game paced by the sound): the animated shaders' frame count goes on as if it were. Any thread.
+void SkipFrame();
 // The last rectangle DrawFrame covered (to darken it for the menu, or to clear around it).
 Rect LastFrameRect();
 // Forget the cached geometry: the next DrawFrame clears the borders.

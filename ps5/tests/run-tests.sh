@@ -312,25 +312,43 @@ expect "python3 -c 'import sys; sys.exit(0 if 5.0 <= $secs <= 10.5 else 1)'" "30
 expect "grep -q 'the picture of the games paced by the sound is drawn on a thread of its own' $T/root/logs/boot.log && grep -q 'picture on its thread [0-9.]* ms a frame' $T/root/logs/boot.log" "2.3: a game paced by the sound draws its picture on a thread of its own (logged with its times)"
 expect "! grep -q 'frame [0-9]* not drawn:' $T/root/logs/boot.log" "no frame left undrawn (the host tests: no skips unless asked)"
 nosan "$T"
-# 2.3: the picture's thread slower than a frame, faster than two (15 ms more each, FBNEO_HOST_PICTURE_DELAY_MS) with skips allowed
+# 2.3: the picture's thread slower than a frame, faster than two (20 ms more each, FBNEO_HOST_PICTURE_DELAY_MS: its time
+# checked below, between 17.4 and 34.8 ms; the host's flips, as the console's, wait only until their own vblank) with skips allowed
 # (FBNEO_HOST_DRAW_SKIPS=1, as on the console): frames go undrawn while the sound is low, never two in a row, and the
 # sound has fewer gaps than when the game waits for every picture
 T=$(newroot t7c)
 addset ddonpach "$T/root/roms"
-rc=$(FBNEO_HOST_REALTIME=1 FBNEO_HOST_PICTURE_DELAY_MS=15 FBNEO_HOST_DRAW_SKIPS=1 run "$T" "0:0;$(QUITAT 300)" "" "$T/root/roms/ddonpach.zip")
+rc=$(FBNEO_HOST_REALTIME=1 FBNEO_HOST_PICTURE_DELAY_MS=20 FBNEO_HOST_DRAW_SKIPS=1 run "$T" "0:0;$(QUITAT 300)" "" "$T/root/roms/ddonpach.zip")
 B=$T/root/logs/boot.log
 o=$(grep -o 'frame [0-9]* not drawn' $B | grep -o '[0-9]*' | python3 -c "
 import sys
 f = [int(x) for x in sys.stdin.read().split()]
 print('%d %s' % (len(f), 'apart' if all(b - a > 1 for a, b in zip(f, f[1:])) else 'TWO-IN-A-ROW'))")
-expect "[ $rc = 0 ] && [ \"\${o% *}\" -gt 0 ] && [ \"\${o#* }\" = apart ] && grep -q 'frames not drawn in this game: [0-9]*' $B" "a slow picture: frames not drawn while the sound is low, never two in a row ($o)"
+expect "[ $rc = 0 ] && [ \"\${o% *}\" -gt 0 ] && [ \"\${o#* }\" = apart ] && grep -q 'frames not drawn in this game: [0-9]* (at most 1 in a row)' $B" "a slow picture: frames not drawn while the sound is low, never two in a row (the logged ones: $o; all of them: $(grep -o 'at most [0-9]* in a row' $B))"
 T=$(newroot t7d)
 addset ddonpach "$T/root/roms"
-rc=$(FBNEO_HOST_REALTIME=1 FBNEO_HOST_PICTURE_DELAY_MS=15 run "$T" "0:0;$(QUITAT 300)" "" "$T/root/roms/ddonpach.zip")
+rc=$(FBNEO_HOST_REALTIME=1 FBNEO_HOST_PICTURE_DELAY_MS=20 run "$T" "0:0;$(QUITAT 300)" "" "$T/root/roms/ddonpach.zip")
+pt=$(grep -o 'picture on its thread [0-9.]* ms a frame' $T/root/logs/boot.log | tail -1 | grep -o '[0-9.]* ms' | tr -d ' ms')
+expect "python3 -c 'import sys; sys.exit(0 if 17.4 < ${pt:-0} < 34.8 else 1)'" "the slow picture takes between one and two frames (${pt:-?} ms a picture)"
 r1=$(grep -o 'silence refills [0-9]*' $B | tail -1 | grep -o '[0-9]*$')
 r2=$(grep -o 'silence refills [0-9]*' $T/root/logs/boot.log | tail -1 | grep -o '[0-9]*$')
 expect "[ $rc = 0 ] && ! grep -q 'frame [0-9]* not drawn:' $T/root/logs/boot.log && [ ${r1:-99} -lt ${r2:-0} ]" "without skips the game waits for each picture: sound gaps (silence refills) ${r2:-?}, against ${r1:-?} with skips"
 nosan "$T"
+# the decision on its own (make test-pacing), and the shaders' pool with the picture thread's limit (make test-crt-pool)
+for b in test-pacing test-crt-pool; do
+	if [ -x build/host/$b ]; then
+		while IFS= read -r l; do
+			case "$l" in
+				*"  ok: "*) ok "$b: ${l#*ok: }" ;;
+				*"  FAIL: "*) bad "$b: ${l#*FAIL: }" ;;
+			esac
+		done <<EOF
+$(build/host/$b 2>&1)
+EOF
+	else
+		echo "  (skipped: make $b first)"
+	fi
+done
 fi
 
 if want 8; then

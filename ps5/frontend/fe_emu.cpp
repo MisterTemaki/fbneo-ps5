@@ -13,6 +13,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "fe_emu.h"
+#include "fe_pacing.h"
 #include "fe_pool.h"
 
 #include "ProsperoNotify.h"
@@ -856,12 +857,13 @@ struct Picture
 	// for the log (under the lock)
 	double draw_ms = 0, draw_max_ms = 0, wait_ms = 0;
 	uint64_t draws = 0, skips = 0, skips_total = 0;
+	int skip_run = 0, skip_run_max = 0; // frames not drawn in a row now, and at most in this game
 	bool last_skipped = false;
 	double last_ms = 0, handed_at = 0; // the last drawing's time; when this one was handed over
 };
 Picture* g_picture = nullptr;
 bool g_picture_refused = false;
-std::atomic<double> g_inline_draw_ms{0}; // (the 60 Hz games: drawn on the game's thread, for the log)
+double g_inline_draw_ms = 0; // (the 60 Hz games: drawn on the game's thread, for the log)
 double g_inline_draw_max_ms = 0;
 uint64_t g_inline_draws = 0;
 
@@ -890,11 +892,13 @@ void PictureLoop(Picture* p)
 		}
 		const double t0 = Now();
 		// the shader on 4 threads at most here (this one and 3): the game's thread and the core's 3 workers run meanwhile
-		ps5crt::SetThreadLimit(4);
+		if (p->shader > 0)
+			ps5crt::SetThreadLimit(4);
 		ps5video::Rect r = p->frame.empty() ? ps5video::Rect{0, 0, 0, 0} :
 			ps5video::DrawFrame(p->frame.data(), p->fw, p->fh, p->fh, p->aspect, ps5video::Scale(p->scale), p->smooth,
 				p->scanlines, p->shader);
-		ps5crt::SetThreadLimit(0);
+		if (p->shader > 0)
+			ps5crt::SetThreadLimit(0);
 		DrawOverlay(p->overlay, &r);
 		ps5video::Present(r.x, r.y, r.w, r.h, false);
 #ifndef __PROSPERO__
@@ -940,6 +944,22 @@ Picture* PictureThread()
 	return p;
 }
 
+// the log's counters, for a new game (the picture's thread idle)
+void ResetPictureStats()
+{
+	if (g_picture)
+	{
+		std::lock_guard<std::mutex> lk(g_picture->lock);
+		g_picture->draw_ms = g_picture->draw_max_ms = g_picture->wait_ms = 0;
+		g_picture->draws = g_picture->skips = g_picture->skips_total = 0;
+		g_picture->skip_run = g_picture->skip_run_max = 0;
+		g_picture->last_skipped = false;
+		g_picture->last_ms = 0;
+	}
+	g_inline_draw_ms = g_inline_draw_max_ms = 0;
+	g_inline_draws = 0;
+}
+
 // waits until the picture's thread has drawn what it was given (before anything else uses the screen)
 void PictureIdle()
 {
@@ -951,12 +971,6 @@ void PictureIdle()
 
 } // namespace
 
-// 2.3: whether a frame of a game paced by the sound goes undrawn (fe_emu.h): waiting for the picture's thread would let
-// the sound run low (a frame not drawn costs less than a gap in the sound)
-bool emu::SkipDrawing(bool picture_busy, int queued, int expected_wait, int target, bool last_skipped)
-{
-	return picture_busy && !last_skipped && queued < expected_wait + target / 2;
-}
 
 namespace
 {
@@ -976,7 +990,8 @@ bool PictureSubmit()
 #ifndef __PROSPERO__
 		may_skip = may_skip && HostDrawSkips();
 #endif
-		// the rest of its drawing, expected: as long as the last one took, less the time since it was handed over
+		// the rest of its drawing, expected: as long as the last one took (its flip's wait included), less the time
+		// since it was handed over
 		const double rest_ms = std::max(0.0, p->last_ms - (Now() - p->handed_at) * 1000.0);
 		const int rest = int(rest_ms * ps5audio::kRate / 1000.0);
 		if (may_skip && emu::SkipDrawing(true, ps5audio::Queued(), rest, kTargetQueued, p->last_skipped))
@@ -984,7 +999,12 @@ bool PictureSubmit()
 			p->skips++;
 			p->skips_total++;
 			p->last_skipped = true;
-			if (p->skips_total <= 20)
+			p->skip_run++;
+			p->skip_run_max = std::max(p->skip_run_max, p->skip_run);
+			const bool log = p->skips_total <= 20;
+			lk.unlock();
+			ps5video::SkipFrame(); // (the animated shaders count it, as every frame was drawn before)
+			if (log)
 				OrbisLog("[emu] frame %llu not drawn: the picture's thread was still drawing the last one, %d ms of sound "
 						 "queued", (unsigned long long)g.frames, ps5audio::Queued() * 1000 / ps5audio::kRate);
 			g.new_frame = true; // (drawn with the next one)
@@ -995,6 +1015,7 @@ bool PictureSubmit()
 		p->wait_ms += (Now() - t0) * 1000.0;
 	}
 	p->last_skipped = false;
+	p->skip_run = 0;
 	p->frame.assign(g.frame.begin(), g.frame.end());
 	p->fw = g.fw;
 	p->fh = g.fh;
@@ -1434,6 +1455,7 @@ bool LoadGame(const std::string& path, std::string* error)
 	g.prev_l = g.prev_r = 0;
 	g.frames = 0;
 	g.refills = g.refill_frames = 0;
+	ResetPictureStats(); // (the picture's log counters too: CloseGame did, unless no game ran before)
 	g.slowest_ms = g.slowest_core_ms = g.last_frame_at = 0;
 	g.audio_fresh = true;
 	g.fps_frames = 0;
@@ -1467,12 +1489,9 @@ void CloseGame()
 	FBNEO_STAGE(Emu, "close game");
 	PictureIdle();
 	if (g_picture && g_picture->skips_total)
-		OrbisLog("[emu] frames not drawn in this game: %llu", (unsigned long long)g_picture->skips_total);
-	if (g_picture)
-	{
-		g_picture->skips_total = 0;
-		g_picture->last_skipped = false;
-	}
+		OrbisLog("[emu] frames not drawn in this game: %llu (at most %d in a row)", (unsigned long long)g_picture->skips_total,
+			g_picture->skip_run_max);
+	ResetPictureStats();
 	OrbisLog("[emu] inputs the game got: %s", burn::InputReport().c_str());
 	HddFlushNow("game's end", false); // the periodic writer done first, then the hard disk's changes
 	NvCollect(true); // the periodic NVRAM writer done first: Unload writes what changed since
@@ -1908,20 +1927,25 @@ FrameResult RunFrame()
 	{
 		g.stats_reports++;
 		g.next_stats = now + (g.stats_reports < 3 ? 5.0 : 60.0);
-		PictureIdle(); // (the shader's time is the picture thread's)
-		const double shader_ms = ps5video::TakeShaderMs();
+		const double shader_ms = ps5video::TakeShaderMs(); // (any thread: the picture's may be drawing now)
 		// the picture: drawn on its own thread (draw + present a frame, the game's thread waiting for it, frames not
 		// drawn) or on the game's
 		char pic[160];
-		if (g_picture && g_picture->draws + g_picture->skips > 0)
+		bool on_thread = false;
+		if (g_picture)
 		{
-			snprintf(pic, sizeof pic, "picture on its thread %.1f ms a frame (slowest %.1f), the game waited %.1f ms in all, "
-				"%llu frame(s) not drawn", g_picture->draw_ms / double(std::max<uint64_t>(1, g_picture->draws)),
-				g_picture->draw_max_ms, g_picture->wait_ms, (unsigned long long)g_picture->skips);
-			g_picture->draw_ms = g_picture->draw_max_ms = g_picture->wait_ms = 0;
-			g_picture->draws = g_picture->skips = 0;
+			std::lock_guard<std::mutex> lk(g_picture->lock);
+			if (g_picture->draws + g_picture->skips > 0)
+			{
+				on_thread = true;
+				snprintf(pic, sizeof pic, "picture on its thread %.1f ms a frame (slowest %.1f), the game waited %.1f ms in "
+					"all, %llu frame(s) not drawn", g_picture->draw_ms / double(std::max<uint64_t>(1, g_picture->draws)),
+					g_picture->draw_max_ms, g_picture->wait_ms, (unsigned long long)g_picture->skips);
+				g_picture->draw_ms = g_picture->draw_max_ms = g_picture->wait_ms = 0;
+				g_picture->draws = g_picture->skips = 0;
+			}
 		}
-		else
+		if (!on_thread)
 			snprintf(pic, sizeof pic, "picture %.1f ms a frame (slowest %.1f)",
 				g_inline_draws ? g_inline_draw_ms / double(g_inline_draws) : 0.0, g_inline_draw_max_ms);
 		g_inline_draw_ms = 0;

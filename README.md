@@ -531,7 +531,8 @@ Daytona USA (2.3) is the original Model 2 board's game, as MAME emulates it (`mo
 - **Not emulated:** the drive board (the wheel's force feedback: the game writes to it and reads nothing back), the
   link board, the lamps and coin counters.
 - **Saves:** the game's settings and records are in the I/O board's EEPROM (`/data/fbneo/saves/daytona.nv`) and the
-  main board's backup RAM (`daytona.nvram`); save states have everything.
+  main board's backup RAM (`daytona.nvram`); save states have everything. The save states of the earlier 2.3 test
+  builds don't load in this one (the sound's state grew): the app says so and leaves the game as it was.
 - **The picture:** 496 x 384 at 57.52 Hz (the sound sets the pace, as for the other games that don't run at 60 Hz).
 - **Sound:** the music, the voices ("Gentlemen, start your engines!") and the effects, all on the two MultiPCM chips
   (the YM3438 is not used by the game), in stereo. The sound board's 68000 takes each byte the main board sends once

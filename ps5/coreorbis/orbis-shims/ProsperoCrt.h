@@ -40,6 +40,10 @@ const char* Name(Shader s); // "CRT Easymode style", "crt-lottes"...
 
 // 2.3: the shaders' threads used at most from now on (the caller's included; 0: all of them, the default)
 void SetThreadLimit(int n);
+#ifndef __PROSPERO__
+// The host tests: the For() calls handed to the pool's threads so far, and the answers its workers gave them.
+void HostPoolStats(uint64_t* fors, uint64_t* answers);
+#endif
 
 // Draws the w x h 0xAARRGGBB frame through the shader into the (dx, dy, dw, dh) rectangle of a 0xAABBGGRR surface
 // (pitch in pixels). frame: a counter of the frames shown (for shaders that move).
