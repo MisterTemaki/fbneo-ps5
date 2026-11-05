@@ -2,8 +2,10 @@
 //
 // A favourite is a ROM set's name ("sf2ce"; a clone is its own entry), one per line, so the same set is a favourite on
 // every storage tab (on USB and on the internal drive alike). Names of sets that aren't there today are kept: a game
-// whose archive is missing stays a favourite. The file is read once, when the shelf first opens (a missing or unreadable
-// file: no favourites, logged), and written whole on every change (.tmp, fsync, rename). The shelf's thread only.
+// whose archive is missing stays a favourite. The file is read once, when the shelf first opens (a missing file: no
+// favourites; one that can't be read whole: what was read, and the file is then never written, so a change can't
+// replace the player's list with part of it -- the shelf says the change wasn't saved), and written whole on every
+// change (.tmp, fsync, rename). The shelf's thread only.
 //
 // SPDX-License-Identifier: MIT
 #pragma once

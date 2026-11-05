@@ -2,6 +2,9 @@
 # Makes src/cpu/mb86233/mb86233_ops.inc from MAME's src/devices/cpu/mb86233/mb86233.cpp: lines 177-1231 (the gpio
 # inputs, device_reset and everything after: the ALU, the addressing, the registers and execute_run), kept as they are
 # but for MAME's framework. Run once; the result is committed.
+#
+# The script: MIT (FBNeo PS5's ps5/ code); what it makes is MAME's code, BSD-3-Clause.
+# SPDX-License-Identifier: MIT
 import sys
 
 src = open(sys.argv[1]).read().split('\n')

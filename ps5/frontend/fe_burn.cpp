@@ -125,6 +125,9 @@ struct G
 	std::vector<DipGroupInt> dips;
 	int buttons = 0;
 	bool analog = false;
+	// 2.3: the driver's analog buttons take a trigger's pressure (Sega Model 2's pedals only; every other game's
+	// analog button inputs get the digital values they had in 2.2, wherever the layout puts them)
+	bool pressure = false;
 	int reset_frames = 0;
 	// what each player's inputs got while the game ran (InputReport): bit Kind of the digital ones that were on,
 	// and the fire buttons
@@ -691,6 +694,8 @@ void ScanInputs()
 	g.inputs.clear();
 	g.buttons = 0;
 	g.analog = false;
+	// Sega Model 2 (d_model2.cpp's HARDWARE_SEGA_MODEL2: HARDWARE_PREFIX_SEGA | 0x000d0000): Daytona USA's pedals
+	g.pressure = (BurnDrvGetHardwareCode() & HARDWARE_PUBLIC_MASK) == (HARDWARE_PREFIX_SEGA | 0x000d0000);
 	for (int p = 0; p < burn::kMaxPlayers; p++)
 		g.seen[p] = g.seen_fire[p] = 0;
 	for (UINT32 i = 0; i < 1024; i++)
@@ -775,7 +780,7 @@ void ApplyInputs(const burn::Input& in)
 					axis = 0; // the stick's dead zone
 				*x.sval = uint16_t(Clamp16(x.type == BIT_ANALOG_REL ? axis * 8 : axis * 16));
 			}
-			else if (x.kind == Kind::Button && p.pressure[x.button])
+			else if (g.pressure && x.kind == Kind::Button && p.pressure[x.button])
 				*x.sval = uint16_t(p.pressure[x.button] * 0x3ff / 255); // a pedal on a trigger: how far it is pressed
 			else
 				*x.sval = on ? 0xffff : 0x0001; // a digital button on an analog input (FBNeo's frontends do the same)

@@ -20,16 +20,17 @@
 //       flag already set (NetCheck stopping), which must end as a read error, not as ROMs missing
 //   fbneo_headless bench <rom dir> <set> <frames> the time a frame takes (drawn), and a save state's: its time and size
 //   fbneo_headless run <rom dir> <set> <frames> [out.ppm] [--state] [--dips] [--drive] [--wav out.wav]
-//           [--shots <prefix> <every>] [--input k=v,...]   (FBNEO_HEADLESS_THREADS=N: the core's worker threads, N in all)
+//           [--shots <prefix> <every>] [--input k=v,...] [--inputs]   (FBNEO_HEADLESS_THREADS=N: the core's worker threads, N in all)
 //       runs the set for N frames (no input but coin+start pressed at frames 60 and 90 and fire 1 every 8 frames
 //       after 120), writes the last picture as a PPM, prints the picture size, the sound's level and a picture
 //       checksum; --state also saves a state halfway, runs on, loads it back and checks that the same frames
 //       follow (the same picture checksum); --dips lists the DIP switches. --drive: a driving game's inputs instead
 //       (coin at 400, start at 500, 800, 1000 and 1200, fire 1 held from 1300 as a trigger half then fully pressed,
 //       the stick swinging left and right from 1500, fire 3 (shift up) at 1700); --wav writes the sound (48 kHz stereo);
-//       --shots writes every <every>th picture as <prefix><frame>.ppm; --input: player 1's input held from the first frame
-//       to the last instead (keys stick_x, stick_y, pressure1..8, fire1..8, coin, start, test, service, and from=N,
-//       until=M: held only from frame N to M; --input again for another one; e.g. stick_x=-128,pressure1=255).
+//       --shots writes every <every>th picture as <prefix><frame>.ppm; --input: player 1's input held from the first
+//       frame to the last instead (keys stick_x, stick_y, pressure1..8, fire1..8, coin, start, test, service, and
+//       from=N, until=M: held only from frame N to M; --input again for another one; e.g. stick_x=-128,pressure1=255);
+//       --inputs prints the analog inputs' values after the last frame.
 //
 // SPDX-License-Identifier: MIT
 
@@ -602,7 +603,7 @@ int main(int argc, char** argv)
 		const int drv = burn::FindDriver(argv[3]);
 		const long frames = atol(argv[4]);
 		const char* ppm = argc > 5 && argv[5][0] != '-' ? argv[5] : nullptr;
-		bool state = false, dips = false, drive = false;
+		bool state = false, dips = false, drive = false, show_inputs = false;
 		const char* wav = nullptr;
 		const char* shots = nullptr;
 		long shot_every = 0;
@@ -612,6 +613,7 @@ int main(int argc, char** argv)
 			state = state || a == "--state";
 			dips = dips || a == "--dips";
 			drive = drive || a == "--drive";
+			show_inputs = show_inputs || a == "--inputs";
 			if (a == "--wav" && i + 1 < argc)
 				wav = argv[++i];
 			if (a == "--shots" && i + 2 < argc)
@@ -724,6 +726,16 @@ int main(int argc, char** argv)
 			burn::Fps(), burn::Aspect(), burn::ButtonCount(), samples, samples ? std::sqrt(sum2 / (samples * 2.0)) : 0.0);
 		if (state)
 			printf("state replay %s (%016" PRIx64 ")\n", replay_hash == check_hash ? "same" : "DIFFERENT", replay_hash);
+		if (show_inputs) // (2.3) the analog inputs' values the last frame gave the driver
+			for (UINT32 i = 0; i < 1024; i++)
+			{
+				struct BurnInputInfo bii = {};
+				if (BurnDrvGetInputInfo(&bii, i) != 0)
+					break;
+				if ((bii.nType & BIT_GROUP_ANALOG) && bii.pShortVal)
+					printf("input\t%s\t%s\t%04x\n", bii.szName ? bii.szName : "", bii.szInfo ? bii.szInfo : "",
+						unsigned(*bii.pShortVal) & 0xffff);
+			}
 		if (ppm && px && !WritePpm(ppm, px, w, h))
 			return 5;
 		burn::Unload();

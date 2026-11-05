@@ -4,6 +4,9 @@
 # MAME's framework (listed in the headers written below). Run once; the results are committed.
 #
 #   port_model2_video.py <mame>/src/mame/sega <fbneo>/src/burn/drv/sega
+#
+# The script: MIT (FBNeo PS5's ps5/ code); what it makes is MAME's code, BSD-3-Clause.
+# SPDX-License-Identifier: MIT
 import re
 import sys
 
@@ -105,6 +108,48 @@ text = text.replace(old, '''			default:
 				raster->cur_command = 0;
 			}''')
 
+# The geometrizer's commands trust the counts and addresses they read (MAME reads and writes on past the buffer RAM,
+# the polygon RAMs and the texture parameters): the port keeps each within its memory. Within one function only.
+def patch_in(text, sig, old, new):
+    i = text.index(sig)
+    j = text.index('\n}\n', i)
+    fn = text[i:j]
+    assert fn.count(old) == 1, (sig, old)
+    return text[:i] + fn.replace(old, new) + text[j:]
+
+text = patch_in(text, 'const u32 *model2_state::geo_object_data(', '''	if (obc == 0)
+		obc = 0xfffff;
+''', '''	if (obc == 0)
+		obc = 0xfffff;
+
+	// FBNeo PS5: no more objects than words left in the RAM or ROM they are read from (each object is a word at least;
+	// the last one's few words past the end are read from the zeroed guard, or the next region of the driver)
+	{
+		u32 const left = (oba & 0x01000000) || !(oba & 0x00800000) ? 0x8000 - (oba & 0x7fff) :
+			(geo.polygon_rom_mask + 1) - (oba & geo.polygon_rom_mask);
+		obc = std::min(obc, left);
+	}
+''')
+text = patch_in(text, 'const u32 *model2_state::geo_direct_data(', '''	while (((attr = *input++) & 3) != 0)''',
+    '''	while (geo_words_left(input) >= 9 && ((attr = *input++) & 3) != 0) // (FBNeo PS5: a whole one, in the buffer RAM)''')
+text = patch_in(text, 'const u32 *model2_state::geo_texture_data(', '''	u32 count = *input++;''',
+    '''	u32 count = std::min<u32>(*input++, geo_words_left(input)); // (FBNeo PS5: not past the buffer RAM)''')
+text = patch_in(text, 'const u32 *model2_state::geo_polygon_data(', '''	count = *input++;
+''', '''	count = *input++;
+	// FBNeo PS5: not past the polygon RAM, nor the buffer RAM
+	count = std::min(count, std::min<u32>(0x8000 - (address & 0x7fff), geo_words_left(input)));
+''')
+text = patch_in(text, 'const u32 *model2_state::geo_texture_parameters(', '''	index = (*input++) >> 2;''',
+    '''	index = ((*input++) >> 2) & 0x1f; // (FBNeo PS5: one of the 32)''')
+text = patch_in(text, 'const u32 *model2_state::geo_texture_parameters(', '''	u32 const count = *input++;''',
+    '''	u32 const count = std::min<u32>(*input++, geo_words_left(input) / 2); // (FBNeo PS5: not past the buffer RAM)''')
+text = patch_in(text, 'const u32 *model2_state::geo_log_data(', '''	u32 const count = *input++;''',
+    '''	u32 const count = std::min<u32>(*input++, geo_words_left(input)); // (FBNeo PS5: not past the buffer RAM)''')
+text = patch_in(text, 'const u32 *model2_state::geo_code_upload(', '''	u32 const count = *input++;''',
+    '''	u32 const count = std::min<u32>(*input++, geo_words_left(input) / 3); // (FBNeo PS5: not past the buffer RAM)''')
+text = patch_in(text, 'const u32 *model2_state::geo_test(', '''	u32 const blocks = *input++;''',
+    '''	u32 const blocks = std::min<u32>(*input++, geo_words_left(input) / 3); // (FBNeo PS5: not past the buffer RAM)''')
+
 for bad in ['fatalerror(', 'util::', 'machine()', 'memregion', 'save_item', 'std::make_unique', 'popmessage']:
     assert bad not in text, bad
 
@@ -117,8 +162,9 @@ hdr = '''// license:BSD-3-Clause
     raster_init/geo_init take the ROMs' pointers (the driver saves the state), logerror logs through M2_LOG, MAME's
     rectangle and bitmap are model2.h's m2_rectangle and m2_bitmap,
     util::sext/std::clamp/copybitmap_trans are local helpers, a full polygon list drops the polygon and an unknown
-    rasterizer command is dropped (MAME stops with fatalerror). video_start and screen_update are the driver's
-    (d_model2.cpp). MAME's notes:
+    rasterizer command is dropped (MAME stops with fatalerror), and the geometrizer's commands stay within the buffer
+    RAM, the polygon RAMs and the texture parameters (MAME trusts their counts and indexes). video_start and
+    screen_update are the driver's (d_model2.cpp). MAME's notes:
 
 '''
 src_hdr = hdr + notes + '''

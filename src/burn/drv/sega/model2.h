@@ -73,7 +73,7 @@ public:
 	// memory (the driver's)
 	u32* m_textureram0 = nullptr;   // 0x200000 bytes
 	u32* m_textureram1 = nullptr;
-	u32* m_bufferram = nullptr;     // 0x20000 bytes
+	u32* m_bufferram = nullptr;     // 0x20000 bytes, then 64 words of zeros
 	u16* m_palram = nullptr;        // 0x2000 entries
 	u16* m_colorxlat = nullptr;     // 0x6000 entries
 	u8* m_lumaram = nullptr;        // 0x8000
@@ -85,6 +85,13 @@ public:
 	geo_state* m_geo = nullptr;
 
 	u32 m_geo_read_start_address = 0;
+	// the port: how many words of the geometrizer's input are left in the buffer RAM from p (MAME reads on past it; a
+	// command's few fixed words at the very end are read from the 64 zeroed words the driver keeps after it)
+	u32 geo_words_left(const u32* p) const
+	{
+		const u32* end = m_bufferram + 0x20000 / 4;
+		return p < end ? u32(end - p) : 0;
+	}
 	bool m_geo_mesh = false;
 	bool m_render_test_mode = false;
 	bool m_render_done = false;
@@ -209,6 +216,8 @@ public:
 	void model2_3d_render(polygon* poly, const m2_rectangle& cliprect);
 	void set_xoffset(int16_t xoffs) { m_xoffs = xoffs; }
 	void set_yoffset(int16_t yoffs) { m_yoffs = yoffs; }
+	int16_t xoffset() const { return m_xoffs; }
+	int16_t yoffset() const { return m_yoffs; }
 
 	template <bool Translucent>
 	void draw_scanline_solid(int32_t scanline, const extent_t& extent, const m2_poly_extra_data& object, int threadid);
@@ -385,6 +394,7 @@ struct model2_state::geo_state
 	texture_parameter   texture_parameters[32];     // Texture parameters
 	u32                 polygon_ram0[0x8000];       // Fast Polygon RAM pointer
 	u32                 polygon_ram1[0x8000];       // Slow Polygon RAM pointer
+	u32                 polygon_ram_guard[16] = {}; // (the port: zeros, for the last object's words read past the RAM)
 	model2_state *      state = nullptr;
 };
 

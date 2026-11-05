@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # Makes src/cpu/i960/i960_ops.inc from MAME's src/devices/cpu/i960/i960.cpp: the instruction code kept as it is,
 # only MAME's framework calls replaced (see the list below). Run once; the result is committed.
+#
+# The script: MIT (FBNeo PS5's ps5/ code); what it makes is MAME's code, BSD-3-Clause.
+# SPDX-License-Identifier: MIT
 import re
 import sys
 

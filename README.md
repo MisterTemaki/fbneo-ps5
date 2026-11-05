@@ -524,9 +524,8 @@ Daytona USA (2.3) is the original Model 2 board's game, as MAME emulates it (`mo
 - **Saves:** the game's settings and records are in the I/O board's EEPROM (`/data/fbneo/saves/daytona.nv`) and the
   main board's backup RAM (`daytona.nvram`); save states have everything.
 - **The picture:** 496 x 384 at 57.52 Hz (the sound sets the pace, as for the other games that don't run at 60 Hz).
-- **Sound:** the game's sound program puts most of the engine and effects on the right channel and the music on both;
-  FBNeo PS5 plays them as MAME's MultiPCM does. Whether the cabinet sounds like that has not been compared with a real
-  one.
+- **Sound:** the music, the engine and the effects in stereo, both channels (the sound board's 68000 takes each byte
+  the main board sends at once, as MAME's UART does). Not compared with MAME's sound or a real cabinet.
 - **Speed:** not measured on a PS5 yet. On the test machine (2 cores at 2.1 GHz) a race frame takes about 1.5 ms for
   the i960, 0.7 to 1.4 for the TGP, 0.5 for the sound board, 0.3 for the I/O board, 0.5 for the geometrizer, 7 to 9 ms
   for the 3D on one thread (4.5 on two), 1.7 for the tilemaps -- about 11 ms of a 17.4 ms frame with two threads. With

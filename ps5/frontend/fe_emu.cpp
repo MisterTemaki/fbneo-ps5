@@ -996,8 +996,8 @@ ps5video::Rect DrawLast()
 		cfg.scanlines, cfg.shader);
 }
 
-// 2.3: the core's worker threads (Sega Model 2's 3D), started the first time a driver asks for them, stopped with the
-// core: three workers and the emulation thread
+// 2.3: the core's worker threads (Sega Model 2's 3D), started the first time a driver asks for them (its init), stopped
+// with the core: three workers and the emulation thread; the core is told how many really started
 constexpr int kPartWorkers = 3;
 fe::PartPool* g_parts = nullptr;
 void RunParts(burn::ParallelJob job, void* ctx, int parts)
@@ -1007,6 +1007,8 @@ void RunParts(burn::ParallelJob job, void* ctx, int parts)
 		g_parts = new (std::nothrow) fe::PartPool(kPartWorkers);
 		if (g_parts)
 			OrbisLog("[emu] %d worker thread(s) for the core", g_parts->Threads() - 1);
+		// the threads that really started (none: the core then makes one part, not bands for threads it hasn't)
+		burn::SetParallel(RunParts, g_parts ? g_parts->Threads() : 1);
 	}
 	if (!g_parts)
 	{

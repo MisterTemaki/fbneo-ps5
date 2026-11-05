@@ -153,7 +153,8 @@ struct PlayerInput
 	int8_t stick_x = 0, stick_y = 0; // the left stick, for the games with analog controls (-128..127)
 	int8_t stick2_x = 0, stick2_y = 0; // the right stick (dial / second axis pairs)
 	// How far the pad's trigger (L2/R2) that gives button N is pressed, 0..255; 0 when that button is not on a trigger.
-	// A game's analog button inputs (pedals: Daytona USA's accelerator and brake) take it; the others take button[].
+	// Sega Model 2's analog button inputs (Daytona USA's accelerator and brake) take it; every other input, and every
+	// other game's, takes button[] as in 2.2.
 	uint8_t pressure[kButtons] = {};
 };
 struct Input

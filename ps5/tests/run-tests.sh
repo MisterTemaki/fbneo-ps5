@@ -1610,7 +1610,13 @@ expect "[ $rc = 0 ] && [ \"\$(cat $F | tr '\n' ' ')\" = 'pacman ponpoko ' ] && [
 nosan "$T"
 rm -f "$F" && mkdir "$F"
 rc=$(run "$T" "0:0;30:$CIRCLE;32:0;$(SHELFQUIT_AT 50)" "")
-expect "[ $rc = 0 ] && grep -q \"$FAVS read error in $F: 0 favourite(s) read\" $B && grep -q \"$FAVS can't save $F\" $B && [ -d $F ]" "a favourites.txt that can't be read: no favourites (logged), the shelf goes on"
+expect "[ $rc = 0 ] && grep -q \"$FAVS read error in $F: 0 favourite(s) read\" $B && grep -q \"$FAVS $F was not read whole: not written\" $B && grep -q 'message: Could not save the favourites.' $B && [ -d $F ]" "a favourites.txt that can't be read: no favourites (logged), not written, the shelf goes on"
+nosan "$T"
+# (2.3 review) a read error in the middle of the file: what was read is shown, and Circle doesn't write the part read
+# over the player's list (it says the change wasn't saved)
+rmdir "$F" && printf 'pacman\nponpoko\n1942\n' >"$F"
+rc=$(FBNEO_HOST_FAVS_EIO=1 run "$T" "0:0;30:$CIRCLE;32:0;$(SHELFQUIT_AT 50)" "")
+expect "[ $rc = 0 ] && grep -q \"$FAVS read error in $F: 1 favourite(s) read, and the file is left as it is\" $B && grep -q 'message: Could not save the favourites.' $B && [ \"\$(cat $F | tr '\n' ' ')\" = 'pacman ponpoko 1942 ' ]" "a read error mid-file: Circle doesn't overwrite the list with the part read"
 nosan "$T"
 # e. German: the message, the hint, the Favourites tab translated
 T=$(newroot t50de)
@@ -2610,6 +2616,13 @@ expect "[ '$h' = 85,245,85 ] && [ '$f' = 85,245,213 ] && [ '$d' = 85,245,213 ]" 
 k=$(px46 stick_x=0,coin=1); s=$(px46 stick_x=0,start=1)
 expect "[ '$k' = 85,234,0 ] && [ '$s' = 85,74,0 ]" "coin and start (IN0's bits 0 and 4, active low) reach the game ($k / $s)"
 expect "! grep -q 'AddressSanitizer\|runtime error' $H46/err.txt" "no sanitizer reports"
+# (2.3 review) a trigger's pressure reaches Sega Model 2's pedals only: Out Run's accelerator (an analog fire 1 too)
+# keeps 2.2's digital values (0001 up, ffff pressed) wherever the trigger is
+mkset outrun
+inp46() { TMPDIR=$H46 "$HEADLESS" run "$SETS/$1" $2 5 --input "$3" --inputs 2>/dev/null | awk -F'\t' -v n="$4" '$1 == "input" && $2 == n {print $4}'; }
+o1=$(inp46 outrun outrun pressure1=128 Accelerate); o2=$(inp46 outrun outrun pressure1=128,fire1=1 Accelerate)
+d1=$(inp46 daytona-prog daytona pressure1=128 "P1 Accelerator")
+expect "[ '$o1' = 0001 ] && [ '$o2' = ffff ] && [ '$d1' = 0201 ]" "the trigger's pressure: Daytona USA's accelerator half way ($d1), Out Run's accelerator digital as in 2.2 ($o1 / $o2)"
 # c. the I/O board's ROM: missing (no model1io.zip, not in the game's zip) -> said so; in the game's zip -> found
 mkdir -p "$H46/noio" "$H46/inzip"
 cp "$SETS/daytona-prog/daytona.zip" "$H46/noio/"
@@ -2665,7 +2678,7 @@ rc=$(FBNEO_HOST_TRIGGERS=128 run "$T" "0:0;150:$R2;$(QUITAT 250)" "100,200" "$T/
 expect "[ $rc = 0 ] && grep -q 'buttons (general layout) Auto = Driving: 1=R2 2=L2 3=R1 4=L1 5=Square 6=Triangle 7=Circle 8=Cross coin=Touchpad start=OPTIONS' $T/root/logs/boot.log" "Auto on Daytona USA: the Driving layout (pedals on R2 L2, gears on R1 L1, the four views, buttons 7 and 8)"
 expect "grep -q 'running daytona \"Daytona USA (Revision A)\" (Sega Model 2), 57.520 fps (paced by the sound), aspect 1.3333, 8 button(s)' $T/root/logs/boot.log" "57.52 fps (paced by the sound), 4:3, 8 buttons"
 expect "$CHECK $T/dump/flip00100.ppm 960 540 85 245 0 >/dev/null && $CHECK $T/dump/flip00200.ppm 960 540 85 245 85 >/dev/null" "R2 half pressed: the accelerator half way (the trigger's pressure, not a button)"
-expect "grep -q '\[emu\] 3 worker thread(s) for the core' $T/root/logs/boot.log" "the core's three worker threads, started for the game's 3D"
+expect "grep -q '\[emu\] 3 worker thread(s) for the core' $T/root/logs/boot.log && grep -q 'model2: the 3D drawn on 4 thread(s)' $T/root/logs/boot.log" "the core's three worker threads, started for the game's 3D (4 threads with the game's)"
 nosan "$T"
 # a custom layout: buttons 7 and 8 from fbneo-ps5.ini; the accelerator on Cross (a digital button on the pedal: all
 # the way)
@@ -2680,7 +2693,7 @@ nosan "$T"
 T=$(newroot t47c)
 cp "$SETS/daytona-prog/"*.zip "$T/root/roms/"
 rc=$(FBNEO_HOST_NO_THREADS=1 run "$T" "0:0;$(QUITAT 150)" "100" "$T/root/roms/daytona.zip")
-expect "[ $rc = 0 ] && grep -q '\[emu\] 0 worker thread(s) for the core' $T/root/logs/boot.log && $CHECK $T/dump/flip00100.ppm 960 540 85 245 0 >/dev/null" "no threads allowed: the game runs without workers"
+expect "[ $rc = 0 ] && grep -q '\[emu\] 0 worker thread(s) for the core' $T/root/logs/boot.log && grep -q 'model2: the 3D drawn on 1 thread(s)' $T/root/logs/boot.log && $CHECK $T/dump/flip00100.ppm 960 540 85 245 0 >/dev/null" "no threads allowed: the game runs without workers, its 3D in one part (not bands for threads it hasn't)"
 fi
 
 echo

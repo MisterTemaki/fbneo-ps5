@@ -110,7 +110,6 @@ static bool render_unk, render_mode, palette_dirty;
 static UINT32 copro_tgp_bank_reg, copro_sincos_base, copro_inv_base, copro_isqrt_base, copro_atan_base[4];
 static UINT8 gearsel;
 static UINT8 comm_cn, comm_fg, comm_zfg;
-static INT64 tgp_target; // the i960 time the TGP has been run to (in i960 cycles)
 static UINT8 io_port_value[7], io_port_config, io_serial_output, io_cmd;
 static UINT16 io_address;
 static UINT8 io_secondary;
@@ -1008,7 +1007,9 @@ static UINT32 copro_atan_r()
 
 	UINT32 im = copro_atan_base[3] & 0x7fffff;
 	UINT32 index = ie <= 0x17 ? (im | 0x800000) >> ie : 0;
-	if(index == 0x4000)
+	// (MAME: only 0x4000 becomes 0x3fff; an exponent byte of 0x80-0x88 gives up to 0xffffff, read far past the table.
+	// The port keeps it in the table: the last entry)
+	if (index >= 0x4000)
 		index = 0x3fff;
 
 	UINT32 result = tables[index | 0x4000];
@@ -1203,8 +1204,14 @@ static void uart_update_lines(INT32 side)
 {
 	if (side == 0)
 		sound_ready();
-	else
-		snd_irq_line = uart_rxrdy(1);
+	else {
+		const INT32 line = uart_rxrdy(1);
+		// MAME's i8251 rxrdy callback: the 68000's IRQ 2 follows at once (when the 68000 is open: in the frame; the
+		// frame also sets it at each line)
+		if (line != snd_irq_line && SekGetActive() >= 0)
+			SekSetIRQLine(2, line ? CPU_IRQSTATUS_ACK : CPU_IRQSTATUS_NONE);
+		snd_irq_line = line;
+	}
 }
 
 static void uart_reset(INT32 side)
@@ -1789,7 +1796,7 @@ static INT32 MemIndex()
 
 	DrvWorkRAM      = Next; Next += 0x0100000;
 	DrvRAM200       = Next; Next += 0x0020000;
-	DrvBufferRAM    = Next; Next += 0x0020000;
+	DrvBufferRAM    = Next; Next += 0x0020000 + 0x100; // (+ 64 zeroed words: model2.h's geo_words_left)
 	DrvTileRAM      = Next; Next += 0x0010000;
 	DrvCharRAM      = Next; Next += 0x0080000;
 	DrvPalRAM       = Next; Next += 0x0004000;
@@ -1981,7 +1988,6 @@ static INT32 DrvDoReset()
 	Mb86233Reset();
 	// hold TGP in halt until we have code
 	tgp_set_halt(1);
-	tgp_target = 0;
 
 	SekOpen(0);
 	SekReset();
@@ -2065,11 +2071,16 @@ static void model2_video_scan(INT32 nAction)
 
 	ScanVar(m2_renderer->destmap().data.data(), 512 * 512 * sizeof(UINT32), "model2 3D picture");
 
+	// the renderer's own offsets (90, -8 until the game's first xhout / xvout write: not the CRTC values then)
+	INT16 renderer_xoffs = m2_renderer->xoffset(), renderer_yoffs = m2_renderer->yoffset();
+	SCAN_VAR(renderer_xoffs);
+	SCAN_VAR(renderer_yoffs);
+
 	if (nAction & ACB_WRITE) {
 		raster->poly_list_index = 0;
 		std::fill(std::begin(raster->poly_sorted_list), std::end(raster->poly_sorted_list), nullptr);
-		m2_renderer->set_xoffset(m2->m_crtc_xoffset);
-		m2_renderer->set_yoffset(m2->m_crtc_yoffset);
+		m2_renderer->set_xoffset(renderer_xoffs);
+		m2_renderer->set_yoffset(renderer_yoffs);
 	}
 }
 
@@ -2169,6 +2180,7 @@ static INT32 DrvInit()
 	// the frontend's worker threads (the 3D, by bands of lines: model2_poly.h) started now, not at the first 3D frame
 	if (nBurnParallelThreads > 1)
 		BurnParallelRun(parallel_warmup, NULL, nBurnParallelThreads);
+	bprintf(PRINT_IMPORTANT, _T("model2: the 3D drawn on %d thread(s)\n"), nBurnParallelThreads);
 
 	DrvDoReset();
 

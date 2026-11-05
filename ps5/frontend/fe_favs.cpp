@@ -4,11 +4,13 @@
 #include "fe_favs.h"
 
 #include "OrbisPaths.h"
+#include "fe_games.h"
 
 #include <algorithm>
 #include <cctype>
 #include <cerrno>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <unistd.h>
 #include <vector>
@@ -20,6 +22,9 @@ namespace favs
 namespace
 {
 bool g_loaded = false;
+// the file is there but could not be read (whole): it is never written then, so that a press of Circle can't replace
+// the player's list with the part of it read (the changes stay for this run only, and the shelf says they weren't saved)
+bool g_read_failed = false;
 std::vector<std::string> g_sets; // in the file's order, new ones at the end
 
 std::string Clean(const char* s)
@@ -39,6 +44,12 @@ std::string Clean(const char* s)
 bool Save()
 {
 	const std::string path = Path(), tmp = path + ".tmp";
+	if (g_read_failed)
+	{
+		OrbisLog("[favs] %s was not read whole: not written (the change is kept for this run only)", path.c_str());
+		return false;
+	}
+	PrepareFolders(); // (as the button layouts' files are written: /data/fbneo may have been removed meanwhile)
 	FILE* f = fopen(tmp.c_str(), "w");
 	if (!f)
 	{
@@ -72,6 +83,7 @@ void Load()
 	if (g_loaded)
 		return;
 	g_loaded = true;
+	g_read_failed = false;
 	g_sets.clear();
 	FILE* f = fopen(Path().c_str(), "r");
 	if (!f)
@@ -79,9 +91,21 @@ void Load()
 		if (errno == ENOENT)
 			OrbisLog("[favs] no %s yet: no favourites", Path().c_str());
 		else
-			OrbisLog("[favs] can't read %s (%s): no favourites", Path().c_str(), strerror(errno));
+		{
+			g_read_failed = true;
+			OrbisLog("[favs] can't read %s (%s): no favourites, and the file is left as it is", Path().c_str(),
+				strerror(errno));
+		}
 		return;
 	}
+#ifndef __PROSPERO__
+	// the host tests: FBNEO_HOST_FAVS_EIO=1 stands for a read error after the first line
+	const char* eio = getenv("FBNEO_HOST_FAVS_EIO");
+	const bool fake_eio = eio && *eio == '1';
+#else
+	const bool fake_eio = false;
+#endif
+	bool err = false;
 	char line[512];
 	while (fgets(line, sizeof(line), f))
 	{
@@ -90,11 +114,18 @@ void Load()
 			continue;
 		if (std::find(g_sets.begin(), g_sets.end(), s) == g_sets.end())
 			g_sets.push_back(s);
+		if (fake_eio)
+		{
+			err = true;
+			break;
+		}
 	}
-	const bool err = ferror(f) != 0;
+	err = err || ferror(f) != 0;
 	fclose(f);
+	g_read_failed = err;
 	if (err)
-		OrbisLog("[favs] read error in %s: %d favourite(s) read", Path().c_str(), int(g_sets.size()));
+		OrbisLog("[favs] read error in %s: %d favourite(s) read, and the file is left as it is", Path().c_str(),
+			int(g_sets.size()));
 	else
 		OrbisLog("[favs] %s: %d favourite(s)", Path().c_str(), int(g_sets.size()));
 }

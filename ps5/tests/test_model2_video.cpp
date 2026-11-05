@@ -5,6 +5,9 @@
 //     front-to-back fill (the nearer one wins where they overlap), the checker (every other pixel), a five-sided one
 //     (render_polygon), the viewport clip;
 //   - textured ones (a synthetic texture sheet, the luma table) and a translucent one;
+//   - (2.3 review) the geometrizer's commands with counts and indexes that would run past its memories (MAME's code
+//     trusts them): a polygon RAM copy of 2^32 words, a texture parameter index of 2^30, direct data and texture data
+//     that run to the end of the buffer RAM, an object count past the polygon RAM -- under ASan, each stays in its memory;
 //   - the picture is the same drawn in one part, in 16 bands done backwards and in 16 bands on four threads (the
 //     bands are independent), and it is the golden one (its checksum, kGolden below; --write saves
 //     the picture and shows its checksum).
@@ -65,7 +68,7 @@ struct Video
 	std::vector<u16> tex_rom = std::vector<u16>(0x10000);
 	std::vector<u32> poly_rom = std::vector<u32>(0x1000);
 	std::vector<u32> tex0 = std::vector<u32>(0x200000 / 4), tex1 = std::vector<u32>(0x200000 / 4);
-	std::vector<u32> buffer = std::vector<u32>(0x20000 / 4);
+	std::vector<u32> buffer = std::vector<u32>(0x20000 / 4 + 64); // (+ 64 zeroed words, as the driver has)
 	std::vector<u16> pal = std::vector<u16>(0x2000), xlat = std::vector<u16>(0x6000);
 	std::vector<u8> luma = std::vector<u8>(0x8000);
 	std::vector<u16> fbA = std::vector<u16>(0x40000), fbB = std::vector<u16>(0x40000);
@@ -286,6 +289,44 @@ int main(int argc, char** argv)
 	}
 	else
 		Check(h == kGolden, std::string("the golden picture (checksum ") + hs + ")");
+
+	// the geometrizer's commands kept within its memories (each stream from the buffer RAM's start; ASan would stop a
+	// read or write past the buffer RAM, the polygon RAMs or the texture parameters)
+	{
+		model2_state::geo_state* geo = v.st.m_geo;
+		auto run = [&](std::initializer_list<u32> words, u32 fill) {
+			std::fill(v.buffer.begin(), v.buffer.begin() + 0x20000 / 4, fill);
+			size_t i = 0;
+			for (u32 w : words)
+				v.buffer[i++] = w;
+			v.st.m_geo_read_start_address = 0;
+			v.st.geo_parse();
+		};
+		std::fill(std::begin(geo->polygon_ram1), std::end(geo->polygon_ram1), 0x5a5a5a5au);
+		// polygon data (5) into the slow RAM's last 16 words, 0xffffffff of them
+		run({5u << 23, 0x00007ff0, 0xffffffffu}, 0x11111111u);
+		bool ram1 = true, guard = true;
+		for (u32 w : geo->polygon_ram1)
+			ram1 = ram1 && w == 0x5a5a5a5au;
+		for (u32 w : geo->polygon_ram_guard)
+			guard = guard && w == 0;
+		Check(geo->polygon_ram0[0x7fff] == 0x11111111u && ram1 && guard,
+			"geometrizer: a polygon RAM copy of 2^32 words stops at the RAM's end");
+		// texture parameters (6) at index 0x3fffffff: one of the 32
+		run({6u << 23, 0xfffffffcu, 1, 0x00000042u, 0x3f800000u, 0x0f << 23}, 0);
+		Check(geo->texture_parameters[31].diffuse == float(0x42), "geometrizer: a texture parameter index of 2^30 is one of the 32");
+		// direct data (2) whose attributes never end, to the end of the buffer RAM
+		run({2u << 23}, 0x00000001u);
+		Check(true, "geometrizer: direct data that runs to the end of the buffer RAM stops there");
+		// texture data (4) with a count of 2^32
+		run({4u << 23, 0, 0xffffffffu}, 0);
+		Check(true, "geometrizer: texture data of 2^32 words stops at the end of the buffer RAM");
+		// object data (1) from the slow RAM's last 8 words, 0xfffff objects
+		std::fill(std::begin(geo->polygon_ram0), std::end(geo->polygon_ram0), 0x00000001u);
+		run({1u << 23, 0, 0, 0x00007ff8, 0x000fffff, 0x0f << 23}, 0);
+		Check(true, "geometrizer: an object count past the polygon RAM stops at its end");
+		v.st.render_frame_start();
+	}
 
 	printf("model2 video test: %d checks ok, %d failed\n", g_passed, g_failed);
 	return g_failed ? 1 : 0;

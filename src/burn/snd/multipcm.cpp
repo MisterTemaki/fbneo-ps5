@@ -587,6 +587,10 @@ void MultiPCMReset()
 	for(INT32 i=0; i < 28; i++) {
 		chip.Slots[i].Num = i;
 		chip.Slots[i].Playing = 0;
+		// FBNeo PS5 2.3: a slot keyed on before its sample number is written plays the sample its register says
+		// (0 after init) instead of reading through a null pointer -- what a state load rebuilds it as, too
+		// (RebuildSlotPointers); the state itself is unchanged
+		chip.Slots[i].Sample = chip.Samples + chip.Slots[i].Regs[1];
 	}
 }
 
