@@ -2632,8 +2632,9 @@ cp "$SETS/daytona-prog/daytona.zip" "$H46/inzip/"
 (cd "$H46" && rm -rf x && mkdir x && cd x && unzip -q "$SETS/daytona-prog/model1io.zip" && zip -q "$H46/inzip/daytona.zip" epr-14869c.25)
 o=$(TMPDIR=$H46 "$HEADLESS" run "$H46/inzip" daytona 30 "$H46/inzip.ppm" 2>/dev/null)
 expect "echo '$o' | grep -q 'picture 496x384' && $CHECK $H46/inzip.ppm 248 192 85 245 0 >/dev/null" "the I/O board ROM in daytona.zip (no model1io.zip): found by its CRC, and it runs"
-# d. Link ID: a saved I/O board EEPROM that says Master (a linked cabinet: the game would wait at NETWORK CHECKING, the
-#    link board not being emulated) is made Single, its CRC made again; the rest of it is kept
+# d. Link ID and country: a saved I/O board EEPROM that says Master (a linked cabinet: the game would wait at NETWORK
+#    CHECKING, the link board not being emulated) and JPN is made Single and USA (0x7c, following the country, too), its
+#    CRC made again; the rest of it is kept
 mkdir -p "$H46/fbneo-headless"
 python3 - "$H46/fbneo-headless/daytona.nv" <<'PY'
 import sys
@@ -2642,7 +2643,7 @@ b[0:8] = b'SEGA\x40\x82\x02\x00'
 for i in range(10, 128):
     b[i] = (i * 7) & 0xff
 b[0x0b] = 1
-b[0x1b] = b[0x7c] = 1 # (country JPN: a saved choice, kept)
+b[0x1b] = b[0x7c] = 1 # (country JPN: made USA)
 c = 0
 for x in b[0x0a:0x80]:
     c ^= x << 8
@@ -2660,14 +2661,14 @@ for x in b[0x0a:0x80]:
     c ^= x << 8
     for _ in range(8):
         c = ((c << 1) ^ 0x1021) & 0xffff if c & 0x8000 else (c << 1) & 0xffff
-same = all(b[i] == ((i * 7) & 0xff if i not in (0x1b, 0x7c) else 1) for i in range(10, 128) if i != 0x0b)
-print('link %d crc %s rest %s' % (b[0x0b], 'ok' if c == b[8] | (b[9] << 8) else 'BAD', 'kept' if same else 'CHANGED'))
+same = all(b[i] == (i * 7) & 0xff for i in range(10, 128) if i not in (0x0b, 0x1b, 0x7c))
+print('link %d country %d 7c %d crc %s rest %s' % (b[0x0b], b[0x1b], b[0x7c], 'ok' if c == b[8] | (b[9] << 8) else 'BAD', 'kept' if same else 'CHANGED'))
 PY
 )
-expect "[ '$o' = 'link 0 crc ok rest kept' ] && grep -q 'Link ID Master: set to Single' $H46/link.txt" "Link ID Master in the saved EEPROM: Single, the CRC made again, the rest kept, its country (JPN) too ($o)"
+expect "[ '$o' = 'link 0 country 0 7c 0 crc ok rest kept' ] && grep -q 'Link ID Master: set to Single' $H46/link.txt && grep -q 'country JPN: set to USA' $H46/link.txt && ! grep -q 'reset' $H46/link.txt" "Link ID Master and JPN in the saved EEPROM: Single and USA as the game starts (no reset), the CRC made again, the rest kept ($o)"
 # d2. the first start (a blank EEPROM): the game writes its factory settings (here a synthetic block through the
-#    host-only FBNEO_HOST_M2_FACTORY, at frame 8), the driver makes them Single and USA (byte 0x7c: 1 -> 0), the CRC
-#    made again, and resets once; a block with nothing to change is kept, no reset
+#    host-only FBNEO_HOST_M2_FACTORY, at frame 8), the driver makes them Single and USA (byte 0x7c with the country
+#    when it follows it), the CRC made again, and resets once; a block with nothing to change is kept, no reset
 fact46() { # <link> <country> <0x7c> <out>
 python3 - "$@" <<'PY'
 import sys
@@ -2707,10 +2708,25 @@ o=$(first46 1 1 1)
 expect "[ '$o' = 'link 0 country 0 7c 0 crc ok rest kept resets 1' ] && grep -q 'factory settings written: Link ID 1, country 1, byte 0x7c 1' $H46/first.txt && grep -q 'Link ID Master: set to Single' $H46/first.txt" "the first start, factory settings Link ID Master and JPN: Single, USA, the CRC made again, the rest kept, one reset ($o)"
 o=$(first46 0 1 1)
 expect "[ '$o' = 'link 0 country 0 7c 0 crc ok rest kept resets 1' ]" "the first start, factory settings already Single, JPN: USA, the CRC made again, one reset ($o)"
-o=$(first46 0 2 1)
-expect "[ '$o' = 'link 0 country 2 7c 1 crc ok rest kept resets 0' ]" "the first start, factory settings Single and EXPORT: kept as they are, no reset ($o)"
+o=$(first46 0 2 2)
+expect "[ '$o' = 'link 0 country 0 7c 0 crc ok rest kept resets 1' ] && grep -q 'country EXPORT: set to USA' $H46/first.txt" "the first start, factory settings Single and EXPORT: USA, one reset ($o)"
 o=$(first46 0 1 5)
-expect "[ '$o' = 'link 0 country 0 7c 5 crc ok rest kept resets 1' ]" "the first start, JPN with byte 0x7c other than 1: USA, byte 0x7c kept, one reset ($o)"
+expect "[ '$o' = 'link 0 country 0 7c 5 crc ok rest kept resets 1' ]" "the first start, JPN with byte 0x7c not following it: USA, byte 0x7c kept, one reset ($o)"
+o=$(first46 0 0 0)
+expect "[ '$o' = 'link 0 country 0 7c 0 crc ok rest kept resets 0' ]" "the first start, factory settings Single and USA: kept as they are, no reset ($o)"
+# d3. a saved EEPROM that says EXPORT (a test menu choice) is USA again at the next start; one that says Single and
+#     USA is left as it is, byte for byte
+for c in 2 0; do
+	fact46 0 $c $c "$H46/fbneo-headless/daytona.nv"
+	cp "$H46/fbneo-headless/daytona.nv" "$H46/saved.bin"
+	TMPDIR=$H46 "$HEADLESS" run "$SETS/daytona-prog" daytona 10 >/dev/null 2>"$H46/saved.txt"
+	o=$(python3 -c "import sys; b = open(sys.argv[1], 'rb').read(); print('country %d 7c %d' % (b[0x1b], b[0x7c]))" "$H46/fbneo-headless/daytona.nv")
+	if [ $c = 2 ]; then
+		expect "[ '$o' = 'country 0 7c 0' ] && grep -q 'country EXPORT: set to USA' $H46/saved.txt" "a saved EXPORT: USA at the next start ($o)"
+	else
+		expect "cmp -s $H46/saved.bin $H46/fbneo-headless/daytona.nv && ! grep -q 'set to' $H46/saved.txt" "a saved Single and USA: kept byte for byte ($o)"
+	fi
+done
 # e. the DAT has the four sets and the board set, the device ROM in it
 D46=dat/fbneo-ps5-arcade.dat
 expect "grep -q '<game name=\"daytona\" romof=\"model1io\" ' $D46 && grep -q '<game name=\"daytonase\" cloneof=\"daytona\" romof=\"daytona\" ' $D46 && grep -q '<game name=\"daytona93\" cloneof=\"daytona\"' $D46 && grep -q '<game name=\"daytonas\" cloneof=\"daytona\"' $D46 && grep -q '<game isbios=\"yes\" name=\"model1io\" ' $D46 && grep -q '<rom name=\"epr-14869c.25\" size=\"65536\" crc=\"24b68e64\"/>' $D46" "the DAT: daytona (romof model1io), its clones, the model1io board set with epr-14869c.25"

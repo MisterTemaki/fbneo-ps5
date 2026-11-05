@@ -523,10 +523,9 @@ Daytona USA (2.3) is the original Model 2 board's game, as MAME emulates it (`mo
   starts once more right after it has written its factory settings, which say Master. MAME stops at NETWORK CHECKING
   instead, until the test menu says Single.
 - **English:** the ROM is the Japanese one (MAME: "Japan, Revision A"; the clones too), whose factory setting is
-  COUNTRY JPN: the game in Japanese. On the first start (no saved settings yet) FBNeo PS5 sets it to **USA** (English)
-  along with the Link ID; the test menu's GAME SYSTEM changes it (USA, JPN, EXPORT), and a saved choice is kept. If
-  you ran a 2.3 test build before, your saved settings say JPN: set COUNTRY to USA once there (or delete
-  `/data/fbneo/saves/daytona.nv`, which holds only these settings).
+  COUNTRY JPN: the game in Japanese. FBNeo PS5 sets it to **USA** (English) at every start, along with the Link ID
+  (saved settings that say JPN or EXPORT included). The test menu's GAME SYSTEM can still change it (USA, JPN,
+  EXPORT), but the choice lasts only until the game is closed: the next start is in USA again.
 - **Not emulated:** the drive board (the wheel's force feedback: the game writes to it and reads nothing back), the
   link board, the lamps and coin counters.
 - **Saves:** the game's settings and records are in the I/O board's EEPROM (`/data/fbneo/saves/daytona.nv`) and the

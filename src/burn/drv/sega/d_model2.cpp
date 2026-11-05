@@ -1885,8 +1885,8 @@ static INT32 DrvLoadRoms()
 // menu says Single). So the port keeps the Link ID at Single: in a saved EEPROM when the game starts, and on the very
 // first start (a blank EEPROM) the game is reset once, right after it has written its factory settings.
 // Byte 0x1b is the country (0 USA, 1 JPN, 2 EXPORT; 0x7c follows it, as the test menu writes them), and the factory
-// setting of this ROM (MAME: "Japan, Revision A") is JPN: the game in Japanese. On the first start the port makes it
-// USA (English) with the Link ID; a saved EEPROM keeps its country, which the test menu (GAME SYSTEM) changes.
+// setting of this ROM (MAME: "Japan, Revision A") is JPN: the game in Japanese. The port makes it USA (English) at
+// every start, with the Link ID: a country chosen in the test menu (GAME SYSTEM) lasts until the game is closed.
 #define SETTINGS_LINK_ID    0x0b
 #define SETTINGS_COUNTRY    0x1b
 #define SETTINGS_COUNTRY2   0x7c
@@ -1908,37 +1908,33 @@ static INT32 settings_valid(const UINT8 *b)
 	return memcmp(b, "SEGA", 4) == 0 && (b[8] | (b[9] << 8)) == settings_crc(b);
 }
 
-// 1 when a setting was changed: the Link ID to Single; with first_start (the factory settings just written), a JPN
-// country to USA too
-static INT32 settings_force_single(INT32 first_start)
+// 1 when a setting was changed: the Link ID to Single, the country to USA (0x7c with it when it follows the country),
+// the CRC made again
+static INT32 settings_fix()
 {
 	UINT8 b[0x80];
 	for (INT32 i = 0; i < 0x80; i++) b[i] = EEPROMReadByte(i);
 	if (!settings_valid(b))
 		return 0;
-	const INT32 country = first_start && b[SETTINGS_COUNTRY] == 1;
-	if (b[SETTINGS_LINK_ID] == 0 && !country)
+	const UINT8 link = b[SETTINGS_LINK_ID], country = b[SETTINGS_COUNTRY];
+	if (link == 0 && country == 0)
 		return 0;
-	if (country) {
-		b[SETTINGS_COUNTRY] = 0;
-		if (b[SETTINGS_COUNTRY2] == 1)
+	if (country != 0) {
+		if (b[SETTINGS_COUNTRY2] == country)
 			b[SETTINGS_COUNTRY2] = 0;
-		bprintf(PRINT_IMPORTANT, _T("model2: the factory settings say country JPN: set to USA (English; the test menu changes it)\n"));
+		b[SETTINGS_COUNTRY] = 0;
+		bprintf(PRINT_IMPORTANT, _T("model2: the I/O board's settings say country %s: set to USA (English)\n"),
+			country == 1 ? _T("JPN") : country == 2 ? _T("EXPORT") : _T("(other)"));
 	}
-	if (b[SETTINGS_LINK_ID] == 0) {
-		const UINT16 c = settings_crc(b);
-		b[8] = c & 0xff;
-		b[9] = c >> 8;
-		for (INT32 i = 0; i < 0x80; i++) EEPROMWriteByte(i, b[i]);
-		return 1;
+	if (link != 0) {
+		b[SETTINGS_LINK_ID] = 0;
+		bprintf(PRINT_IMPORTANT, _T("model2: the I/O board's settings say Link ID %s: set to Single (no link board)\n"),
+			link == 1 ? _T("Master") : _T("Slave"));
 	}
-	const UINT8 was = b[SETTINGS_LINK_ID];
-	b[SETTINGS_LINK_ID] = 0;
 	const UINT16 c = settings_crc(b);
 	b[8] = c & 0xff;
 	b[9] = c >> 8;
 	for (INT32 i = 0; i < 0x80; i++) EEPROMWriteByte(i, b[i]);
-	bprintf(PRINT_IMPORTANT, _T("model2: the I/O board's settings say Link ID %s: set to Single (no link board)\n"), was == 1 ? _T("Master") : _T("Slave"));
 	return 1;
 }
 
@@ -2175,7 +2171,7 @@ static INT32 DrvInit()
 	EEPROMInit(&eeprom_interface_93C46); // (loads <saves>/<set>.nv when there is one)
 	io_eeprom_was_blank = settings_blank_at_start();
 	if (!io_eeprom_was_blank)
-		settings_force_single(0);
+		settings_fix(); // (before the game runs: no reset)
 
 	// sound: MAME's routes (YM3438 0.30, each MultiPCM 0.5, of the board's output). The MultiPCM make their words at
 	// 10 MHz / 224 (44.64 kHz, the board's measured WORDCLK); FBNeo's core divides its clock by 180.
@@ -2396,12 +2392,12 @@ static INT32 DrvFrame()
 #endif
 
 	// the first start with a blank EEPROM: once the game has written its factory settings (Link ID Master, country
-	// JPN), Single, USA and a reset
+	// JPN), Single, USA and a reset (the game has read them already)
 	if (io_eeprom_was_blank && (framenum & 31) == 0 && !settings_blank_at_start()) {
 		io_eeprom_was_blank = 0;
 		bprintf(PRINT_IMPORTANT, _T("model2: the factory settings written: Link ID %d, country %d, byte 0x7c %d\n"),
 			EEPROMReadByte(SETTINGS_LINK_ID), EEPROMReadByte(SETTINGS_COUNTRY), EEPROMReadByte(SETTINGS_COUNTRY2));
-		if (settings_force_single(1)) {
+		if (settings_fix()) {
 			bprintf(PRINT_IMPORTANT, _T("model2: the first start's settings changed: reset\n"));
 			DrvDoReset();
 		}
