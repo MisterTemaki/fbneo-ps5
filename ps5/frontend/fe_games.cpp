@@ -19,6 +19,7 @@
 #include <atomic>
 #include <cctype>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <map>
@@ -36,7 +37,7 @@ const SystemInfo kSystems[size_t(System::Count)] = {
 
 const char* const kFamilyNames[size_t(Family::Count)] = {
 	"All games", "Capcom", "Neo Geo", "Sega", "Konami", "Taito", "Toaplan, Cave, Psikyo", "Data East", "Irem",
-	"Midway", "IGS", "Classics", "Other",
+	"Midway", "IGS", "Classics", "Other", "Favourites",
 };
 
 std::string Lower(std::string s)
@@ -445,7 +446,15 @@ std::vector<GameInfo> ScanGames(const ScanProgress& progress)
 	std::map<std::string, Zip> found;
 	// the console's folders first (internal, USB drives), then the shares: a set on both is the console's
 	for (const std::string& root : RomRoots())
-		Walk(root, 0, root.rfind("/mnt/", 0) == 0, netfs_is_network_path(root.c_str()), found, progress);
+	{
+		bool usb = root.rfind("/mnt/", 0) == 0;
+#ifndef __PROSPERO__
+		// the host tests (2.3): the folder that stands for a USB drive's (OrbisRomRoots) is on the USB tab too
+		const char* host_usb = getenv("FBNEO_HOST_USB_ROOT");
+		usb = usb || (host_usb && root == host_usb);
+#endif
+		Walk(root, 0, usb, netfs_is_network_path(root.c_str()), found, progress);
+	}
 	{
 		std::unordered_map<std::string, std::string> zips;
 		for (const auto& z : found)

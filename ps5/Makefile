@@ -102,7 +102,8 @@ EMU_SRC := coreorbis/main-boot.cpp \
 	frontend/fe_emu.cpp frontend/fe_menu.cpp frontend/fe_settings.cpp frontend/fe_i18n.cpp frontend/fe_text.cpp \
 	frontend/fe_games.cpp frontend/fe_http.cpp frontend/fe_covers.cpp frontend/fe_shelf.cpp \
 	frontend/fe_prefetch.cpp frontend/fe_coverfetch.cpp frontend/fe_coverworker.cpp \
-	frontend/fe_netscreen.cpp frontend/fe_osk.cpp frontend/fe_ui.cpp frontend/fe_7z.cpp frontend/fe_hdd.cpp $(NETFS_SRC)
+	frontend/fe_netscreen.cpp frontend/fe_osk.cpp frontend/fe_ui.cpp frontend/fe_7z.cpp frontend/fe_hdd.cpp frontend/fe_favs.cpp \
+	$(NETFS_SRC)
 # the glue that talks to the core (built with the core's headers and defines)
 GLUE_SRC := frontend/fe_burn.cpp core/burn_frontend.cpp
 # minizip (zlib licence) for the ROM-set zips, built as C with FBNeo's zlib
