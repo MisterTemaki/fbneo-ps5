@@ -41,14 +41,16 @@ make (the driver list, Musashi's 68000 core, the CPS, Neo Geo, Cave, Psikyo, Toa
 frontends (`src/burner`) and its libretro port host the core: ROM loading from the sets' zips and 7z archives, inputs, DIP
 switches, states, NVRAM, the picture turned the right way up and the sound.
 
-> **Status (2.3):** **Daytona USA (new in 2.3) ran on a PS5** from a first 2.3 test build: full speed (about 57.3 of
-> its 57.5 frames a second, 8.5 ms a frame, no sound underruns), but with the race music missing, a voice repeating,
-> "Gentlemen, start your engines" never heard and the game in Japanese. Those are fixed in this build (the sound
-> board's serial link; the country set to USA at every start) and checked on the test machine (Linux, a 2-core
-> 2.1 GHz Xeon) with a real set -- the attract mode with its 3D, a coin, Start, the circuit and transmission choices, a
-> race steered with the stick, the sound commands all received once and in order, the music and the voices played,
-> save states replayed exactly, the game's own TGP and memory tests GOOD -- not yet again on a PS5. The favorites
-> (new in 2.3) have run only in the host tests. The 2.3 build passes 820 host tests
+> **Status (2.3):** **Daytona USA (new in 2.3) runs on a PS5** with this build, with the default CRT Easymode style
+> shader: the race holds its 57.5 frames a second (every second of a three-minute session took 0.99 to 1.00 s for its
+> 57 frames), with no gap in the sound and no frame left undrawn, the picture drawn on its own thread in about 11 ms a
+> frame. The music, "Gentlemen, start your engines" and the voices are right, the engine sound is smooth, and the game
+> starts in English (a saved JPN setting is set to USA). The earlier 2.3 test builds had the race music missing, a
+> voice repeating, the game in Japanese, the engine sound stepping and, with the shader, gaps in the sound: all fixed.
+> On the test machine (Linux, a 2-core 2.1 GHz Xeon), with a real set, the sound board's register writes match MAME's
+> (the same commit, the same inputs: within 0.2 % in number, the engine's pitch track the same) and save states
+> replay exactly. **The favorites (new in 2.3) work on a PS5:** Circle adds and removes a game, and Favorites shows
+> on the shelf. The 2.3 build passes 820 host tests
 > (2.2's 718, the new CPU, renderer, Daytona USA stand-in, controls and favorites tests included) and the app's import
 > and system-call checks. Everything else is as 2.2 had it:
 >
@@ -122,8 +124,12 @@ view buttons Square, Triangle, Circle, Cross** (the new **Driving** layout, Auto
   today.
 - The NVRAM's periodic save (every 5 seconds while it changes; Daytona USA's backup RAM changes all the time) writes
   its file on a thread of its own: the game no longer waits for the write and its flush to the console's storage.
-- **On a PS5:** a first 2.3 test build of Daytona USA ran at full speed; its sound and language problems are fixed
-  since, on the test machine only (Status, above). The favorites have run only in the host tests.
+- **The picture of a game paced by the sound** (one that doesn't run at 60 Hz, like Daytona USA) is drawn on a
+  thread of its own while the next frame runs, with the shader on at most 4 threads there; a frame whose picture
+  would make the sound run low is left undrawn (never two in a row) instead of a gap in the sound. The 60 Hz games
+  draw as before.
+- **On a PS5:** Daytona USA runs at full speed with its sound right and in English, and the favorites work (Status,
+  above).
 
 **2.2:** **Killer Instinct and Killer Instinct 2** (Rare / Midway, 1994 and 1995; `kinst`, `kinst14`, `kinst13`,
 `kinstp47`, `kinst15ai`, `kinst2`, `kinst213`, `kinst211`, `kinst210`, `kinst214ai`), taken from upstream FBNeo (its
@@ -541,12 +547,16 @@ Daytona USA (2.3) is the original Model 2 board's game, as MAME emulates it (`mo
   MAME's stream update makes it (the car's engine is a pair of slots whose pitch the game changes about 30 times a
   frame: 2.3's first test builds applied only the frame's last value, a step 57.5 times a second), and the chips'
   44.6 kHz is resampled to 48 kHz linearly (FBNeo's MultiPCM repeats the nearest sample; Sega System 32 keeps that).
-  Not compared with MAME's sound or a real cabinet by ear.
-- **Speed:** full speed on a PS5 without a shader (a first 2.3 test build: about 57.3 frames a second, 8.5 ms a
-  frame). With the default CRT Easymode style shader (about 7 ms a frame on a PS5) the race fell to about 54 frames a
-  second and the sound had gaps: the picture of a game paced by the sound is now drawn on a thread of its own while
-  the next frame runs (the shader on 4 threads there), and a frame whose picture would make the sound run low goes
-  undrawn instead (never two in a row; `boot.log` counts them). The 60 Hz games draw as before. On the test machine (2 cores at 2.1 GHz) a race frame takes about 1.5 ms for
+  Compared with MAME (the same commit, the same set and inputs, 53 s from the boot to a race): 999,258 MultiPCM writes
+  against MAME's 999,126, 2,327 key-ons against 2,329, the engine's pitch track the same (median 257.8 Hz in both),
+  the race's level and stereo within 0.1 %; above 10 kHz about 1 dB quieter (the linear resampler). Not compared
+  with a real cabinet.
+- **Speed:** full speed on a PS5 with the default CRT Easymode style shader: the game's frame takes about 9.5 to
+  12 ms in a race and its picture about 11 ms on a thread of its own, drawn while the next frame runs (the shader on 4
+  threads there); a frame whose picture would make the sound run low goes undrawn instead (never two in a row;
+  `boot.log` counts them: none in the PS5 test). Before (the earlier 2.3 test builds) the shader ran after the frame
+  on the same thread, and the race fell to about 54 frames a second with gaps in the sound. The 60 Hz games draw as
+  before. On the test machine (2 cores at 2.1 GHz) a race frame takes about 1.5 ms for
   the i960, 0.7 to 1.4 for the TGP, 0.5 for the sound board, 0.3 for the I/O board, 0.5 for the geometrizer, 7 to 9 ms
   for the 3D on one thread (4.5 on two), 1.7 for the tilemaps -- about 11 ms of a 17.4 ms frame with two threads. With
   the debug logs on, `boot.log` has these numbers once a second (`model2: ms a frame ...`).
@@ -963,8 +973,7 @@ covers, emu, menu), and the return addresses, which map into `ps5/build/app/fbne
   interpreters; not measured on a console yet. Killer Instinct's MIPS R4600 (2.2) runs at full speed on a PS5.
 - Killer Instinct 1 and 2 (2.2): run on a PS5 from the console's drive; a raw KI2 `.img` is unverified (use the CHD); a
   CHD on a network share may stutter.
-- Daytona USA (2.3): runs at full speed on a PS5 (this build's sound and language fixes checked on the test machine
-  only); one cabinet (no link play), no force feedback, no lamps. MAME's i960 is kept
+- Daytona USA (2.3): runs at full speed on a PS5, the default shader on; one cabinet (no link play), no force feedback, no lamps. MAME's i960 is kept
   as it is, quirks included (its `addc` never sets the carry out of the top bit).
 
 ## Building
