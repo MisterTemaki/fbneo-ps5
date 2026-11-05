@@ -7,8 +7,9 @@
     raster_init/geo_init take the ROMs' pointers (the driver saves the state), logerror logs through M2_LOG, MAME's
     rectangle and bitmap are model2.h's m2_rectangle and m2_bitmap,
     util::sext/std::clamp/copybitmap_trans are local helpers, a full polygon list drops the polygon and an unknown
-    rasterizer command is dropped (MAME stops with fatalerror), and the geometrizer's commands stay within the buffer
-    RAM, the polygon RAMs and the texture parameters (MAME trusts their counts and indexes). video_start and
+    rasterizer command is dropped (MAME stops with fatalerror), and the geometrizer's commands read no further than
+    the end of the buffer RAM, polygon RAMs or polygon ROM they are read from plus the zeroed words kept after it, and
+    index only within the texture parameters (MAME trusts their counts and indexes). video_start and
     screen_update are the driver's (d_model2.cpp). MAME's notes:
 
 
@@ -1016,7 +1017,7 @@ void model2_state::geo_parse_np_ns(geo_state &geo, const u32 *input, u32 count)
 	model2_3d_push(raster, f2u(point.pz) >> 8);
 
 	/* loop through the following links */
-	for (i = 0; i < count; i++)
+	for (i = 0; i < count && input < geo.obj_end; i++) // (FBNeo PS5: not past the memory the list is in)
 	{
 		/* read in the attributes */
 		attr = *input++;
@@ -1163,7 +1164,7 @@ void model2_state::geo_parse_np_s(geo_state &geo, const u32 *input, u32 count)
 	model2_3d_push(raster, f2u(point.pz) >> 8);
 
 	/* loop through the following links */
-	for (i = 0; i < count; i++)
+	for (i = 0; i < count && input < geo.obj_end; i++) // (FBNeo PS5: not past the memory the list is in)
 	{
 		/* read in the attributes */
 		attr = *input++;
@@ -1325,7 +1326,7 @@ void model2_state::geo_parse_nn_ns(geo_state &geo, const u32 *input, u32 count)
 	model2_3d_push(raster, f2u(point.pz) >> 8);
 
 	/* loop through the following links */
-	for (i = 0; i < count; i++)
+	for (i = 0; i < count && input < geo.obj_end; i++) // (FBNeo PS5: not past the memory the list is in)
 	{
 		/* read in the attributes */
 		attr = *input++;
@@ -1515,7 +1516,7 @@ void model2_state::geo_parse_nn_s(geo_state &geo, const u32 *input, u32 count)
 	model2_3d_push(raster, f2u(point.pz) >> 8);
 
 	/* loop through the following links */
-	for (i = 0; i < count; i++)
+	for (i = 0; i < count && input < geo.obj_end; i++) // (FBNeo PS5: not past the memory the list is in)
 	{
 		/* read in the attributes */
 		attr = *input++;
@@ -1723,13 +1724,12 @@ const u32 *model2_state::geo_object_data(geo_state &geo, u32 opcode, const u32 *
 	if (obc == 0)
 		obc = 0xfffff;
 
-	// FBNeo PS5: no more objects than words left in the RAM or ROM they are read from (each object is a word at least;
-	// the last one's few words past the end are read from the zeroed guard, or the next region of the driver)
-	{
-		u32 const left = (oba & 0x01000000) || !(oba & 0x00800000) ? 0x8000 - (oba & 0x7fff) :
-			(geo.polygon_rom_mask + 1) - (oba & geo.polygon_rom_mask);
-		obc = std::min(obc, left);
-	}
+	// FBNeo PS5: the object list stops at the end of the memory it is read from (MAME reads on past it): the fast RAM's
+	// end, the polygon ROM's, or for the slow RAM the fast RAM's end (as in MAME, a list there may go on into it). A
+	// link that starts before that end reads its last few words (10 at most) from the zeroed words after it: the
+	// geo_state's guard after the fast RAM, the 16 words the driver keeps after the polygon ROM.
+	geo.obj_end = (oba & 0x01000000) ? geo.polygon_ram1 + 0x8000 :
+		(oba & 0x00800000) ? geo.polygon_rom + geo.polygon_rom_mask + 1 : geo.polygon_ram1 + 0x8000;
 
 	switch (geo.mode & 3)
 	{
@@ -1773,8 +1773,11 @@ const u32 *model2_state::geo_direct_data(geo_state &geo, u32 opcode, const u32 *
 
 	/* read in the attributes */
 	u32  attr;
-	while (geo_words_left(input) >= 9 && ((attr = *input++) & 3) != 0) // (FBNeo PS5: a whole one, in the buffer RAM)
+	while (geo_words_left(input) >= 1 && ((attr = *input++) & 3) != 0) // (FBNeo PS5: not past the buffer RAM)
 	{
+		// (FBNeo PS5: a whole triangle (5 words after the attribute) or quad (8) in the buffer RAM, or the list ends)
+		if (geo_words_left(input) < ((attr & 1) ? 8u : 5u))
+			break;
 		/* push attributes */
 		model2_3d_push(raster, attr & 0x00ffffff);
 
@@ -1852,7 +1855,8 @@ const u32 *model2_state::geo_texture_data(geo_state &geo, u32 opcode, const u32 
 	model2_3d_push(raster, *input++);
 
 	/* get the count */
-	u32 count = std::min<u32>(*input++, geo_words_left(input)); // (FBNeo PS5: not past the buffer RAM)
+	u32 count = std::min<u32>(input[0], geo_words_left(input + 1)); // (FBNeo PS5: not past the buffer RAM)
+	input++;
 
 	/* push the count */
 	model2_3d_push(raster, count);
@@ -1906,7 +1910,8 @@ const u32 *model2_state::geo_texture_parameters(geo_state &geo, u32 opcode, cons
 	index = ((*input++) >> 2) & 0x1f; // (FBNeo PS5: one of the 32)
 
 	/* read in the conut */
-	u32 const count = std::min<u32>(*input++, geo_words_left(input) / 2); // (FBNeo PS5: not past the buffer RAM)
+	u32 const count = std::min<u32>(input[0], geo_words_left(input + 1) / 2); // (FBNeo PS5: not past the buffer RAM)
+	input++;
 
 	for (u32 i = 0; i < count; i++)
 	{
@@ -2100,7 +2105,8 @@ const u32 *model2_state::geo_mesh_draw(geo_state &geo, u32 opcode, const u32 *in
 
 const u32 *model2_state::geo_mesh_flush(geo_state &geo, u32 opcode, const u32 *input)
 {
-	u32 const count = (geo.mesh_texture_end - geo.mesh_texture_begin) & ~u32(1);
+	// (FBNeo PS5: two coordinates for each of mesh_uv's 0x8000 words at most -- MAME loops up to 2^32 times)
+	u32 const count = std::min<u32>((geo.mesh_texture_end - geo.mesh_texture_begin) & ~u32(1), 0x10000);
 	if (count)
 	{
 		model2_3d_push(geo.raster, 4);
@@ -2181,7 +2187,8 @@ const u32 *model2_state::geo_test(geo_state &geo, u32 opcode, const u32 *input)
 	}
 
 	/* get the number of checksums we have to run */
-	u32 const blocks = std::min<u32>(*input++, geo_words_left(input) / 3); // (FBNeo PS5: not past the buffer RAM)
+	u32 const blocks = std::min<u32>(input[0], geo_words_left(input + 1) / 3); // (FBNeo PS5: not past the buffer RAM)
+	input++;
 
 	for (u32 i = 0; i < blocks; i++)
 	{
@@ -2189,7 +2196,7 @@ const u32 *model2_state::geo_test(geo_state &geo, u32 opcode, const u32 *input)
 		u32 address = (*input++) & 0x7fffff;
 
 		/* read in the count */
-		u32 const count = *input++;
+		u32 const count = std::min<u32>(*input++, geo.polygon_rom_mask + 1); // (FBNeo PS5: the ROM once at most)
 
 		/* read in the checksum */
 		u32 const checksum = *input++;
@@ -2259,7 +2266,8 @@ const u32 *model2_state::geo_log_data(geo_state &geo, u32 opcode, const u32 *inp
 	model2_3d_push(raster, *input++);
 
 	/* get the count */
-	u32 const count = std::min<u32>(*input++, geo_words_left(input)); // (FBNeo PS5: not past the buffer RAM)
+	u32 const count = std::min<u32>(input[0], geo_words_left(input + 1)); // (FBNeo PS5: not past the buffer RAM)
+	input++;
 
 	/* push the count */
 	model2_3d_push(raster, count << 2);
@@ -2304,7 +2312,8 @@ const u32 *model2_state::geo_code_upload(geo_state &geo, u32 opcode, const u32 *
 	input++;
 
 	/* read in the count */
-	u32 const count = std::min<u32>(*input++, geo_words_left(input) / 3); // (FBNeo PS5: not past the buffer RAM)
+	u32 const count = std::min<u32>(input[0], geo_words_left(input + 1) / 3); // (FBNeo PS5: not past the buffer RAM)
+	input++;
 
 	for (u32 i = 0; i < count; i++)
 	{

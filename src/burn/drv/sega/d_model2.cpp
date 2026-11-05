@@ -1774,7 +1774,7 @@ static INT32 MemIndex()
 	DrvI960ROM      = Next; Next += 0x0200000;
 	DrvMainData     = Next; Next += 0x0a00000;
 	DrvCoproData    = Next; Next += 0x0400000;
-	DrvPolyROM      = Next; Next += 0x1000000;
+	DrvPolyROM      = Next; Next += 0x1000000 + 0x40; // (+ 16 zeroed words: the geometrizer's last object link)
 	DrvTexROM       = Next; Next += 0x1000000;
 	DrvTGPTables    = Next; Next += 0x0040000;
 	Drv68KROM       = Next; Next += 0x0040000;

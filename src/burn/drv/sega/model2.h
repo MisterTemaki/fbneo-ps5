@@ -378,6 +378,7 @@ struct model2_state::geo_state
 	u32                 mode = 0;                   // bit 0 = Enable Specular, bit 1 = Calculate Normals
 	u32 const *         polygon_rom = nullptr;      // Polygon ROM data
 	u32                 polygon_rom_mask = 0;       // Polygon ROM address mask
+	const u32 *         obj_end = nullptr;          // (the port: the end of the memory the object list is read from)
 	u32                 mesh_begin = 0x30100;
 	u32                 mesh_current = 0x30100;
 	u32                 mesh_texture_start = 0x80c000;

@@ -7,7 +7,9 @@
 //   - textured ones (a synthetic texture sheet, the luma table) and a translucent one;
 //   - (2.3 review) the geometrizer's commands with counts and indexes that would run past its memories (MAME's code
 //     trusts them): a polygon RAM copy of 2^32 words, a texture parameter index of 2^30, direct data and texture data
-//     that run to the end of the buffer RAM, an object count past the polygon RAM -- under ASan, each stays in its memory;
+//     that run to the end of the buffer RAM (where each stops: the pointer returned, the words written), object lists
+//     that never end from the end of the slow RAM, the fast RAM and the polygon ROM -- under ASan, none reads or
+//     writes past its memory and the zeroed words kept after it;
 //   - the picture is the same drawn in one part, in 16 bands done backwards and in 16 bands on four threads (the
 //     bands are independent), and it is the golden one (its checksum, kGolden below; --write saves
 //     the picture and shows its checksum).
@@ -66,7 +68,7 @@ constexpr int kW = 496, kH = 384;
 struct Video
 {
 	std::vector<u16> tex_rom = std::vector<u16>(0x10000);
-	std::vector<u32> poly_rom = std::vector<u32>(0x1000);
+	std::vector<u32> poly_rom = std::vector<u32>(0x1000 + 16); // (+ 16 zeroed words, as the driver has)
 	std::vector<u32> tex0 = std::vector<u32>(0x200000 / 4), tex1 = std::vector<u32>(0x200000 / 4);
 	std::vector<u32> buffer = std::vector<u32>(0x20000 / 4 + 64); // (+ 64 zeroed words, as the driver has)
 	std::vector<u16> pal = std::vector<u16>(0x2000), xlat = std::vector<u16>(0x6000);
@@ -84,7 +86,7 @@ struct Video
 		st.m_lumaram = luma.data();
 		st.m_fbvramA = fbA.data();
 		st.m_fbvramB = fbB.data();
-		st.video_init(tex_rom.data(), u32(tex_rom.size() * 2), poly_rom.data(), u32(poly_rom.size() * 4));
+		st.video_init(tex_rom.data(), u32(tex_rom.size() * 2), poly_rom.data(), 0x1000 * 4);
 		st.video_reset();
 		st.m_renderer->set_xoffset(0);
 		st.m_renderer->set_yoffset(0);
@@ -315,16 +317,61 @@ int main(int argc, char** argv)
 		// texture parameters (6) at index 0x3fffffff: one of the 32
 		run({6u << 23, 0xfffffffcu, 1, 0x00000042u, 0x3f800000u, 0x0f << 23}, 0);
 		Check(geo->texture_parameters[31].diffuse == float(0x42), "geometrizer: a texture parameter index of 2^30 is one of the 32");
-		// direct data (2) whose attributes never end, to the end of the buffer RAM
-		run({2u << 23}, 0x00000001u);
-		Check(true, "geometrizer: direct data that runs to the end of the buffer RAM stops there");
-		// texture data (4) with a count of 2^32
-		run({4u << 23, 0, 0xffffffffu}, 0);
-		Check(true, "geometrizer: texture data of 2^32 words stops at the end of the buffer RAM");
-		// object data (1) from the slow RAM's last 8 words, 0xfffff objects
+		// the commands below are called on their own (input: the word after the opcode), the rasterizer's command reset
+		model2_state::raster_state* raster = v.st.m_raster;
+		const u32* const end = v.buffer.data() + 0x20000 / 4;
+		auto call = [&](const u32* (model2_state::*cmd)(model2_state::geo_state&, u32, const u32*),
+			std::initializer_list<u32> words, u32 fill) {
+			std::fill(v.buffer.begin(), v.buffer.begin() + 0x20000 / 4, fill);
+			size_t i = 0;
+			for (u32 w : words)
+				v.buffer[i++] = w;
+			raster->cur_command = 0;
+			raster->command_index = 0;
+			return (v.st.*cmd)(*geo, v.buffer[0], v.buffer.data() + 1);
+		};
+		// direct data (2) whose quads never end (attribute 1), to the end of the buffer RAM: whole quads only (an
+		// attribute and 8 words), then the list ends -- the rasterizer gets its closing 0 as the next attribute
+		{
+			const u32* r = call(&model2_state::geo_direct_data, {2u << 23}, 0x00000001u);
+			size_t p = 9, e = 0x20000 / 4;
+			while (p < e) { p++; if (e - p < 8) break; p += 8; }
+			Check(r == v.buffer.data() + p && r <= end && raster->cur_command == 0,
+				"geometrizer: direct data that runs to the end of the buffer RAM stops there, after its last whole quad");
+		}
+		// texture data (4) of 2^32 words to the texture RAM: the words left in the buffer RAM (0x7ffd) are written
+		{
+			std::fill(std::begin(raster->texture_ram), std::end(raster->texture_ram), u16(0));
+			const u32* r = call(&model2_state::geo_texture_data, {4u << 23, 0x00800000u, 0xffffffffu}, 0x1234u);
+			Check(r == end && raster->texture_ram[0x7ffc] == 0x1234 && raster->texture_ram[0x7ffd] == 0 &&
+				raster->cur_command == 0, "geometrizer: texture data of 2^32 words stops at the end of the buffer RAM");
+		}
+		// object data (1), 0xfffff objects whose quads never end (attribute 1, 10 words each with the normal) from the
+		// last 8 words of: the slow RAM (on into the fast RAM, as in MAME), the fast RAM, the polygon ROM -- each stops
+		// at its end (its last link's words past it read from the 16 words kept after it, here 1s too: the list is not
+		// ended by their zeros; under ASan, nothing is read past them), and the rasterizer gets its closing 0 after a
+		// whole quad
+		geo->mode = 0;
 		std::fill(std::begin(geo->polygon_ram0), std::end(geo->polygon_ram0), 0x00000001u);
-		run({1u << 23, 0, 0, 0x00007ff8, 0x000fffff, 0x0f << 23}, 0);
-		Check(true, "geometrizer: an object count past the polygon RAM stops at its end");
+		std::fill(std::begin(geo->polygon_ram1), std::end(geo->polygon_ram1), 0x00000001u);
+		std::fill(std::begin(geo->polygon_ram_guard), std::end(geo->polygon_ram_guard), 0x00000001u);
+		std::fill(v.poly_rom.begin(), v.poly_rom.end(), 0x00000001u);
+		const struct { u32 oba; const char* what; } lists[] = {
+			{ 0x00007ff8u, "the slow RAM (on into the fast RAM)" },
+			{ 0x01007ff8u, "the fast RAM" },
+			{ 0x00800ff8u, "the polygon ROM" },
+		};
+		for (const auto& l : lists)
+		{
+			const u32* r = call(&model2_state::geo_object_data, {1u << 23, 0, 0, l.oba, 0x000fffffu}, 0);
+			Check(r == v.buffer.data() + 5 && raster->cur_command == 0,
+				std::string("geometrizer: an object list that never ends, from the end of ") + l.what + ", stops at its end");
+		}
+		std::fill(std::begin(geo->polygon_ram1), std::end(geo->polygon_ram1), 0u);
+		std::fill(std::begin(geo->polygon_ram_guard), std::end(geo->polygon_ram_guard), 0u);
+		std::fill(v.poly_rom.begin(), v.poly_rom.end(), 0u);
+		raster->cur_command = 0;
+		raster->command_index = 0;
 		v.st.render_frame_start();
 	}
 
