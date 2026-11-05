@@ -497,8 +497,9 @@ Daytona USA (2.3) is the original Model 2 board's game, as MAME emulates it (`mo
 - **Controls (the Driving layout):** steering on the **left stick**; **R2 accelerator, L2 brake**, as far as the
   trigger is pressed; **R1 shift up, L1 shift down** (the 4-speed gearbox: neutral, then 1 to 4); **Square, Triangle,
   Circle, Cross the four view buttons** (VR1 red, VR2 blue, VR3 yellow, VR4 green); touchpad Coin, OPTIONS Start. The
-  pause menu's **Service** and **Test** reach the game's own test menu (its settings: difficulty, the cabinet, the
-  country...). The layout can be changed as for any game (Custom: any of the eight buttons anywhere; a pedal on a
+  pause menu's **Test** opens the game's own test menu (its settings: difficulty, the cabinet, the country...;
+  Cross (the green view button) moves up, Square (red) down, OPTIONS selects; its TGP TEST and MEMORY TEST say GOOD on
+  the test machine). The layout can be changed as for any game (Custom: any of the eight buttons anywhere; a pedal on a
   digital button is all or nothing).
 - **One cabinet:** the link board is not emulated, so the game's **Link ID** is kept at **Single**: a set whose saved
   settings say Master or Slave (a linked cabinet, which waits for the others at NETWORK CHECKING) has it set back to

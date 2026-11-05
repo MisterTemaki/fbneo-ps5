@@ -38,7 +38,9 @@ uint32_t i960_bus_fetch32(uint32_t a);
 void i960_log(const char* fmt, ...);
 void i960_fatal(const char* fmt, ...);
 #define I960_LOG(...) i960_log(__VA_ARGS__)
-#define I960_FATAL(...) i960_fatal(__VA_ARGS__)
+// (MAME stops the machine there; the port logs the first few and goes on, a cycle spent so that code which is not
+// i960 code -- a missing or stand-in ROM -- still lets the frame end)
+#define I960_FATAL(...) (m_icount -= 1, i960_fatal(__VA_ARGS__))
 
 // MAME's memory_access<32, 2, 0, ENDIANNESS_LITTLE>::specific / ::cache, as the instruction code calls them
 struct i960_space

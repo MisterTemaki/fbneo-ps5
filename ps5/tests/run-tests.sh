@@ -2481,7 +2481,7 @@ for g in daytona daytonase daytona93 daytonas; do
 	expect "[ $rc = 0 ] && echo '$o' | grep -q 'picture 496x384 .* fps 57.52 aspect 1.3333 buttons 8' && echo '$o' | grep -q 'state replay same' && ! grep -q 'AddressSanitizer\|runtime error' $WORK/h46-$g.err" "$g: $(echo "$o" | head -1 | cut -c1-80)"
 done
 o=$("$HEADLESS" list all 2>/dev/null | awk -F'\t' '$1 ~ /^dayton|^model1io$/ {print $1 "=" $2 "=" $3}' | LC_ALL=C sort | tr '\n' ' ')
-expect "[ '$o' = 'daytona==model1io daytona93=daytona=model1io daytonas=daytona=model1io daytonase=daytona=model1io model1io== ' ]" "daytona the parent, three clones, the Model 1 I/O board set beside them ($o)"
+expect "[ '$o' = 'daytona93=daytona=model1io daytona==model1io daytonas=daytona=model1io daytonase=daytona=model1io model1io== ' ]" "daytona the parent, three clones, the Model 1 I/O board set beside them ($o)"
 # b. the controls reach the game through the I/O board: stand-in programs (tests/make_model2_standin.py) for the I/O
 #    board's Z80 (the A/D converter's channels 0 and 1, IN0 -> the dual port RAM) and the i960 (those bytes -> the
 #    background colour: red the steering, green IN0's low bits, blue the accelerator)
