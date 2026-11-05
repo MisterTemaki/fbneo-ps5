@@ -43,8 +43,10 @@ switches, states, NVRAM, the picture turned the right way up and the sound.
 
 > **Status (2.3):** **Daytona USA (new in 2.3) has not run on a PS5 yet.** On the test machine (Linux, a 2-core
 > 2.1 GHz Xeon) it runs from a real set as it should: the attract mode with its 3D, a coin, Start, the circuit and
-> transmission choices, a race steered with the stick, the music and effects, save states replayed exactly; how fast
-> the PS5 runs it is not known yet (the 3D is drawn on three worker threads there). Everything else is as 2.2 had it:
+> transmission choices, a race steered with the stick, the music and effects, save states replayed exactly, and the
+> game's own TGP and memory tests say GOOD; how fast the PS5 runs it is not known yet (the 3D is drawn on three worker
+> threads there). The 2.3 build passes 756 host tests (2.2's 718, the new CPU, renderer, Daytona USA stand-in and
+> controls tests included) and the app's import and system-call checks. Everything else is as 2.2 had it:
 >
 > **Status (2.2):** builds with the ps5-payload-dev SDK into a signed native app, and passes 718 host tests, which
 > run the same code (FBNeo's core included) on Linux with the PS5 calls simulated: two arcade boards running a tiny
@@ -934,7 +936,7 @@ make send PS5_HOST=192.168.0.10  # sends it to elfldr (port 9021)
 make dist                        # build/dist/FBNeoPS5-v<version>.elf + the release zip + the ROM DAT
 make dat                         # ps5/dat/fbneo-ps5-arcade.dat, again (after a core update or a version change)
 make app                         # only build/app/PPSA99924/, to copy by hand
-make test                        # Linux builds (app, installer, helper, headless core) + TESTCOUNT host tests (ASan/UBSan)
+make test                        # Linux builds (app, installer, helper, headless core) + 756 host tests (ASan/UBSan)
 make test-mips3                  # the MIPS III core alone, four builds (in make test)
 make test-kinst-hdd              # Killer Instinct's hard disk alone, on synthetic CHDs (in make test)
 make test-cpus                   # 2.3: the i960KB and MB86234 cores against MAME's own (in make test)
@@ -1028,7 +1030,7 @@ The build has three stages:
   DIP switches saved and read back and in place before a driver starts, a frame's and a save state's time, a driver's palette made at start), the
   stand-in ROM sets (`make_fake_set.py`: every ROM a driver lists, with its name and its CRC, as FBNeo's split
   sets are made), the test programs (`tests/data`: a tiny Z80 program on the Pac-Man board, red screen, green
-  while the joystick or the button is pressed), and the 718 tests: picture, rotation, input and states on a
+  while the joystick or the button is pressed), and the 756 tests: picture, rotation, input and states on a
   vertical and a horizontal game, the library (parents, BIOS sets, incomplete sets, the check's cache), a set with
   a ROM missing, DIP switches, button layouts (a layout per game, a clone using its parent's, Auto's Fighting (R1 R2) for 6-button games), sound latency and pacing by the sound, 720p, install (packed
   files), covers (flyer, parent's flyer, screenshot, 404, the no-cover card's arcade panel with a long title below it), tabs and clones, the CRT shaders (each one, both
