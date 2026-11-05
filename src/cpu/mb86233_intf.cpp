@@ -80,7 +80,7 @@ void mb86233_log(const char* fmt, ...)
 	va_start(ap, fmt);
 	vsnprintf(buf, sizeof(buf), fmt, ap);
 	va_end(ap);
-	bprintf(0, _T("%S"), buf);
+	bprintf(0, _T("mb86233: %s"), buf);
 #else
 	(void)fmt;
 #endif

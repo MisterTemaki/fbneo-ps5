@@ -10,11 +10,13 @@
 //   FBNEO_HOST_DUMP_DIR=dir                                  where (default .)
 //   FBNEO_HOST_MAX_FLIPS=n                                   abort after n flips (a hang guard)
 //   FBNEO_HOST_REALTIME=1                                    flips wait 1/60 s
+//   FBNEO_HOST_TRIGGERS=n                                    how far a pressed L2 / R2 is (0..255, default 255; 2.3)
 //
 // SPDX-License-Identifier: MIT
 
 #include "ProsperoSce.h"
 
+#include <algorithm>
 #include <atomic>
 #include <mutex>
 #include <chrono>
@@ -419,6 +421,17 @@ int scePadReadState(int handle, ScePadData* data)
 	auto it = g_script[pad].upper_bound(now);
 	if (it != g_script[pad].begin())
 		data->buttons = std::prev(it)->second;
+	// 2.3: a pressed L2 / R2 is a trigger pressed this far (FBNEO_HOST_TRIGGERS, 0..255; all the way without it)
+	static int trigger = -1;
+	if (trigger < 0)
+	{
+		const char* t = getenv("FBNEO_HOST_TRIGGERS");
+		trigger = t && *t ? std::max(0, std::min(255, atoi(t))) : 255;
+	}
+	if (data->buttons & SCE_PAD_BUTTON_L2)
+		data->analogButtons.l2 = uint8_t(trigger);
+	if (data->buttons & SCE_PAD_BUTTON_R2)
+		data->analogButtons.r2 = uint8_t(trigger);
 	return 0;
 }
 int scePadSetLightBar(int, const ScePadColor*)

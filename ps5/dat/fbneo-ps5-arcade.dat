@@ -4,14 +4,14 @@
 <datafile>
 	<header>
 		<name>FBNeo PS5 - Arcade Games</name>
-		<description>FBNeo PS5 2.2 Arcade Games (FinalBurn Neo 1.0.0.3, commit 658540d of 2026-10-08 + KI commits up to 892a35c8f of 2026-10-20)</description>
+		<description>FBNeo PS5 2.3 Arcade Games (FinalBurn Neo 1.0.0.3, commit 658540d of 2026-10-08 + upstream commits up to 565c0d153 of 2026-10-27; Sega Model 2 from MAME b7f483f)</description>
 		<category>Standard DatFile</category>
-		<version>2.2</version>
-		<date>2026-10-20</date>
+		<version>2.3</version>
+		<date>2026-10-27</date>
 		<author>FBNeo PS5 (MisterTemaki), with FinalBurn Neo's DAT writer</author>
 		<homepage>https://github.com/MisterTemaki/FBNeo-PS5</homepage>
 		<url>https://github.com/MisterTemaki/FBNeo-PS5</url>
-		<comment>The ROM sets FBNeo PS5 2.2 plays: the 8388 sets of the arcade drivers it compiles (14 of them BIOS and board sets), written by FinalBurn Neo's src/burner/dat.cpp from FinalBurn Neo 1.0.0.3, finalburnneo/FBNeo commit 658540d46c1c0efce9627667c0f9236e7b2be916 (2026-10-08) and the Killer Instinct commits taken from it since, up to 892a35c8f7bc864adedde14949037c706178d587 (2026-10-20). FBNeo PS5 builds this core itself: not RetroArch, not the libretro core. Left out, as the app does not list them: neocdz.</comment>
+		<comment>The ROM sets FBNeo PS5 2.3 plays: the 8393 sets of the arcade drivers it compiles (15 of them BIOS and board sets), written by FinalBurn Neo's src/burner/dat.cpp from FinalBurn Neo 1.0.0.3, finalburnneo/FBNeo commit 658540d46c1c0efce9627667c0f9236e7b2be916 (2026-10-08) and the upstream commits taken from it since (Killer Instinct's, the MultiPCM state fix), up to 565c0d153dcc6bc5284ea50525a446d2f21b46db (2026-10-27); and the port's own Sega Model 2 driver (Daytona USA), ported from MAME, mamedev/mame commit b7f483f3a1dc08e9d32fa0e81352e00d7aeafd13 (2026-11-03). FBNeo PS5 builds this core itself: not RetroArch, not the libretro core. Left out, as the app does not list them: neocdz.</comment>
 		<clrmamepro forcenodump="ignore"/>
 	</header>
 	<game name="88games" sourcefile="konami/d_88games.cpp">
@@ -38448,6 +38448,194 @@
 		<rom name="dg7.d20" merge="dg7.d20" size="65536" crc="aba9a9d3"/>
 		<rom name="pal20l10.a6" merge="pal20l10.a6" size="204" crc="c3d9e729"/>
 		<video type="raster" orientation="horizontal" width="256" height="224" aspectx="4" aspecty="3"/>
+		<driver status="good"/>
+	</game>
+	<game name="daytona" romof="model1io" sourcefile="sega/d_model2.cpp">
+		<description>Daytona USA (Revision A)</description>
+		<year>1994</year>
+		<manufacturer>Sega</manufacturer>
+		<rom name="epr-16722a.12" size="131072" crc="48b94318"/>
+		<rom name="epr-16723a.13" size="131072" crc="8af8b32d"/>
+		<rom name="mpr-16528.10" size="2097152" crc="9ce591f6"/>
+		<rom name="mpr-16529.11" size="2097152" crc="f7095eaf"/>
+		<rom name="mpr-16808.8" size="2097152" crc="44f1f5a0"/>
+		<rom name="mpr-16809.9" size="2097152" crc="37a2dd12"/>
+		<rom name="epr-16724a.6" size="524288" crc="469f10fd"/>
+		<rom name="epr-16725a.7" size="524288" crc="ba0df8db"/>
+		<rom name="mpr-16537.ic28" size="2097152" crc="36b7c35a"/>
+		<rom name="mpr-16536.ic29" size="2097152" crc="6d6afed9"/>
+		<rom name="mpr-16523.ic16" size="2097152" crc="2f484d42"/>
+		<rom name="mpr-16518.ic20" size="2097152" crc="df683bf7"/>
+		<rom name="mpr-16524.ic17" size="2097152" crc="34658bd7"/>
+		<rom name="mpr-16519.ic21" size="2097152" crc="facd1c81"/>
+		<rom name="mpr-16525.ic18" size="2097152" crc="fb517521"/>
+		<rom name="mpr-16520.ic22" size="2097152" crc="d66bd9bd"/>
+		<rom name="mpr-16772.ic19" size="2097152" crc="770ed912"/>
+		<rom name="mpr-16771.ic23" size="2097152" crc="a2205124"/>
+		<rom name="mpr-16522.25" size="2097152" crc="55d39a57"/>
+		<rom name="mpr-16521.24" size="2097152" crc="af1934fb"/>
+		<rom name="mpr-16770.27" size="2097152" crc="f9fa7bfb"/>
+		<rom name="mpr-16769.26" size="2097152" crc="e57429e9"/>
+		<rom name="epr-16726.bin" size="131072" crc="c179b8c7"/>
+		<rom name="epr-16720.7" size="131072" crc="8e73cffd"/>
+		<rom name="epr-16721.8" size="131072" crc="1bb3b7b7"/>
+		<rom name="mpr-16491.32" size="2097152" crc="89920903"/>
+		<rom name="mpr-16492.33" size="2097152" crc="459e701b"/>
+		<rom name="mpr-16493.4" size="2097152" crc="9990db15"/>
+		<rom name="mpr-16494.5" size="2097152" crc="600e1d6c"/>
+		<rom name="opr-14742a.45" size="131072" crc="90c6b117"/>
+		<rom name="opr-14743a.46" size="131072" crc="ae7f446b"/>
+		<rom name="opr-14744.58" size="131072" crc="730ea9e0"/>
+		<rom name="opr-14745.59" size="131072" crc="4c934d96"/>
+		<rom name="opr-14746.62" size="131072" crc="2a266cbd"/>
+		<rom name="opr-14747.63" size="131072" crc="a4ad5e19"/>
+		<rom name="epr-16488a.ic12" size="65536" crc="546c5d1a"/>
+		<rom name="epr-16488.ic12" size="65536" crc="4f0b8114"/>
+		<rom name="epr-14869c.25" merge="epr-14869c.25" size="65536" crc="24b68e64"/>
+		<rom name="epr-14869.25" merge="epr-14869.25" size="65536" crc="6187cd7a"/>
+		<rom name="epr-14869b.25" merge="epr-14869b.25" size="65536" crc="2d093304"/>
+		<video type="raster" orientation="horizontal" width="496" height="384" aspectx="4" aspecty="3"/>
+		<driver status="good"/>
+	</game>
+	<game name="daytonas" cloneof="daytona" romof="daytona" sourcefile="sega/d_model2.cpp">
+		<description>Daytona USA (with Saturn advertisements)</description>
+		<year>1994</year>
+		<manufacturer>Sega</manufacturer>
+		<rom name="epr-17965.ic12" size="131072" crc="f022b3da"/>
+		<rom name="epr-17966.ic13" size="131072" crc="f9e4ece5"/>
+		<rom name="mpr-16528.10" merge="mpr-16528.10" size="2097152" crc="9ce591f6"/>
+		<rom name="mpr-16529.11" merge="mpr-16529.11" size="2097152" crc="f7095eaf"/>
+		<rom name="mpr-16808.8" merge="mpr-16808.8" size="2097152" crc="44f1f5a0"/>
+		<rom name="mpr-16809.9" merge="mpr-16809.9" size="2097152" crc="37a2dd12"/>
+		<rom name="epr-17967.ic6" size="524288" crc="a94d8690"/>
+		<rom name="epr-17968.ic7" size="524288" crc="9d5a92c6"/>
+		<rom name="mpr-16537.ic28" merge="mpr-16537.ic28" size="2097152" crc="36b7c35a"/>
+		<rom name="mpr-16536.ic29" merge="mpr-16536.ic29" size="2097152" crc="6d6afed9"/>
+		<rom name="mpr-16523.ic16" merge="mpr-16523.ic16" size="2097152" crc="2f484d42"/>
+		<rom name="mpr-16518.ic20" merge="mpr-16518.ic20" size="2097152" crc="df683bf7"/>
+		<rom name="mpr-16524.ic17" merge="mpr-16524.ic17" size="2097152" crc="34658bd7"/>
+		<rom name="mpr-16519.ic21" merge="mpr-16519.ic21" size="2097152" crc="facd1c81"/>
+		<rom name="mpr-16525.ic18" merge="mpr-16525.ic18" size="2097152" crc="fb517521"/>
+		<rom name="mpr-16520.ic22" merge="mpr-16520.ic22" size="2097152" crc="d66bd9bd"/>
+		<rom name="mpr-16772.ic19" merge="mpr-16772.ic19" size="2097152" crc="770ed912"/>
+		<rom name="mpr-16771.ic23" merge="mpr-16771.ic23" size="2097152" crc="a2205124"/>
+		<rom name="mpr-16522.25" merge="mpr-16522.25" size="2097152" crc="55d39a57"/>
+		<rom name="mpr-16521.24" merge="mpr-16521.24" size="2097152" crc="af1934fb"/>
+		<rom name="mpr-16770.27" merge="mpr-16770.27" size="2097152" crc="f9fa7bfb"/>
+		<rom name="mpr-16769.26" merge="mpr-16769.26" size="2097152" crc="e57429e9"/>
+		<rom name="epr-16726.bin" merge="epr-16726.bin" size="131072" crc="c179b8c7"/>
+		<rom name="epr-16720.7" merge="epr-16720.7" size="131072" crc="8e73cffd"/>
+		<rom name="epr-16721.8" merge="epr-16721.8" size="131072" crc="1bb3b7b7"/>
+		<rom name="mpr-16491.32" merge="mpr-16491.32" size="2097152" crc="89920903"/>
+		<rom name="mpr-16492.33" merge="mpr-16492.33" size="2097152" crc="459e701b"/>
+		<rom name="mpr-16493.4" merge="mpr-16493.4" size="2097152" crc="9990db15"/>
+		<rom name="mpr-16494.5" merge="mpr-16494.5" size="2097152" crc="600e1d6c"/>
+		<rom name="opr-14742a.45" merge="opr-14742a.45" size="131072" crc="90c6b117"/>
+		<rom name="opr-14743a.46" merge="opr-14743a.46" size="131072" crc="ae7f446b"/>
+		<rom name="opr-14744.58" merge="opr-14744.58" size="131072" crc="730ea9e0"/>
+		<rom name="opr-14745.59" merge="opr-14745.59" size="131072" crc="4c934d96"/>
+		<rom name="opr-14746.62" merge="opr-14746.62" size="131072" crc="2a266cbd"/>
+		<rom name="opr-14747.63" merge="opr-14747.63" size="131072" crc="a4ad5e19"/>
+		<rom name="epr-16488a.ic12" merge="epr-16488a.ic12" size="65536" crc="546c5d1a"/>
+		<rom name="epr-16488.ic12" merge="epr-16488.ic12" size="65536" crc="4f0b8114"/>
+		<rom name="epr-14869c.25" merge="epr-14869c.25" size="65536" crc="24b68e64"/>
+		<rom name="epr-14869.25" merge="epr-14869.25" size="65536" crc="6187cd7a"/>
+		<rom name="epr-14869b.25" merge="epr-14869b.25" size="65536" crc="2d093304"/>
+		<video type="raster" orientation="horizontal" width="496" height="384" aspectx="4" aspecty="3"/>
+		<driver status="good"/>
+	</game>
+	<game name="daytonase" cloneof="daytona" romof="daytona" sourcefile="sega/d_model2.cpp">
+		<description>Daytona USA Special Edition (Revision A)</description>
+		<year>1994</year>
+		<manufacturer>Sega</manufacturer>
+		<rom name="epr-17369a.12" size="131072" crc="3bc6ca62"/>
+		<rom name="epr-17370a.13" size="131072" crc="5d1c74e4"/>
+		<rom name="mpr-16528.10" merge="mpr-16528.10" size="2097152" crc="9ce591f6"/>
+		<rom name="mpr-16529.11" merge="mpr-16529.11" size="2097152" crc="f7095eaf"/>
+		<rom name="mpr-16808.8" merge="mpr-16808.8" size="2097152" crc="44f1f5a0"/>
+		<rom name="mpr-16809.9" merge="mpr-16809.9" size="2097152" crc="37a2dd12"/>
+		<rom name="epr-17371.6" size="524288" crc="7478f0d2"/>
+		<rom name="epr-17372.7" size="524288" crc="308a06a9"/>
+		<rom name="mpr-16537.ic28" merge="mpr-16537.ic28" size="2097152" crc="36b7c35a"/>
+		<rom name="mpr-16536.ic29" merge="mpr-16536.ic29" size="2097152" crc="6d6afed9"/>
+		<rom name="mpr-16523.ic16" merge="mpr-16523.ic16" size="2097152" crc="2f484d42"/>
+		<rom name="mpr-16518.ic20" merge="mpr-16518.ic20" size="2097152" crc="df683bf7"/>
+		<rom name="mpr-16524.ic17" merge="mpr-16524.ic17" size="2097152" crc="34658bd7"/>
+		<rom name="mpr-16519.ic21" merge="mpr-16519.ic21" size="2097152" crc="facd1c81"/>
+		<rom name="mpr-16525.ic18" merge="mpr-16525.ic18" size="2097152" crc="fb517521"/>
+		<rom name="mpr-16520.ic22" merge="mpr-16520.ic22" size="2097152" crc="d66bd9bd"/>
+		<rom name="mpr-16772.ic19" merge="mpr-16772.ic19" size="2097152" crc="770ed912"/>
+		<rom name="mpr-16771.ic23" merge="mpr-16771.ic23" size="2097152" crc="a2205124"/>
+		<rom name="mpr-16522.25" merge="mpr-16522.25" size="2097152" crc="55d39a57"/>
+		<rom name="mpr-16521.24" merge="mpr-16521.24" size="2097152" crc="af1934fb"/>
+		<rom name="mpr-16770.27" merge="mpr-16770.27" size="2097152" crc="f9fa7bfb"/>
+		<rom name="mpr-16769.26" merge="mpr-16769.26" size="2097152" crc="e57429e9"/>
+		<rom name="epr-16726.bin" merge="epr-16726.bin" size="131072" crc="c179b8c7"/>
+		<rom name="epr-16720.7" merge="epr-16720.7" size="131072" crc="8e73cffd"/>
+		<rom name="epr-16721.8" merge="epr-16721.8" size="131072" crc="1bb3b7b7"/>
+		<rom name="mpr-16491.32" merge="mpr-16491.32" size="2097152" crc="89920903"/>
+		<rom name="mpr-16492.33" merge="mpr-16492.33" size="2097152" crc="459e701b"/>
+		<rom name="mpr-16493.4" merge="mpr-16493.4" size="2097152" crc="9990db15"/>
+		<rom name="mpr-16494.5" merge="mpr-16494.5" size="2097152" crc="600e1d6c"/>
+		<rom name="opr-14742a.45" merge="opr-14742a.45" size="131072" crc="90c6b117"/>
+		<rom name="opr-14743a.46" merge="opr-14743a.46" size="131072" crc="ae7f446b"/>
+		<rom name="opr-14744.58" merge="opr-14744.58" size="131072" crc="730ea9e0"/>
+		<rom name="opr-14745.59" merge="opr-14745.59" size="131072" crc="4c934d96"/>
+		<rom name="opr-14746.62" merge="opr-14746.62" size="131072" crc="2a266cbd"/>
+		<rom name="opr-14747.63" merge="opr-14747.63" size="131072" crc="a4ad5e19"/>
+		<rom name="epr-16488a.ic12" merge="epr-16488a.ic12" size="65536" crc="546c5d1a"/>
+		<rom name="epr-16488.ic12" merge="epr-16488.ic12" size="65536" crc="4f0b8114"/>
+		<rom name="epr-14869c.25" merge="epr-14869c.25" size="65536" crc="24b68e64"/>
+		<rom name="epr-14869.25" merge="epr-14869.25" size="65536" crc="6187cd7a"/>
+		<rom name="epr-14869b.25" merge="epr-14869b.25" size="65536" crc="2d093304"/>
+		<video type="raster" orientation="horizontal" width="496" height="384" aspectx="4" aspecty="3"/>
+		<driver status="good"/>
+	</game>
+	<game name="daytona93" cloneof="daytona" romof="daytona" sourcefile="sega/d_model2.cpp">
+		<description>Daytona USA</description>
+		<year>1993</year>
+		<manufacturer>Sega</manufacturer>
+		<rom name="epr-16530a.12" size="131072" crc="39e962b5"/>
+		<rom name="epr-16531a.13" size="131072" crc="693126eb"/>
+		<rom name="mpr-16528.10" merge="mpr-16528.10" size="2097152" crc="9ce591f6"/>
+		<rom name="mpr-16529.11" merge="mpr-16529.11" size="2097152" crc="f7095eaf"/>
+		<rom name="mpr-16526.8" size="2097152" crc="5273b8b5"/>
+		<rom name="mpr-16527.9" size="2097152" crc="fc4cb0ef"/>
+		<rom name="epr-16534a.6" size="1048576" crc="1bb0d72d"/>
+		<rom name="epr-16535a.7" size="1048576" crc="459a8bfb"/>
+		<rom name="mpr-16537.ic28" merge="mpr-16537.ic28" size="2097152" crc="36b7c35a"/>
+		<rom name="mpr-16536.ic29" merge="mpr-16536.ic29" size="2097152" crc="6d6afed9"/>
+		<rom name="mpr-16523.ic16" merge="mpr-16523.ic16" size="2097152" crc="2f484d42"/>
+		<rom name="mpr-16518.ic20" merge="mpr-16518.ic20" size="2097152" crc="df683bf7"/>
+		<rom name="mpr-16524.ic17" merge="mpr-16524.ic17" size="2097152" crc="34658bd7"/>
+		<rom name="mpr-16519.ic21" merge="mpr-16519.ic21" size="2097152" crc="facd1c81"/>
+		<rom name="mpr-16525.ic18" merge="mpr-16525.ic18" size="2097152" crc="fb517521"/>
+		<rom name="mpr-16520.ic22" merge="mpr-16520.ic22" size="2097152" crc="d66bd9bd"/>
+		<rom name="epr-16646.ic19" size="524288" crc="7ba9fd6b"/>
+		<rom name="epr-16645.ic23" size="524288" crc="78fe0b8a"/>
+		<rom name="mpr-16522.25" merge="mpr-16522.25" size="2097152" crc="55d39a57"/>
+		<rom name="mpr-16521.24" merge="mpr-16521.24" size="2097152" crc="af1934fb"/>
+		<rom name="mpr-16517.27" size="2097152" crc="4705d3dd"/>
+		<rom name="mpr-16516.26" size="2097152" crc="a260d45d"/>
+		<rom name="epr-16726.bin" merge="epr-16726.bin" size="131072" crc="c179b8c7"/>
+		<rom name="epr-16489.7" size="131072" crc="c20e543e"/>
+		<rom name="epr-16490.8" size="131072" crc="c24edaab"/>
+		<rom name="mpr-16491.32" merge="mpr-16491.32" size="2097152" crc="89920903"/>
+		<rom name="mpr-16492.33" merge="mpr-16492.33" size="2097152" crc="459e701b"/>
+		<rom name="mpr-16493.4" merge="mpr-16493.4" size="2097152" crc="9990db15"/>
+		<rom name="mpr-16494.5" merge="mpr-16494.5" size="2097152" crc="600e1d6c"/>
+		<rom name="opr-14742a.45" merge="opr-14742a.45" size="131072" crc="90c6b117"/>
+		<rom name="opr-14743a.46" merge="opr-14743a.46" size="131072" crc="ae7f446b"/>
+		<rom name="opr-14744.58" merge="opr-14744.58" size="131072" crc="730ea9e0"/>
+		<rom name="opr-14745.59" merge="opr-14745.59" size="131072" crc="4c934d96"/>
+		<rom name="opr-14746.62" merge="opr-14746.62" size="131072" crc="2a266cbd"/>
+		<rom name="opr-14747.63" merge="opr-14747.63" size="131072" crc="a4ad5e19"/>
+		<rom name="epr-16488a.ic12" merge="epr-16488a.ic12" size="65536" crc="546c5d1a"/>
+		<rom name="epr-16488.ic12" merge="epr-16488.ic12" size="65536" crc="4f0b8114"/>
+		<rom name="epr-14869c.25" merge="epr-14869c.25" size="65536" crc="24b68e64"/>
+		<rom name="epr-14869.25" merge="epr-14869.25" size="65536" crc="6187cd7a"/>
+		<rom name="epr-14869b.25" merge="epr-14869b.25" size="65536" crc="2d093304"/>
+		<video type="raster" orientation="horizontal" width="496" height="384" aspectx="4" aspecty="3"/>
 		<driver status="good"/>
 	</game>
 	<game name="deadang" sourcefile="pre90s/d_deadang.cpp">
@@ -228199,6 +228387,15 @@
 		<rom name="pgm_p02s.u20" size="131072" crc="78c15fa2"/>
 		<rom name="ddp3_bios.u37" size="524288" crc="b3cc5c8f"/>
 		<rom name="bios.u42" size="131072" crc="517cf7a2"/>
+	</game>
+	<game isbios="yes" name="model1io" sourcefile="sega/d_model2.cpp">
+		<comment>BIOS only</comment>
+		<description>Sega Model 1 I/O Board</description>
+		<year>1992</year>
+		<manufacturer>Sega</manufacturer>
+		<rom name="epr-14869c.25" size="65536" crc="24b68e64"/>
+		<rom name="epr-14869.25" size="65536" crc="6187cd7a"/>
+		<rom name="epr-14869b.25" size="65536" crc="2d093304"/>
 	</game>
 	<game isbios="yes" name="skns" sourcefile="pst90s/d_suprnova.cpp">
 		<comment>BIOS only</comment>

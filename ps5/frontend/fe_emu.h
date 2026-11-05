@@ -22,7 +22,7 @@ struct Choice
 };
 extern const Choice kAspects[]; // the game's monitor (4:3, or 3:4 for vertical games), square pixels, 16:9
 extern const int kAspectCount;
-extern const Choice kLayouts[]; // auto, classic, fighting (6 buttons), custom, fighting with R1 R2
+extern const Choice kLayouts[]; // auto, classic, fighting (6 buttons), custom, fighting with R1 R2, driving (2.3)
 extern const int kLayoutCount;
 constexpr int kCustomLayout = 3;
 // The layouts in the order the settings screen steps through them (custom last).
@@ -47,12 +47,20 @@ struct ArcadeButton
 	const char* name; // "Button 1"
 	const char* key;  // its key in fbneo-ps5.ini: "btn_1"
 };
-constexpr int kArcadeButtonCount = 8; // Button 1..6, Coin, Start
+// Button 1..6, Coin, Start, then (2.3) Button 7 and 8: the first eight keep the places they had (fbneo-ps5.ini, .btn)
+constexpr int kArcadeButtonCount = 10;
 extern const ArcadeButton kArcadeButtons[kArcadeButtonCount];
-// The PS5 button (index in kPs5Buttons) of arcade button i (0..7) in layout `layout` for a game with
-// `game_buttons` buttons (auto picks Fighting (R1 R2) for 6-button games since 2.0); `custom`: the custom layout's
-// buttons (Settings::buttons' order).
-int LayoutButton(int layout, int i, int game_buttons, const int* custom);
+// The game's fire button (0..7) of arcade button i, or -1 for Coin and Start.
+int GameButtonOf(int i);
+// The arcade buttons in the order the settings screen lists them: Button 1..8, Coin, Start.
+extern const int kArcadeButtonRows[kArcadeButtonCount];
+// The PS5 button (index in kPs5Buttons) of arcade button i (0..9) in layout `layout` for a game with
+// `game_buttons` buttons (auto picks Fighting (R1 R2) for 6-button games since 2.0, and since 2.3 Driving for games
+// with more than six buttons whose first two are pedals: `pedals`); `custom`: the custom layout's buttons
+// (Settings::buttons' order).
+int LayoutButton(int layout, int i, int game_buttons, const int* custom, bool pedals = false);
+// 2.3: the running game's buttons 1 and 2 are pedals (analog inputs): Daytona USA's accelerator and brake
+bool GamePedals();
 
 // The controllers (ps5input's slots: the foreground user's pad first, then the other signed-in users'; their light
 // bars blue, red, green, pink) and the arcade player each one plays (2.1, fbneo-ps5#3).
@@ -69,9 +77,12 @@ void ChoosePlayer(int* players, int pad, int player);
 struct ButtonLayout
 {
 	int layout = 0;
-	int buttons[kArcadeButtonCount] = {0, 1, 2, 3, 4, 5, 7, 6};
+	int buttons[kArcadeButtonCount] = {0, 1, 2, 3, 4, 5, 7, 6, kNoButton, kNoButton};
 	int players[kPads] = {0, 1, 2, 3};
-	int Button(int i, int game_buttons) const { return LayoutButton(layout, i, game_buttons, buttons); }
+	int Button(int i, int game_buttons) const
+	{
+		return LayoutButton(layout, i, game_buttons, buttons, game_buttons > 6 && GamePedals());
+	}
 };
 // Whose layout the running game uses (and Settings, CONTROLS edits): the general one (fbneo-ps5.ini), the game's
 // own (/data/fbneo/config/<set>.btn), or its parent set's (config/<parent>.btn, for a clone without a file).

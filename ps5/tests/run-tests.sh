@@ -42,7 +42,7 @@ PAUSE_SETTINGS() {
 	p="$p;$t:$3;$((t + 2)):0;$((t + 10)):$CIRCLE;$((t + 12)):0;$((t + 20)):$CIRCLE;$((t + 22)):0"
 	echo "$p"
 }
-# Settings rows, Down from Shader (2.1): Button 1 is 10 down, Choose players 18, Controller 1 19, Default controls 23
+# Settings rows, Down from Shader (2.1): Button 1 is 10 down (2.3: Button 1..8, Coin, Start), Choose players 20, Controller 1 21, Default controls 25
 
 ok() { echo "  ok: $*"; PASS=$((PASS + 1)); }
 bad() { echo "  FAIL: $*"; FAIL=$((FAIL + 1)); }
@@ -263,15 +263,15 @@ expect "$CHECK $T/dump/flip00130.ppm 960 540 red >/dev/null && $CHECK $T/dump/fl
 rc=$(run "$T" "0:0;100:$CROSS;140:0;160:$CIRCLE;200:0;$(QUITAT 220)" "130,190" "$T/root/roms/ponpokov.zip")
 expect "grep -q 'running ponpokov' $T/root/logs/boot.log && grep -q 'button layout of the parent set: .*/config/ponpoko.btn' $T/root/logs/boot.log" "the clone (Ponpoko (Venture Line)) uses its parent's file"
 expect "$CHECK $T/dump/flip00130.ppm 960 540 red >/dev/null && $CHECK $T/dump/flip00190.ppm 960 540 green >/dev/null" "the clone: Circle presses button 1"
-# the clone's "Default controls" (Default button layout up to 2.0; Settings, Down x23): the general layout for it,
+# the clone's "Default controls" (Default button layout up to 2.0; Settings, Down x25): the general layout for it,
 # though its parent has one
-rc=$(run "$T" "0:0;$(PAUSE_SETTINGS 30 23 $CROSS);300:$CROSS;340:0;$(QUITAT 360)" "330" "$T/root/roms/ponpokov.zip")
+rc=$(run "$T" "0:0;$(PAUSE_SETTINGS 30 25 $CROSS);300:$CROSS;340:0;$(QUITAT 360)" "330" "$T/root/roms/ponpokov.zip")
 expect "grep -q '^layout=general$' $T/root/config/ponpokov.btn && grep -q 'ponpokov: back to the general button layout' $T/root/logs/boot.log" "the clone's Default button layout: config/ponpokov.btn says general"
 expect "$CHECK $T/dump/flip00330.ppm 960 540 green >/dev/null" "the clone: Cross presses button 1 again"
 rc=$(MAXFLIPS=200 run "$T" "0:0;$(QUITAT 60)" "" "$T/root/roms/ponpokov.zip")
 expect "grep -q 'button layout: the general one (.*ponpokov.btn says so)' $T/root/logs/boot.log" "and keeps it at the next start"
 # Ponpoko's "Default controls": its file removed, the general layout back
-rc=$(run "$T" "0:0;$(PAUSE_SETTINGS 30 23 $CROSS);300:$CROSS;340:0;$(QUITAT 360)" "330" "$T/root/roms/ponpoko.zip")
+rc=$(run "$T" "0:0;$(PAUSE_SETTINGS 30 25 $CROSS);300:$CROSS;340:0;$(QUITAT 360)" "330" "$T/root/roms/ponpoko.zip")
 expect "[ ! -f $T/root/config/ponpoko.btn ] && grep -q 'ponpoko: back to the general button layout (.*ponpoko.btn removed)' $T/root/logs/boot.log" "Default button layout in Ponpoko: config/ponpoko.btn removed"
 expect "$CHECK $T/dump/flip00330.ppm 960 540 green >/dev/null" "Ponpoko: Cross presses button 1 again (the general layout)"
 rc=$(MAXFLIPS=200 run "$T" "0:0;$(QUITAT 60)" "" "$T/root/roms/ponpoko.zip")
@@ -1098,9 +1098,9 @@ for L in 1 2 3 4; do
 	echo "controller_1=2" >>"$T/root/fbneo-ps5.ini" # (2.1) the game starts with the message "Controller 1: Player 2"
 	addset ponpoko "$T/root/roms"
 	cp "$SETS/mslug/mslug.zip" "$T/root/roms/" # Metal Slug without neogeo.zip: a BIOS set needed and missing
-	# the settings screen: every row (Down x33 back to Shader), then Up x6 to BIOS sets, its screen, back out
+	# the settings screen: every row (Down x35 back to Shader), then Up x6 to BIOS sets, its screen, back out
 	pad="0:0;20:$TRIANGLE;22:0"; f=30
-	for i in $(seq 1 33); do pad="$pad;$f:$DOWN;$((f + 2)):0"; f=$((f + 6)); done
+	for i in $(seq 1 35); do pad="$pad;$f:$DOWN;$((f + 2)):0"; f=$((f + 6)); done
 	for i in $(seq 1 6); do pad="$pad;$f:$UP;$((f + 2)):0"; f=$((f + 6)); done
 	pad="$pad;$f:$CROSS;$((f + 2)):0"; f=$((f + 10))
 	for i in $(seq 1 6); do pad="$pad;$f:$DOWN;$((f + 2)):0"; f=$((f + 6)); done
@@ -1671,7 +1671,7 @@ nosan "$T"
 T=$(newroot t36b)
 addset ssriders "$T/root/roms"
 P2="0:0;300:$LEFT;340:0;350:$CIRCLE;360:0"
-rc=$(FBNEO_HOST_PADS=2 FBNEO_HOST_PAD2="$P2" run "$T" "0:0;$(PAUSE_SETTINGS 30 19 $RIGHT);300:$UP;340:0;$(QUITAT 400)" "" "$T/root/roms/ssriders.zip")
+rc=$(FBNEO_HOST_PADS=2 FBNEO_HOST_PAD2="$P2" run "$T" "0:0;$(PAUSE_SETTINGS 30 21 $RIGHT);300:$UP;340:0;$(QUITAT 400)" "" "$T/root/roms/ssriders.zip")
 expect "[ $rc = 0 ] && grep -q '^controller_1=2\$' $T/root/config/ssriders.btn && grep -q '^controller_2=1\$' $T/root/config/ssriders.btn && grep -q '^controller_3=3\$' $T/root/config/ssriders.btn && grep -q '^controller_4=4\$' $T/root/config/ssriders.btn" "changed in the game: config/ssriders.btn has controller 1 on player 2, controller 2 on player 1"
 expect "grep -q '^controller_1=1\$' $T/root/fbneo-ps5.ini && grep -q '^controller_2=2\$' $T/root/fbneo-ps5.ini" "the general setting (fbneo-ps5.ini) is unchanged"
 expect "grep -q \"players (this game's layout): controller 1=player 2 controller 2=player 1 controller 3=player 3\" $T/root/logs/boot.log" "at once (logged)"
@@ -1686,8 +1686,8 @@ rc=$(MAXFLIPS=300 run "$T" "0:0;100:$UP;120:0;$(QUITAT 140)" "" "$T/root/roms/ss
 expect "[ $rc = 0 ] && grep -q 'running ssridersebd' $T/root/logs/boot.log && grep -q \"players (the parent set's layout): controller 1=player 2 controller 2=player 1\" $T/root/logs/boot.log" "the clone uses its parent's file: controller 1 on player 2"
 expect "grep -q 'inputs the game got: player 1 nothing, player 2 up\$' $T/root/logs/boot.log" "the clone: controller 1's Up reached player 2"
 expect "grep -q 'message: Controller 1: Player 2\$' $T/root/logs/boot.log" "one controller connected: the message names it alone"
-# e. Default controls in the game (Settings, Down x23, Cross): the file removed, the general players back
-rc=$(MAXFLIPS=400 run "$T" "0:0;$(PAUSE_SETTINGS 30 23 $CROSS);$(QUITAT 300)" "" "$T/root/roms/ssriders.zip")
+# e. Default controls in the game (Settings, Down x25, Cross): the file removed, the general players back
+rc=$(MAXFLIPS=400 run "$T" "0:0;$(PAUSE_SETTINGS 30 25 $CROSS);$(QUITAT 300)" "" "$T/root/roms/ssriders.zip")
 expect "[ $rc = 0 ] && [ ! -f $T/root/config/ssriders.btn ] && grep -q 'players (general layout): controller 1=player 1 controller 2=player 2' $T/root/logs/boot.log" "Default controls: ssriders.btn removed, controller N plays player N again"
 # f. a .btn from 2.0 (no controller_ keys): the general setting's players -- the default, then controller_1=3; controller 1
 # set to player 3: its stick, button and coin reach player 3 alone
@@ -1704,7 +1704,7 @@ nosan "$T"
 # lowest free one, Player 1); no game's file
 T=$(newroot t36g)
 P="0:0;30:$TRIANGLE;32:0"; t=40
-for i in $(seq 1 19); do P="$P;$t:$DOWN;$((t + 2)):0"; t=$((t + 6)); done
+for i in $(seq 1 21); do P="$P;$t:$DOWN;$((t + 2)):0"; t=$((t + 6)); done
 P="$P;$t:$RIGHT;$((t + 2)):0"; t=$((t + 8)); D1=$((t - 3))
 for i in 1 2 3; do P="$P;$t:$LEFT;$((t + 2)):0"; t=$((t + 8)); done
 D2=$((t - 3))
@@ -1715,7 +1715,7 @@ expect "[ -z \"\$(ls $T/root/config/*.btn 2>/dev/null)\" ]" "from the shelf: the
 expect "[ -f $T/dump/flip$(printf %05d $D1).ppm ] && [ -f $T/dump/flip$(printf %05d $D2).ppm ]" "the CONTROLLERS rows drawn (dumps $D1, $D2)"
 # "Default controls" from the shelf: controller N = player N again
 P="0:0;30:$TRIANGLE;32:0"; t=40
-for i in $(seq 1 23); do P="$P;$t:$DOWN;$((t + 2)):0"; t=$((t + 6)); done
+for i in $(seq 1 25); do P="$P;$t:$DOWN;$((t + 2)):0"; t=$((t + 6)); done
 P="$P;$t:$CROSS;$((t + 2)):0;$((t + 10)):$CIRCLE;$((t + 12)):0;$(SHELFQUIT_AT $((t + 40)))"
 rc=$(run "$T" "$P" "")
 expect "[ $rc = 0 ] && grep -q '^controller_1=1\$' $T/root/fbneo-ps5.ini && grep -q '^controller_4=4\$' $T/root/fbneo-ps5.ini && grep -q '^layout=0\$' $T/root/fbneo-ps5.ini" "Default controls from the shelf: controller N = player N, Auto"
@@ -1738,7 +1738,7 @@ addset ssriders "$T/root/roms"
 P="0:0;30:$L3R3;32:0"; t=40
 for i in $(seq 1 8); do P="$P;$t:$DOWN;$((t + 2)):0"; t=$((t + 6)); done
 P="$P;$t:$CROSS;$((t + 2)):0"; t=$((t + 12))
-for i in $(seq 1 19); do P="$P;$t:$DOWN;$((t + 2)):0"; t=$((t + 6)); done
+for i in $(seq 1 21); do P="$P;$t:$DOWN;$((t + 2)):0"; t=$((t + 6)); done
 for i in $(seq 1 5); do P="$P;$t:$RIGHT;$((t + 2)):0"; t=$((t + 8)); done
 P="$P;$t:$CIRCLE;$((t + 2)):0;$((t + 10)):$CIRCLE;$((t + 12)):0;$(QUITAT $((t + 40)))"
 rc=$(FBNEO_HOST_PADS=4 run "$T" "$P" "" "$T/root/roms/ssriders.zip")
@@ -1890,10 +1890,10 @@ rc=$(FBNEO_HOST_PADS=3 FBNEO_HOST_PAD2="0:0;100:$CROSS;102:0" FBNEO_HOST_PAD3="0
 expect "[ $rc = 0 ] && grep -q 'choose players: 2 player(s)' $T/root/logs/boot.log && grep -q 'done (every player has a controller)' $T/root/logs/boot.log && grep -q 'chosen: controller 1=0 controller 2=1 controller 3=2 controller 4=3' $T/root/logs/boot.log" "a 2-player game: it ends once players 1 and 2 have controllers"
 expect "grep -q 'message: Controller 1: no player,  Controller 2: Player 1,  Controller 3: Player 2\$' $T/root/logs/boot.log" "the message: controller 1 on no player"
 nosan "$T"
-# f. from the shelf's Settings (Choose players, Down x18): four players, the general setting (fbneo-ps5.ini)
+# f. from the shelf's Settings (Choose players, Down x20): four players, the general setting (fbneo-ps5.ini)
 T=$(newroot t38f)
 P="0:0;30:$TRIANGLE;32:0"; t=40
-for i in $(seq 1 18); do P="$P;$t:$DOWN;$((t + 2)):0"; t=$((t + 6)); done
+for i in $(seq 1 20); do P="$P;$t:$DOWN;$((t + 2)):0"; t=$((t + 6)); done
 P="$P;$t:$CROSS;$((t + 2)):0"; D=$((t + 20)); P="$P;$((t + 40)):$CROSS;$((t + 42)):0"; t=$((t + 120))
 P="$P;$t:$CIRCLE;$((t + 2)):0;$(SHELFQUIT_AT $((t + 30)))"
 rc=$(FBNEO_HOST_PADS=2 FBNEO_HOST_PAD2="0:0;$((t - 100)):$CROSS;$((t - 98)):0" run "$T" "$P" "$D")
@@ -1918,7 +1918,7 @@ T=$(newroot t38j)
 addset ssriders "$T/root/roms"
 cp "$SETS/ssridersebd/ssridersebd.zip" "$T/root/roms/" 2>/dev/null || { mkset ssridersebd; cp "$SETS/ssridersebd/ssridersebd.zip" "$T/root/roms/"; }
 mkdir -p "$T/root/config" && printf 'layout=general\ncontroller_1=2\ncontroller_2=1\n' >"$T/root/config/ssriders.btn"
-rc=$(MAXFLIPS=400 run "$T" "0:0;$(PAUSE_SETTINGS 30 23 $CROSS);$(QUITAT 300)" "" "$T/root/roms/ssridersebd.zip")
+rc=$(MAXFLIPS=400 run "$T" "0:0;$(PAUSE_SETTINGS 30 25 $CROSS);$(QUITAT 300)" "" "$T/root/roms/ssridersebd.zip")
 expect "[ $rc = 0 ] && grep -q \"players (the parent set's layout): controller 1=player 2\" $T/root/logs/boot.log && grep -q '^layout=general\$' $T/root/config/ssridersebd.btn" "the clone's Default controls: ssridersebd.btn says layout=general"
 rc=$(MAXFLIPS=200 run "$T" "0:0;$(QUITAT 60)" "" "$T/root/roms/ssridersebd.zip")
 expect "[ $rc = 0 ] && grep -q 'players (general layout): controller 1=player 1 controller 2=player 2' $T/root/logs/boot.log" "and at the next start: the general players, not the parent's"
@@ -1928,7 +1928,7 @@ for L in 0 1 2 3 4; do
 	T=$(newroot t38g_$L)
 	echo "language=$L" >>"$T/root/fbneo-ps5.ini"
 	P="0:0;30:$TRIANGLE;32:0"; t=40
-	for i in $(seq 1 18); do P="$P;$t:$DOWN;$((t + 2)):0"; t=$((t + 6)); done
+	for i in $(seq 1 20); do P="$P;$t:$DOWN;$((t + 2)):0"; t=$((t + 6)); done
 	P="$P;$t:$CROSS;$((t + 2)):0"; D=$((t + 40)); P="$P;$((t + 50)):$CIRCLE;$((t + 52)):0;$((t + 70)):$CIRCLE;$((t + 72)):0;$(SHELFQUIT_AT $((t + 100)))"
 	rc=$(FBNEO_HOST_PADS=4 FBNEO_HOST_PAD3="0:0;$((t + 20)):$CROSS;$((t + 22)):0" FBNEO_HOST_I18N_MISSING=$T/missing.txt run "$T" "$P" "$D")
 	untr=$(grep -v 'ponpoko' $T/missing.txt 2>/dev/null | python3 - $PWD/frontend/fe_i18n.cpp <<'PY'
@@ -2446,8 +2446,133 @@ expect "$UPD check 9.10 --until available,failed | grep -q '^available|9.11|' &&
 pkill -f 'build/host/fbneo-ps5-(installer|helper)' 2>/dev/null; sleep 0.3
 pkill -f "http.server $SPORT" 2>/dev/null
 [ "$M" != "$T" ] && rm -rf "${M:?}"
-# j. the version: 2.2, contentVersion 02.020.000
-expect "[ '$VER' = 2.2 ] && [ '$CVER' = 02.020.000 ]" "version 2.2, contentVersion 02.020.000"
+# j. the version: 2.3, contentVersion 02.030.000
+expect "[ '$VER' = 2.3 ] && [ '$CVER' = 02.030.000 ]" "version 2.3, contentVersion 02.030.000"
+fi
+
+# ---------------------------------------------------------------- 2.3 ----------------------------------------------------
+if want 45; then
+echo "== 45. Sega Model 2's CPUs and renderer on their own (make test-cpus, make test-model2-video): against MAME's cores, golden pictures"
+for b in test-cpus test-model2-video; do
+	if [ -x build/host/$b ]; then
+		while IFS= read -r l; do
+			case "$l" in
+				*"  ok: "*) ok "${l#*ok: }" ;;
+				*"  FAIL: "*) bad "${l#*FAIL: }" ;;
+				*" checks ok, "*) expect "echo '$l' | grep -q ' 0 failed'" "$b: $l" ;;
+			esac
+		done <<EOF
+$(ASAN_OPTIONS=detect_leaks=1 build/host/$b 2>&1)
+EOF
+	else
+		echo "  (skipped: make $b first)"
+	fi
+done
+fi
+
+if want 46; then
+echo "== 46. Daytona USA (2.3) on stand-in sets: the four sets and the I/O board's, states, the controls to the picture, the board ROM, Link ID"
+H46=$WORK/h46 && rm -rf "$H46" && mkdir -p "$H46"
+# a. each set starts, runs and replays a state under ASan and UBSan (stand-in ROMs: the CPUs run what the pattern
+#    decodes to)
+for g in daytona daytonase daytona93 daytonas; do
+	mkset $g
+	o=$(TMPDIR=$H46 "$HEADLESS" run "$SETS/$g" $g 120 --state 2>"$WORK/h46-$g.err"); rc=$?
+	expect "[ $rc = 0 ] && echo '$o' | grep -q 'picture 496x384 .* fps 57.52 aspect 1.3333 buttons 8' && echo '$o' | grep -q 'state replay same' && ! grep -q 'AddressSanitizer\|runtime error' $WORK/h46-$g.err" "$g: $(echo "$o" | head -1 | cut -c1-80)"
+done
+o=$("$HEADLESS" list all 2>/dev/null | awk -F'\t' '$1 ~ /^dayton|^model1io$/ {print $1 "=" $2 "=" $3}' | LC_ALL=C sort | tr '\n' ' ')
+expect "[ '$o' = 'daytona==model1io daytona93=daytona=model1io daytonas=daytona=model1io daytonase=daytona=model1io model1io== ' ]" "daytona the parent, three clones, the Model 1 I/O board set beside them ($o)"
+# b. the controls reach the game through the I/O board: stand-in programs (tests/make_model2_standin.py) for the I/O
+#    board's Z80 (the A/D converter's channels 0 and 1, IN0 -> the dual port RAM) and the i960 (those bytes -> the
+#    background colour: red the steering, green IN0's low bits, blue the accelerator)
+python3 tests/make_model2_standin.py "$WORK/m2prog" >/dev/null
+if [ ! -f "$SETS/daytona-prog/daytona.zip" ]; then
+	mkdir -p "$SETS/daytona-prog"
+	ASAN_OPTIONS=detect_leaks=0 $FAKE daytona "$SETS/daytona-prog" --put "epr-16722a.12=$WORK/m2prog/i960-lo.bin" \
+		--put "epr-16723a.13=$WORK/m2prog/i960-hi.bin" --put "epr-14869c.25=$WORK/m2prog/io-z80.bin" >/dev/null 2>&1
+fi
+px46() { # input -> "r,g,b" of the picture's middle
+	TMPDIR=$H46 "$HEADLESS" run "$SETS/daytona-prog" daytona 90 "$H46/p.ppm" --input "$1" >/dev/null 2>>"$H46/err.txt"
+	python3 -c "import sys; d=open(sys.argv[1],'rb').read().split(b'\n',3); w,h=map(int,d[1].split()); o=(192*w+248)*3; print('%d,%d,%d' % tuple(d[3][o:o+3]))" "$H46/p.ppm"
+}
+c=$(px46 stick_x=0); l=$(px46 stick_x=-128); r=$(px46 stick_x=127)
+expect "[ '$l' = 0,245,0 ] && [ '$c' = 85,245,0 ] && [ '$r' = 213,245,0 ]" "the steering (left stick) reaches the game: left, middle, right ($l / $c / $r)"
+h=$(px46 stick_x=0,pressure1=128); f=$(px46 stick_x=0,pressure1=255); d=$(px46 stick_x=0,fire1=1)
+expect "[ '$h' = 85,245,85 ] && [ '$f' = 85,245,213 ] && [ '$d' = 85,245,213 ]" "the accelerator: a trigger half and fully pressed, a digital button all the way ($h / $f / $d)"
+k=$(px46 stick_x=0,coin=1); s=$(px46 stick_x=0,start=1)
+expect "[ '$k' = 85,234,0 ] && [ '$s' = 85,74,0 ]" "coin and start (IN0's bits 0 and 4, active low) reach the game ($k / $s)"
+expect "! grep -q 'AddressSanitizer\|runtime error' $H46/err.txt" "no sanitizer reports"
+# c. the I/O board's ROM: missing (no model1io.zip, not in the game's zip) -> said so; in the game's zip -> found
+mkdir -p "$H46/noio" "$H46/inzip"
+cp "$SETS/daytona-prog/daytona.zip" "$H46/noio/"
+TMPDIR=$H46 "$HEADLESS" run "$H46/noio" daytona 10 >"$H46/noio.txt" 2>/dev/null
+expect "grep -q 'LOAD FAILED: Missing ROMs for daytona: epr-14869c.25. FBNeo PS5 looked in daytona.zip, model1io.zip' $H46/noio.txt" "no I/O board ROM: the message names epr-14869c.25 and where it was looked for"
+cp "$SETS/daytona-prog/daytona.zip" "$H46/inzip/"
+(cd "$H46" && rm -rf x && mkdir x && cd x && unzip -q "$SETS/daytona-prog/model1io.zip" && zip -q "$H46/inzip/daytona.zip" epr-14869c.25)
+o=$(TMPDIR=$H46 "$HEADLESS" run "$H46/inzip" daytona 30 "$H46/inzip.ppm" 2>/dev/null)
+expect "echo '$o' | grep -q 'picture 496x384' && $CHECK $H46/inzip.ppm 248 192 85 245 0 >/dev/null" "the I/O board ROM in daytona.zip (no model1io.zip): found by its CRC, and it runs"
+# d. Link ID: a saved I/O board EEPROM that says Master (a linked cabinet: the game would wait at NETWORK CHECKING, the
+#    link board not being emulated) is made Single, its CRC made again; the rest of it is kept
+mkdir -p "$H46/fbneo-headless"
+python3 - "$H46/fbneo-headless/daytona.nv" <<'PY'
+import sys
+b = bytearray(128)
+b[0:8] = b'SEGA\x40\x82\x02\x00'
+for i in range(10, 128):
+    b[i] = (i * 7) & 0xff
+b[0x0b] = 1
+c = 0
+for x in b[0x0a:0x80]:
+    c ^= x << 8
+    for _ in range(8):
+        c = ((c << 1) ^ 0x1021) & 0xffff if c & 0x8000 else (c << 1) & 0xffff
+b[8], b[9] = c & 0xff, c >> 8
+open(sys.argv[1], 'wb').write(b)
+PY
+TMPDIR=$H46 "$HEADLESS" run "$SETS/daytona-prog" daytona 10 >/dev/null 2>"$H46/link.txt"
+o=$(python3 - "$H46/fbneo-headless/daytona.nv" <<'PY'
+import sys
+b = open(sys.argv[1], 'rb').read()
+c = 0
+for x in b[0x0a:0x80]:
+    c ^= x << 8
+    for _ in range(8):
+        c = ((c << 1) ^ 0x1021) & 0xffff if c & 0x8000 else (c << 1) & 0xffff
+same = all(b[i] == (i * 7) & 0xff for i in range(10, 128) if i != 0x0b)
+print('link %d crc %s rest %s' % (b[0x0b], 'ok' if c == b[8] | (b[9] << 8) else 'BAD', 'kept' if same else 'CHANGED'))
+PY
+)
+expect "[ '$o' = 'link 0 crc ok rest kept' ] && grep -q 'Link ID Master: set to Single' $H46/link.txt" "Link ID Master in the saved EEPROM: Single, the CRC made again, the rest kept ($o)"
+# e. the DAT has the four sets and the board set, the device ROM in it
+D46=dat/fbneo-ps5-arcade.dat
+expect "grep -q '<game name=\"daytona\" romof=\"model1io\" ' $D46 && grep -q '<game name=\"daytonase\" cloneof=\"daytona\" romof=\"daytona\" ' $D46 && grep -q '<game name=\"daytona93\" cloneof=\"daytona\"' $D46 && grep -q '<game name=\"daytonas\" cloneof=\"daytona\"' $D46 && grep -q '<game isbios=\"yes\" name=\"model1io\" ' $D46 && grep -q '<rom name=\"epr-14869c.25\" size=\"65536\" crc=\"24b68e64\"/>' $D46" "the DAT: daytona (romof model1io), its clones, the model1io board set with epr-14869c.25"
+fi
+
+if want 47; then
+echo "== 47. Daytona USA in the app (2.3): the Driving layout, the pedals' trigger pressure, buttons 7 and 8, the worker threads"
+T=$(newroot t47)
+cp "$SETS/daytona-prog/"*.zip "$T/root/roms/"
+# Auto on a game with pedals: Driving. R2 half pressed (the trigger at 128): the accelerator half way (blue 85)
+rc=$(FBNEO_HOST_TRIGGERS=128 run "$T" "0:0;150:$R2;$(QUITAT 250)" "100,200" "$T/root/roms/daytona.zip")
+expect "[ $rc = 0 ] && grep -q 'buttons (general layout) Auto = Driving: 1=R2 2=L2 3=R1 4=L1 5=Square 6=Triangle 7=Circle 8=Cross coin=Touchpad start=OPTIONS' $T/root/logs/boot.log" "Auto on Daytona USA: the Driving layout (pedals on R2 L2, gears on R1 L1, the four views, buttons 7 and 8)"
+expect "grep -q 'running daytona \"Daytona USA (Revision A)\" (Sega Model 2), 57.520 fps (paced by the sound), aspect 1.3333, 8 button(s)' $T/root/logs/boot.log" "57.52 fps (paced by the sound), 4:3, 8 buttons"
+expect "$CHECK $T/dump/flip00100.ppm 960 540 85 245 0 >/dev/null && $CHECK $T/dump/flip00200.ppm 960 540 85 245 85 >/dev/null" "R2 half pressed: the accelerator half way (the trigger's pressure, not a button)"
+expect "grep -q '\[emu\] 3 worker thread(s) for the core' $T/root/logs/boot.log" "the core's three worker threads, started for the game's 3D"
+nosan "$T"
+# a custom layout: buttons 7 and 8 from fbneo-ps5.ini; the accelerator on Cross (a digital button on the pedal: all
+# the way)
+T=$(newroot t47b)
+cp "$SETS/daytona-prog/"*.zip "$T/root/roms/"
+printf 'layout=3\nbtn_1=0\nbtn_7=4\nbtn_8=5\n' >>"$T/root/fbneo-ps5.ini"
+rc=$(run "$T" "0:0;150:$CROSS;$(QUITAT 250)" "100,200" "$T/root/roms/daytona.zip")
+expect "[ $rc = 0 ] && grep -q 'buttons (general layout) Custom: 1=Cross .* 7=L1 8=R1 coin=Touchpad start=OPTIONS' $T/root/logs/boot.log && $CHECK $T/dump/flip00200.ppm 960 540 85 245 213 >/dev/null" "Custom: buttons 7 and 8 from fbneo-ps5.ini (btn_7, btn_8); Cross on the accelerator: all the way"
+expect "grep -q '^btn_7=4$' $T/root/fbneo-ps5.ini && grep -q '^btn_8=5$' $T/root/fbneo-ps5.ini" "fbneo-ps5.ini keeps btn_7 and btn_8"
+nosan "$T"
+# a system that refuses every thread: no workers, the 3D drawn by the game's thread (the same picture)
+T=$(newroot t47c)
+cp "$SETS/daytona-prog/"*.zip "$T/root/roms/"
+rc=$(FBNEO_HOST_NO_THREADS=1 run "$T" "0:0;$(QUITAT 150)" "100" "$T/root/roms/daytona.zip")
+expect "[ $rc = 0 ] && grep -q '\[emu\] 0 worker thread(s) for the core' $T/root/logs/boot.log && $CHECK $T/dump/flip00100.ppm 960 540 85 245 0 >/dev/null" "no threads allowed: the game runs without workers"
 fi
 
 echo

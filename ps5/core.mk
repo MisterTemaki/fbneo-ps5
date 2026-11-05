@@ -44,7 +44,7 @@ $(1)/libfbneo.a: $(patsubst %.c,$(1)/%.o,$(patsubst %.cpp,$(1)/%.o,$(CORE_ALL_SR
 	@echo "  AR $$@ ($$(words $$^) objects)"
 	@$(AR) rcs $$@ $$^
 # 2.3: Sega Model 2's objects and their own headers (the rest of the core has no header dependencies)
-$(1)/src/burn/drv/sega/d_model2.o $(1)/src/burn/drv/sega/model2_v.o: $(MODEL2_HDRS)
+$(1)/src/burn/drv/sega/d_model2.o $(1)/src/burn/drv/sega/model2_v.o $(1)/src/burn/drv/sega/model2_vport.o: $(MODEL2_HDRS)
 $(1)/src/cpu/i960_intf.o $(1)/src/cpu/i960/i960.o: $(ROOT)/src/cpu/i960_intf.h $(ROOT)/src/cpu/i960/i960.h \
 	$(ROOT)/src/cpu/i960/i960_ops.inc
 $(1)/src/cpu/mb86233_intf.o $(1)/src/cpu/mb86233/mb86233.o: $(ROOT)/src/cpu/mb86233_intf.h \

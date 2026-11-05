@@ -36,11 +36,13 @@ size_t Count(const std::string& s, const char* what)
 } // namespace
 
 // <path>: the DAT; <commit>, <date>: the FBNeo commit the core's sources are based on (git) and its date (YYYY-MM-DD);
-// <last>, <last_date>: the last upstream commit taken since ("" for none; 2.2: the Killer Instinct ones, core-base.txt);
+// <last>, <last_date>: the last upstream commit taken since ("" for none; 2.2: the Killer Instinct ones, 2.3: the
+// MultiPCM state fix; core-base.txt); <mame>, <mame_date>: the MAME commit the port's own drivers come from (2.3: Sega
+// Model 2), "" for none;
 // <leave_out>: the sets of the drivers built in that the app does not list (fe_burn.cpp's arcade check: FBNeo's arcade
 // DAT has the Neo Geo CDZ's BIOS set, neocdz, and this port has no Neo Geo CD)
 int FbneoPs5WriteDat(const char* path, const char* commit, const char* date, const std::vector<std::string>& leave_out,
-	const char* last, const char* last_date)
+	const char* last, const char* last_date, const char* mame, const char* mame_date)
 {
 	snprintf(szAppBurnVer, sizeof(szAppBurnVer), "%s", FBNEO_CORE_VERSION); // src/burn/version.h, as the Makefile reads it
 	char* buf = NULL;
@@ -82,8 +84,10 @@ int FbneoPs5WriteDat(const char* path, const char* commit, const char* date, con
 	const size_t bios = Count(dat, "\t<game isbios=\"yes\"");
 	const std::string ver = FBNEO_PS5_VERSION, core = szAppBurnVer, full = commit, shortc = full.substr(0, 7);
 	const std::string lastc = last ? last : "", lastd = last_date ? last_date : "";
-	// "commit 658540d of 2026-10-08 + KI commits up to 892a35c8f of 2026-10-20"
-	const std::string picks = lastc.empty() ? std::string() : " + KI commits up to " + lastc.substr(0, 9) + " of " + lastd;
+	const std::string mamec = mame ? mame : "", mamed = mame_date ? mame_date : "";
+	// "commit 658540d of 2026-10-08 + upstream commits up to 565c0d153 of 2026-10-27; Sega Model 2 from MAME b7f483f"
+	const std::string picks = (lastc.empty() ? std::string() : " + upstream commits up to " + lastc.substr(0, 9) + " of " + lastd) +
+		(mamec.empty() ? std::string() : "; Sega Model 2 from MAME " + mamec.substr(0, 7));
 	const std::string newest = lastd.empty() ? std::string(date) : lastd;
 	const std::string repo = std::string("https://github.com/") + FBNEO_UPDATE_REPO;
 	std::string header;
@@ -101,7 +105,8 @@ int FbneoPs5WriteDat(const char* path, const char* commit, const char* date, con
 		" sets of the arcade drivers it compiles (" + std::to_string(bios) +
 		" of them BIOS and board sets), written by FinalBurn Neo's src/burner/dat.cpp from FinalBurn Neo " + core +
 		", finalburnneo/FBNeo commit " + full + " (" + date + ")" +
-		(lastc.empty() ? std::string() : " and the Killer Instinct commits taken from it since, up to " + lastc + " (" + lastd + ")") +
+		(lastc.empty() ? std::string() : " and the upstream commits taken from it since (Killer Instinct's, the MultiPCM state fix), up to " + lastc + " (" + lastd + ")") +
+		(mamec.empty() ? std::string() : "; and the port's own Sega Model 2 driver (Daytona USA), ported from MAME, mamedev/mame commit " + mamec + " (" + mamed + ")") +
 		". FBNeo PS5 builds this core itself: not RetroArch, not the libretro core." +
 		(left.empty() ? std::string() : " Left out, as the app does not list them: " + left + ".") + "</comment>\n";
 	header += "\t\t<clrmamepro forcenodump=\"ignore\"/>\n";

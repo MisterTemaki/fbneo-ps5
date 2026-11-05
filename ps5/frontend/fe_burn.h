@@ -165,6 +165,8 @@ struct Input
 int ButtonCount();
 std::string ButtonName(int i);
 bool HasAnalog();
+// 2.3: player 1's fire button i (0..kButtons-1) is an analog input (a pedal: Daytona USA's accelerator and brake)
+bool AnalogButton(int i);
 // What each player's digital inputs got since the game started, for the log: "player 1 nothing, player 2 up fire1 coin".
 std::string InputReport();
 

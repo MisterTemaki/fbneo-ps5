@@ -24,8 +24,7 @@
 #include "multipcm.h"
 #include "eeprom.h"
 #include "model2.h"
-#include "model2rd.ipp" // the renderer's scanline functions (its constructor, here, takes their addresses)
-#include "i960/i960.h"    // (debug output)
+#include "burn_parallel.h"
 
 #include <stdarg.h>
 #include <math.h>
@@ -199,7 +198,7 @@ void m2_log(const char* fmt, ...)
 	va_start(ap, fmt);
 	vsnprintf(buf, sizeof(buf), fmt, ap);
 	va_end(ap);
-	bprintf(0, _T("%S"), buf);
+	bprintf(0, _T("model2: %s"), buf);
 #else
 	(void)fmt;
 #endif
@@ -1909,12 +1908,13 @@ static INT32 settings_force_single()
 	for (INT32 i = 0; i < 0x80; i++) b[i] = EEPROMReadByte(i);
 	if (!settings_valid(b) || b[0x0b] == 0)
 		return 0;
+	const UINT8 was = b[0x0b];
 	b[0x0b] = 0;
 	const UINT16 c = settings_crc(b);
 	b[8] = c & 0xff;
 	b[9] = c >> 8;
 	for (INT32 i = 0; i < 0x80; i++) EEPROMWriteByte(i, b[i]);
-	bprintf(PRINT_IMPORTANT, _T("model2: the I/O board's settings say Link ID %s: set to Single (no link board)\n"), b[0x0b] == 1 ? _T("Master") : _T("Slave"));
+	bprintf(PRINT_IMPORTANT, _T("model2: the I/O board's settings say Link ID %s: set to Single (no link board)\n"), was == 1 ? _T("Master") : _T("Slave"));
 	return 1;
 }
 
@@ -2002,70 +2002,6 @@ static INT32 DrvDoReset()
 	return 0;
 }
 
-// ---- video setup (MAME's video_start, and the state model2_v.cpp keeps) ---------------------------------------------
-void model2_state::video_init(u16* texture_rom, u32 texture_rom_bytes, u32* polygon_rom, u32 polygon_rom_bytes)
-{
-	m_renderer = new model2_renderer(*this);
-
-	/* initialize the hardware rasterizer */
-	raster_init(texture_rom, texture_rom_bytes);
-
-	/* initialize the geometry engine */
-	geo_init(polygon_rom, polygon_rom_bytes);
-
-	// convert color space; this works OK for most games
-	// real cabinets probably have their monitors calibrated depending on the game
-	// optimal settings for vf2, fvipers and schamp are bias 64, gain 51
-	for (int i = 0; i < 256; i++)
-	{
-		double raw_value = std::max(((double)i - 64.0) * 255.0 / 191.0, 0.0);
-		m_gamma_table[i] = (u8)raw_value;
-	}
-}
-
-void model2_state::video_exit()
-{
-	delete m_renderer;
-	m_renderer = nullptr;
-	delete m_geo;
-	m_geo = nullptr;
-	delete m_raster;
-	m_raster = nullptr;
-}
-
-void model2_state::video_reset()
-{
-	// what MAME's machine has after video_start (the renderer's offsets: until the game writes xhout / xvout)
-	raster_state* raster = m_raster;
-	const u16* trom = raster->texture_rom;
-	const u32 tmask = raster->texture_rom_mask;
-	raster->~raster_state();
-	new (raster) raster_state();
-	raster->texture_rom = trom;
-	raster->texture_rom_mask = tmask;
-
-	geo_state* geo = m_geo;
-	const u32* prom = geo->polygon_rom;
-	const u32 pmask = geo->polygon_rom_mask;
-	geo->~geo_state();
-	new (geo) geo_state();
-	geo->polygon_rom = prom;
-	geo->polygon_rom_mask = pmask;
-	geo->raster = raster;
-	geo->state = this;
-
-	m_geo_read_start_address = 0;
-	m_geo_mesh = false;
-	m_render_test_mode = false;
-	m_render_done = false;
-	m_crtc_xoffset = m_crtc_yoffset = 0;
-	m_frame_number = 0;
-	m_renderer->set_xoffset(90);
-	m_renderer->set_yoffset(-8);
-	m_renderer->destmap().fill(0, m2_rectangle(0, 511, 0, 511));
-	m_renderer->fillmap().fill(0, m2_rectangle(0, 511, 0, 511));
-}
-
 static void model2_video_scan(INT32 nAction)
 {
 	model2_state::raster_state *raster = m2->m_raster;
@@ -2151,6 +2087,10 @@ static void tgp_map()
 }
 
 // ---- init / exit ------------------------------------------------------------------------------------------------------
+static void parallel_warmup(void*, INT32)
+{
+}
+
 static INT32 DrvInit()
 {
 	// MAME's screen: 32 MHz / 2, 656 x 424 -> 57.524 Hz
@@ -2225,6 +2165,10 @@ static INT32 DrvInit()
 	MultiPCMSetMameModeChip(1, 1);
 
 	GenericTilesInit();
+
+	// the frontend's worker threads (the 3D, by bands of lines: model2_poly.h) started now, not at the first 3D frame
+	if (nBurnParallelThreads > 1)
+		BurnParallelRun(parallel_warmup, NULL, nBurnParallelThreads);
 
 	DrvDoReset();
 

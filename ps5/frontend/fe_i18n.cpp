@@ -159,6 +159,7 @@ const Entry kTable[] = {
 	{"Fighting (6 buttons)", "Lucha (6 botones)", "Luta (6 botões)", "Combat (6 boutons)", "Kampf (6 Tasten)"},
 	{"Custom", "Personalizada", "Personalizado", "Personnalisée", "Eigene"},
 	{"Fighting (R1 R2)", "Lucha (R1 R2)", "Luta (R1 R2)", "Combat (R1 R2)", "Kampf (R1 R2)"},
+	{"Driving", "Conducción", "Direção", "Conduite", "Fahren"},
 	{"Cross", "Cruz", "X", "Croix", "Kreuz"},
 	{"Circle", "Círculo", "Bola", "Rond", "Kreis"},
 	{"Square", "Cuadrado", "Quadrado", "Carré", "Quadrat"},
@@ -171,6 +172,8 @@ const Entry kTable[] = {
 	{"Button 4", "Botón 4", "Botão 4", "Bouton 4", "Taste 4"},
 	{"Button 5", "Botón 5", "Botão 5", "Bouton 5", "Taste 5"},
 	{"Button 6", "Botón 6", "Botão 6", "Bouton 6", "Taste 6"},
+	{"Button 7", "Botón 7", "Botão 7", "Bouton 7", "Taste 7"},
+	{"Button 8", "Botón 8", "Botão 8", "Bouton 8", "Taste 8"},
 	{"Coin", "Moneda", "Ficha", "Pièce", "Münze"},
 	{"Start", "Start", "Start", "Start", "Start"},
 	// ---- Settings, BIOS sets

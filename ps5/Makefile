@@ -24,7 +24,7 @@
 PS5_PAYLOAD_SDK ?= /opt/ps5-payload-sdk
 PS5_HOST ?= ps5
 PS5_PORT ?= 9021
-VERSION ?= 2.2
+VERSION ?= 2.3
 TITLE_ID ?= PPSA99924
 # where the app looks for its updates (Settings, SYSTEM, Updates): this repository's GitHub releases
 UPDATE_REPO ?= MisterTemaki/FBNeo-PS5
@@ -623,11 +623,26 @@ test-cpus: $(CPUS_TEST)
 
 test: test-cpus
 
+# 2.3: Model 2's renderer on its own: MAME's rasterizer (model2_v.cpp, model2rd.ipp) and the port's poly manager on
+# synthetic polygons, drawn in one part, by bands, by bands on threads (tests/test_model2_video.cpp)
+M2VIDEO_TEST := $(HOST_OUT)/test-model2-video
+M2VIDEO_SRC := $(ROOT)/src/burn/drv/sega/model2_v.cpp $(ROOT)/src/burn/drv/sega/model2_vport.cpp $(ROOT)/src/burn/burn_parallel.cpp \
+	tests/test_model2_video.cpp
+$(M2VIDEO_TEST): $(M2VIDEO_SRC) $(MODEL2_HDRS) | $(GEN_STAMP)
+	@mkdir -p $(dir $@)
+	$(HOST_CXX) -O1 -g1 $(HOST_CORE_SAN) -fsanitize=undefined -fno-sanitize-recover=undefined $(CORE_CXXFLAGS) $(CORE_DEFS) \
+		$(CORE_INCS) -o $@ $(M2VIDEO_SRC) -lpthread
+
+test-model2-video: $(M2VIDEO_TEST)
+	ASAN_OPTIONS=detect_leaks=1 $(M2VIDEO_TEST)
+
+test: test-model2-video
+
 clean:
 	rm -rf build
 
 # the SMB backend against a real Samba (adds `smb-test`, run before the other tests; skipped without smbd)
 include tests/smb/smb.mk
 
-.PHONY: ps5 core-ps5 core-host host headless dat test test-nfs test-nfs-server test-tabs test-7z test-mips3 test-kinst-hdd test-cpus send app dist clean
+.PHONY: ps5 core-ps5 core-host host headless dat test test-nfs test-nfs-server test-tabs test-7z test-mips3 test-kinst-hdd test-cpus test-model2-video send app dist clean
 .SECONDARY:

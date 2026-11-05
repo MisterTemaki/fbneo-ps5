@@ -21,12 +21,14 @@ struct Settings
 	// emulation
 	bool hiscores = true; // FBNeo's high score saving (needs hiscore.dat in /data/fbneo/hiscore)
 	int state_slot = 1; // 1..10
-	// controls: the button layout (emu::kLayouts: auto, classic, fighting, custom) and the custom one: the PS5
-	// button (index in emu::kPs5Buttons) of each arcade button, in emu::kArcadeButtons' order (Button 1..6, Coin, Start)
+	// controls: the button layout (emu::kLayouts: auto, classic, fighting, custom, fighting R1 R2, driving) and the
+	// custom one: the PS5 button (index in emu::kPs5Buttons) of each arcade button, in emu::kArcadeButtons' order
+	// (Button 1..6, Coin, Start, and since 2.3 Button 7, Button 8: none until set)
 	int layout = 0;
-	static constexpr int kButtons = 8;
-	static constexpr int kDefaultButtons[kButtons] = {0, 1, 2, 3, 4, 5, 7, 6}; // Cross Circle Square Triangle L1 R1, touchpad, OPTIONS
-	int buttons[kButtons] = {0, 1, 2, 3, 4, 5, 7, 6};
+	static constexpr int kButtons = 10;
+	// Cross Circle Square Triangle L1 R1, touchpad, OPTIONS, none, none
+	static constexpr int kDefaultButtons[kButtons] = {0, 1, 2, 3, 4, 5, 7, 6, 8, 8};
+	int buttons[kButtons] = {0, 1, 2, 3, 4, 5, 7, 6, 8, 8};
 	void DefaultButtons();
 	// which arcade player each controller plays (2.1, fbneo-ps5#3): controller slot (ps5input: the foreground user's
 	// pad first, then the other signed-in users') -> player 0..3, or -1 for none. Each player has at most one

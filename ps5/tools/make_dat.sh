@@ -13,6 +13,8 @@ root=$(cd "$(dirname "$0")/../.." && pwd)
 # the base commit and the upstream commits taken since (core-base.txt; 2.2: the Killer Instinct ones)
 base=$(sed -n 's/^base \([0-9a-f]*\) \([0-9-]*\)$/\1 \2/p' "$root/ps5/core-base.txt")
 last=$(sed -n 's/^pick \([0-9a-f]*\) \([0-9-]*\) .*/\1 \2/p' "$root/ps5/core-base.txt" | tail -1)
+# (2.3) the MAME commit the port's own drivers come from (Sega Model 2)
+mame=$(sed -n 's/^mame \([0-9a-f]*\) \([0-9-]*\) .*/\1 \2/p' "$root/ps5/core-base.txt" | tail -1)
 [ -n "$base" ] || { echo "make_dat.sh: no base commit in ps5/core-base.txt" >&2; exit 1; }
 commit=${base% *}
 date=${base#* }
@@ -24,6 +26,7 @@ if [ -n "$last" ]; then
 	git -C "$root" log --format=%s "$commit..HEAD" -- src makefile.burn_rules | grep -qxF "$subject" ||
 		{ echo "make_dat.sh: the last commit core-base.txt names ($subject) isn't in the history" >&2; exit 1; }
 	picks="${last% *} ${last#* }"
+	[ -z "$mame" ] || picks="$picks ${mame% *} ${mame#* }"
 fi
 # the core's own scratch folder (fbneo_headless writes nothing there for a DAT)
 tmp=$(mktemp -d)

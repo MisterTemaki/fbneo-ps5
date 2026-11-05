@@ -1911,6 +1911,14 @@ bool HasAnalog()
 	return g.analog;
 }
 
+bool AnalogButton(int i)
+{
+	for (const In& x : g.inputs)
+		if (x.kind == Kind::Button && x.player == 0 && x.button == i)
+			return (x.type & BIT_GROUP_ANALOG) != 0;
+	return false;
+}
+
 std::string InputReport()
 {
 	int players = 0;

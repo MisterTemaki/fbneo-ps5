@@ -63,6 +63,7 @@ const Choice kLayouts[] = {
 	{"Fighting (6 buttons)", ""},
 	{"Custom", ""},
 	{"Fighting (R1 R2)", ""},
+	{"Driving", ""},
 };
 const int kLayoutCount = int(sizeof(kLayouts) / sizeof(kLayouts[0]));
 
@@ -84,17 +85,29 @@ const int kPs5ButtonCount = int(sizeof(kPs5Buttons) / sizeof(kPs5Buttons[0]));
 const ArcadeButton kArcadeButtons[kArcadeButtonCount] = {
 	{"Button 1", "btn_1"}, {"Button 2", "btn_2"}, {"Button 3", "btn_3"}, {"Button 4", "btn_4"},
 	{"Button 5", "btn_5"}, {"Button 6", "btn_6"}, {"Coin", "btn_coin"}, {"Start", "btn_start"},
+	{"Button 7", "btn_7"}, {"Button 8", "btn_8"},
 };
+const int kArcadeButtonRows[kArcadeButtonCount] = {0, 1, 2, 3, 4, 5, 8, 9, 6, 7};
 
-int LayoutButton(int layout, int i, int game_buttons, const int* custom)
+int GameButtonOf(int i)
 {
-	// indexes in kPs5Buttons: 0 Cross, 1 Circle, 2 Square, 3 Triangle, 4 L1, 5 R1, 6 OPTIONS, 7 touchpad, 9 L2, 10 R2
+	static const int kGame[kArcadeButtonCount] = {0, 1, 2, 3, 4, 5, -1, -1, 6, 7};
+	return i >= 0 && i < kArcadeButtonCount ? kGame[i] : -1;
+}
+
+int LayoutButton(int layout, int i, int game_buttons, const int* custom, bool pedals)
+{
+	// indexes in kPs5Buttons: 0 Cross, 1 Circle, 2 Square, 3 Triangle, 4 L1, 5 R1, 6 OPTIONS, 7 touchpad, 8 none, 9 L2,
+	// 10 R2; the arrays: Button 1..6, Coin, Start, Button 7, Button 8
 	// classic (FBNeo's libretro pad): buttons 1-4 = Cross, Circle, Square, Triangle (Neo Geo A B C D), 5-6 = L1 R1
-	static const int kClassic[kArcadeButtonCount] = {0, 1, 2, 3, 4, 5, 7, 6};
+	static const int kClassic[kArcadeButtonCount] = {0, 1, 2, 3, 4, 5, 7, 6, kNoButton, kNoButton};
 	// fighting (Capcom's 6 buttons, punches on top): Square Triangle R1 = 1 2 3, Cross Circle L1 = 4 5 6
-	static const int kFighting[kArcadeButtonCount] = {2, 3, 5, 0, 1, 4, 7, 6};
+	static const int kFighting[kArcadeButtonCount] = {2, 3, 5, 0, 1, 4, 7, 6, kNoButton, kNoButton};
 	// fighting with the triggers (Capcom's own PS layout): Square Triangle R1 = 1 2 3, Cross Circle R2 = 4 5 6
-	static const int kFightingR2[kArcadeButtonCount] = {2, 3, 5, 0, 1, 10, 7, 6};
+	static const int kFightingR2[kArcadeButtonCount] = {2, 3, 5, 0, 1, 10, 7, 6, kNoButton, kNoButton};
+	// 2.3, driving (Daytona USA: accelerator, brake, shift up, shift down, the four view buttons): the pedals on R2 and
+	// L2 (pressed as far as the trigger is), the gears on R1 / L1, the views on Square Triangle Circle Cross
+	static const int kDriving[kArcadeButtonCount] = {10, 9, 5, 4, 2, 3, 7, 6, 1, 0};
 	if (i < 0 || i >= kArcadeButtonCount)
 		return kNoButton;
 	switch (layout)
@@ -102,13 +115,18 @@ int LayoutButton(int layout, int i, int game_buttons, const int* custom)
 		case 1: return kClassic[i];
 		case 2: return kFighting[i];
 		case 4: return kFightingR2[i];
+		case 5: return kDriving[i];
 		case kCustomLayout:
 		{
 			const int b = custom ? custom[i] : kNoButton;
 			return b >= 0 && b < kPs5ButtonCount ? b : kNoButton;
 		}
-		// auto: Capcom's PlayStation layout for 6-button games since 2.0 (it was Fighting, heavy kick on L1)
-		default: return game_buttons >= 6 ? kFightingR2[i] : kClassic[i];
+		// auto: Capcom's PlayStation layout for 6-button games since 2.0 (it was Fighting, heavy kick on L1); 2.3:
+		// Driving for the games with more than six buttons whose first two are pedals
+		default:
+			if (pedals && game_buttons > 6)
+				return kDriving[i];
+			return game_buttons >= 6 ? kFightingR2[i] : kClassic[i];
 	}
 }
 namespace
@@ -125,7 +143,7 @@ int Next(const int* order, int n, int cur, int dir)
 
 int NextLayout(int layout, int dir)
 {
-	static const int kOrder[] = {0, 1, 2, 4, kCustomLayout};
+	static const int kOrder[] = {0, 1, 2, 4, 5, kCustomLayout};
 	return Next(kOrder, int(sizeof(kOrder) / sizeof(kOrder[0])), layout, dir);
 }
 
@@ -508,13 +526,18 @@ void ApplyLayout()
 	const int n = burn::ButtonCount();
 	std::string desc = emu::kLayouts[l.layout].name;
 	if (l.layout == 0)
-		desc += n >= 6 ? " = Fighting (R1 R2)" : " = Classic";
+		desc += n > 6 && emu::GamePedals() ? " = Driving" : n >= 6 ? " = Fighting (R1 R2)" : " = Classic";
 	desc += ":";
-	for (int i = 0; i < emu::kArcadeButtonCount; i++)
+	for (int r = 0; r < emu::kArcadeButtonCount; r++)
 	{
+		const int i = emu::kArcadeButtonRows[r];
 		const int b = l.Button(i, n);
 		g.map[i] = emu::kPs5Buttons[b].bit;
-		desc += std::string(" ") + (i < 6 ? std::to_string(i + 1) : i == 6 ? "coin" : "start") + "=" + emu::kPs5Buttons[b].name;
+		// (buttons 7 and 8 only for the games that have them: the line stays as it was for the others)
+		const int gb = emu::GameButtonOf(i);
+		if (gb >= 6 && gb >= n)
+			continue;
+		desc += std::string(" ") + (gb >= 0 ? std::to_string(gb + 1) : i == 6 ? "coin" : "start") + "=" + emu::kPs5Buttons[b].name;
 	}
 	static const char* const kOwner[] = {"general", "this game's", "the parent set's"};
 	if (desc != g.map_logged)
@@ -641,8 +664,18 @@ burn::Input ReadPads()
 		pi.down = s.buttons & SCE_PAD_BUTTON_DOWN;
 		pi.left = s.buttons & SCE_PAD_BUTTON_LEFT;
 		pi.right = s.buttons & SCE_PAD_BUTTON_RIGHT;
-		for (int b = 0; b < 6; b++)
-			pi.button[b] = g.map[b] && (s.raw_buttons & g.map[b]);
+		for (int i = 0; i < emu::kArcadeButtonCount; i++)
+		{
+			const int b = emu::GameButtonOf(i);
+			if (b < 0)
+				continue;
+			pi.button[b] = g.map[i] && (s.raw_buttons & g.map[i]);
+			// 2.3: a button on a trigger also says how far it is pressed (a game's pedal takes that; the others the button)
+			if (g.map[i] == SCE_PAD_BUTTON_L2)
+				pi.pressure[b] = s.l2;
+			else if (g.map[i] == SCE_PAD_BUTTON_R2)
+				pi.pressure[b] = s.r2;
+		}
 		pi.coin = g.map[6] && (s.raw_buttons & g.map[6]);
 		pi.start = g.map[7] && (s.raw_buttons & g.map[7]);
 		pi.stick_x = Axis(s.lx);
@@ -1407,6 +1440,11 @@ void DefaultControls()
 	g.owner = LayoutOwner::General;
 	g.game_players = g.players_from_file = g.players_parent = false;
 	ApplyLayout();
+}
+
+bool GamePedals()
+{
+	return g.loaded && burn::AnalogButton(0) && burn::AnalogButton(1);
 }
 
 std::string GameButtonName(int i)

@@ -119,7 +119,7 @@ void i960_log(const char* fmt, ...)
 	va_start(ap, fmt);
 	vsnprintf(buf, sizeof(buf), fmt, ap);
 	va_end(ap);
-	bprintf(0, _T("%S"), buf);
+	bprintf(0, _T("i960: %s"), buf);
 #else
 	(void)fmt;
 #endif
@@ -137,7 +137,8 @@ void i960_fatal(const char* fmt, ...)
 	va_start(ap, fmt);
 	vsnprintf(buf, sizeof(buf), fmt, ap);
 	va_end(ap);
-	bprintf(PRINT_ERROR, _T("%S"), buf);
+	const size_t n = strlen(buf);
+	bprintf(PRINT_ERROR, _T("i960: %s%s"), buf, (n && buf[n - 1] == '\n') ? "" : "\n");
 }
 
 // ---- map --------------------------------------------------------------------------------------------------------

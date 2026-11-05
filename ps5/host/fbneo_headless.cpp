@@ -2,8 +2,10 @@
 //
 //   fbneo_headless list [arcade|all]            the drivers: name, parent, board, hardware, flags, title
 //   fbneo_headless roms <set>                   the set's ROMs: index, name, length, CRC, type
-//   fbneo_headless dat <out.dat> <commit> <date>  the ROM DAT of every driver built in, by FBNeo's own DAT writer
-//       (host/fbneo_dat.cpp); <commit> and <date>: the FBNeo commit the core is built from (tools/make_dat.sh)
+//   fbneo_headless dat <out.dat> <commit> <date> [<last> <date> [<mame> <date>]]  the ROM DAT of every driver built
+//       in, by FBNeo's own DAT writer (host/fbneo_dat.cpp); <commit> and <date>: the FBNeo commit the core is built
+//       from, <last>: the last upstream commit taken since, <mame>: the MAME commit of the port's own drivers
+//       (tools/make_dat.sh, from core-base.txt)
 //   fbneo_headless nvram <rom dir> <set>          fills the set's NVRAM areas with 0x5a, unloads (fe_burn writes
 //       <saves>/<set>.nvram), loads the set again and checks that the areas hold 0x5a
 //   fbneo_headless dips <rom dir> <set>           moves the DIP switches off their defaults (a group named like an earlier
@@ -18,14 +20,16 @@
 //       flag already set (NetCheck stopping), which must end as a read error, not as ROMs missing
 //   fbneo_headless bench <rom dir> <set> <frames> the time a frame takes (drawn), and a save state's: its time and size
 //   fbneo_headless run <rom dir> <set> <frames> [out.ppm] [--state] [--dips] [--drive] [--wav out.wav]
-//           [--shots <prefix> <every>]   (FBNEO_HEADLESS_THREADS=N: the core's worker threads, N in all)
+//           [--shots <prefix> <every>] [--input k=v,...]   (FBNEO_HEADLESS_THREADS=N: the core's worker threads, N in all)
 //       runs the set for N frames (no input but coin+start pressed at frames 60 and 90 and fire 1 every 8 frames
 //       after 120), writes the last picture as a PPM, prints the picture size, the sound's level and a picture
 //       checksum; --state also saves a state halfway, runs on, loads it back and checks that the same frames
 //       follow (the same picture checksum); --dips lists the DIP switches. --drive: a driving game's inputs instead
 //       (coin at 400, start at 500, 800, 1000 and 1200, fire 1 held from 1300 as a trigger half then fully pressed,
 //       the stick swinging left and right from 1500, fire 3 (shift up) at 1700); --wav writes the sound (48 kHz stereo);
-//       --shots writes every <every>th picture as <prefix><frame>.ppm.
+//       --shots writes every <every>th picture as <prefix><frame>.ppm; --input: player 1's input held from the first frame
+//       to the last instead (keys stick_x, stick_y, pressure1..8, fire1..8, coin, start, test, service, and from=N,
+//       until=M: held only from frame N to M; --input again for another one; e.g. stick_x=-128,pressure1=255).
 //
 // SPDX-License-Identifier: MIT
 
@@ -35,6 +39,7 @@
 
 #include <cinttypes>
 #include <cmath>
+#include <algorithm>
 #include <atomic>
 #include <unistd.h>
 #include <condition_variable>
@@ -50,7 +55,7 @@
 #include "burnint.h"
 
 int FbneoPs5WriteDat(const char* path, const char* commit, const char* date, const std::vector<std::string>& leave_out,
-	const char* last, const char* last_date); // fbneo_dat.cpp
+	const char* last, const char* last_date, const char* mame, const char* mame_date); // fbneo_dat.cpp
 
 namespace
 {
@@ -195,6 +200,43 @@ void PoolRun(burn::ParallelJob job, void* ctx, int parts)
 	g_pool->Run(job, ctx, parts);
 }
 
+long g_hold_from = 0, g_hold_until = -1; // --input's from= / until= (frames), for the one being read
+bool ParseInput(const std::string& spec, burn::Input* out)
+{
+	g_hold_from = 0;
+	g_hold_until = -1;
+	burn::PlayerInput& p = out->player[0];
+	size_t at = 0;
+	while (at < spec.size())
+	{
+		size_t end = spec.find(',', at);
+		if (end == std::string::npos)
+			end = spec.size();
+		const std::string kv = spec.substr(at, end - at);
+		at = end + 1;
+		const size_t eq = kv.find('=');
+		if (eq == std::string::npos)
+			return false;
+		const std::string k = kv.substr(0, eq);
+		const int v = atoi(kv.c_str() + eq + 1);
+		if (k == "stick_x") p.stick_x = int8_t(std::max(-128, std::min(127, v)));
+		else if (k == "stick_y") p.stick_y = int8_t(std::max(-128, std::min(127, v)));
+		else if (k == "coin") p.coin = v != 0;
+		else if (k == "start") p.start = v != 0;
+		else if (k == "test") out->test = v != 0;
+		else if (k == "from") g_hold_from = v;
+		else if (k == "until") g_hold_until = v;
+		else if (k == "service") out->service = v != 0;
+		else if (k.compare(0, 8, "pressure") == 0 && k.size() == 9 && k[8] >= '1' && k[8] <= '8')
+			p.pressure[k[8] - '1'] = uint8_t(std::max(0, std::min(255, v)));
+		else if (k.compare(0, 4, "fire") == 0 && k.size() == 5 && k[4] >= '1' && k[4] <= '8')
+			p.button[k[4] - '1'] = v != 0;
+		else
+			return false;
+	}
+	return true;
+}
+
 bool WriteWav(const char* path, const std::vector<int16_t>& pcm)
 {
 	FILE* f = fopen(path, "wb");
@@ -269,8 +311,10 @@ int main(int argc, char** argv)
 			if (burn::GetDriver(i, &d) && !d.arcade)
 				leave_out.push_back(d.name);
 		}
-		// (2.2) argv[5], argv[6]: the last upstream commit taken since the base, and its date (core-base.txt)
-		return FbneoPs5WriteDat(argv[2], argv[3], argv[4], leave_out, argc > 6 ? argv[5] : "", argc > 6 ? argv[6] : "");
+		// (2.2) argv[5], argv[6]: the last upstream commit taken since the base, and its date (core-base.txt); (2.3)
+		// argv[7], argv[8]: the MAME commit the port's own drivers come from, and its date
+		return FbneoPs5WriteDat(argv[2], argv[3], argv[4], leave_out, argc > 6 ? argv[5] : "", argc > 6 ? argv[6] : "",
+			argc > 8 ? argv[7] : "", argc > 8 ? argv[8] : "");
 	}
 	if (cmd == "roms" && argc > 2)
 	{
@@ -576,7 +620,35 @@ int main(int argc, char** argv)
 				shot_every = atol(argv[++i]);
 			}
 		}
-		auto input = [&](long f) { return drive ? DriveInputFor(uint64_t(f)) : InputFor(uint64_t(f)); };
+		struct Hold
+		{
+			burn::Input in;
+			long from, until;
+		};
+		std::vector<Hold> holds;
+		for (int i = 5; i + 1 < argc; i++)
+			if (std::string(argv[i]) == "--input")
+			{
+				Hold h;
+				if (!ParseInput(argv[i + 1], &h.in))
+				{
+					fprintf(stderr, "bad --input %s\n", argv[i + 1]);
+					return 2;
+				}
+				h.from = g_hold_from;
+				h.until = g_hold_until;
+				holds.push_back(h);
+			}
+		auto input = [&](long f) {
+			if (!holds.empty())
+			{
+				for (const Hold& h : holds) // the first one in its frames (they should not overlap)
+					if (f >= h.from && (h.until < 0 || f < h.until))
+						return h.in;
+				return burn::Input();
+			}
+			return drive ? DriveInputFor(uint64_t(f)) : InputFor(uint64_t(f));
+		};
 		std::vector<int16_t> pcm;
 		if (drv < 0)
 		{

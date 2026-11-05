@@ -6,9 +6,9 @@
 
 [FinalBurn Neo](https://github.com/finalburnneo/FBNeo) (FBNeo) 1.0.0.3, the arcade emulator, running on a jailbroken
 PS5 as a **native home-screen app** with its own icon and background. It plays the arcade games FBNeo emulates --
-8,389 drivers: Capcom CPS-1, CPS-2 and CPS-3, **Neo Geo MVS/AES**, IGS PGM and PGM2, Cave, Toaplan, Psikyo, Sega
-System 1/16/18/24/32, X and Y boards, Konami, Taito, Irem, Data East, Midway, Kaneko, Seta, the classics of the 70s
-and 80s, and many more -- from their ROM sets (`.zip` or `.7z`), named as FBNeo names them, on the console, a USB
+8,394 drivers: Capcom CPS-1, CPS-2 and CPS-3, **Neo Geo MVS/AES**, IGS PGM and PGM2, Cave, Toaplan, Psikyo, Sega
+System 1/16/18/24/32, X and Y boards, and since 2.3 **Sega Model 2's Daytona USA**, Konami, Taito, Irem, Data East,
+Midway, Kaneko, Seta, the classics of the 70s and 80s, and many more -- from their ROM sets (`.zip` or `.7z`), named as FBNeo names them, on the console, a USB
 drive or a network share (SMB or NFS).
 
 **Inside the emulator, to access the main menu press L3 + R3.**
@@ -27,16 +27,25 @@ the ports it comes from:
 - `ps5/installer` is the installer and helper payload.
 
 Everything outside `ps5/` is FBNeo's source: finalburnneo/FBNeo at commit `658540d` plus, since 2.2, the ten upstream
-commits that bring Killer Instinct 1 and 2 (taken as they are, their authors kept: [`ps5/core-base.txt`](ps5/core-base.txt)),
-apart from this README (the original one is [README-FBNeo.md](README-FBNeo.md)) and one change of the port's own:
-`src/burn/burn_hdd.cpp` (where a game's hard disk image is found, and how the game's writes to it are saved: see
-[Killer Instinct](#killer-instinct-hard-disk-images)), with `d_kinst.cpp`'s exit clearing its disk pointer. The core -- `src/burn` (the drivers), `src/cpu` and the libraries it uses -- is
+commits that bring Killer Instinct 1 and 2 and (2.3) upstream's MultiPCM state fix (taken as they are, their authors
+kept: [`ps5/core-base.txt`](ps5/core-base.txt)), apart from this README (the original one is
+[README-FBNeo.md](README-FBNeo.md)) and the port's own changes: `src/burn/burn_hdd.cpp` (2.2: where a game's hard disk
+image is found, and how the game's writes to it are saved: see [Killer Instinct](#killer-instinct-hard-disk-images)),
+with `d_kinst.cpp`'s exit clearing its disk pointer; and (2.3) **Sega Model 2**, ported from MAME (commit `b7f483f`):
+the i960KB and MB86234 cores (`src/cpu/i960`, `src/cpu/mb86233`), the Daytona USA driver and the Model 2 video
+(`src/burn/drv/sega/d_model2.cpp`, `model2*`), MultiPCM with two chips (`src/burn/snd/multipcm.cpp`) and
+`src/burn/burn_parallel.cpp` (see [Daytona USA](#daytona-usa-sega-model-2)). The core -- `src/burn` (the drivers), `src/cpu` and the libraries it uses -- is
 compiled as it is, with the object lists of FBNeo's `makefile.burn_rules` and the generated sources its makefiles
 make (the driver list, Musashi's 68000 core, the CPS, Neo Geo, Cave, Psikyo, Toaplan and PGM render functions).
 `ps5/frontend/fe_burn.cpp` is the frontend FBNeo's core needs, written again for this port the way FBNeo's own
 frontends (`src/burner`) and its libretro port host the core: ROM loading from the sets' zips and 7z archives, inputs, DIP
 switches, states, NVRAM, the picture turned the right way up and the sound.
 
+> **Status (2.3):** **Daytona USA (new in 2.3) has not run on a PS5 yet.** On the test machine (Linux, a 2-core
+> 2.1 GHz Xeon) it runs from a real set as it should: the attract mode with its 3D, a coin, Start, the circuit and
+> transmission choices, a race steered with the stick, the music and effects, save states replayed exactly; how fast
+> the PS5 runs it is not known yet (the 3D is drawn on three worker threads there). Everything else is as 2.2 had it:
+>
 > **Status (2.2):** builds with the ps5-payload-dev SDK into a signed native app, and passes 718 host tests, which
 > run the same code (FBNeo's core included) on Linux with the PS5 calls simulated: two arcade boards running a tiny
 > test program each (a vertical and a horizontal game) are played through the whole chain -- the shelf, the pad,
@@ -79,9 +88,25 @@ next to Snes9x PS5 (PPSA99922, helper port 9089), Mesen2 PS5 (PPSA99923, port 90
 
 ## Versions
 
-Every release carries its version in the file name: `FBNeoPS5-v2.2.elf` (`make dist`). When updating, replace the
+Every release carries its version in the file name: `FBNeoPS5-v2.3.elf` (`make dist`). When updating, replace the
 old ELF with the new one in your autoload or Payload Manager. In this README, "`FBNeoPS5.elf`" always means the
 current release's ELF.
+
+**2.3:** **Daytona USA** (Sega AM2, 1993-1994; `daytona`, `daytonase`, `daytona93`, `daytonas`), FBNeo PS5's first
+**Sega Model 2** game, ported from MAME (commit `b7f483f`): the main board's Intel i960KB and its MB86234 "TGP" geometry
+coprocessor (two new CPU cores, MAME's interpreters), the Model 2 geometrizer and renderer (MAME's, its 3D drawn by bands
+of lines on three worker threads), the System 24 tilemaps, the **Model 1 I/O board** (its Z80, the steering and pedals'
+A/D converter, the EEPROM with the game's settings) and the **Model 1 sound board** (68000, YM3438, two MultiPCM). It needs
+the I/O board's ROM, `epr-14869c.25`: in **`model1io.zip`** (MAME's name; the DAT lists it as a board set) or in the game's
+zip. **Steering: the left stick; accelerator R2 and brake L2, as far as you press them; shift up / down R1 / L1; the four
+view buttons Square, Triangle, Circle, Cross** (the new **Driving** layout, Auto's choice for Daytona USA). See
+[Daytona USA](#daytona-usa-sega-model-2). Also in 2.3:
+
+- **Buttons 7 and 8** in the controls (Settings, CONTROLS: Button 1 to 8, Coin, Start; `btn_7`, `btn_8` in
+  `fbneo-ps5.ini` and the `.btn` files, nothing until set), and the **Driving** layout. A game's pedal on L2 or R2 is
+  pressed as far as the trigger is; any other button on it is still a button.
+- FBNeo's MultiPCM is upstream's with its state fix (`565c0d153`), and can now run two chips.
+- **Not yet run on a PS5:** Daytona USA was played on the test machine only (Status, above).
 
 **2.2:** **Killer Instinct and Killer Instinct 2** (Rare / Midway, 1994 and 1995; `kinst`, `kinst14`, `kinst13`,
 `kinstp47`, `kinst15ai`, `kinst2`, `kinst213`, `kinst211`, `kinst210`, `kinst214ai`), taken from upstream FBNeo (its
@@ -459,6 +484,40 @@ Killer Instinct and Killer Instinct 2 boot from a hard disk. FBNeo PS5 2.2 reads
   drive; the `.diff` keeps the game's writes between sessions, states save and load, and the CHD stays unchanged. Not
   yet tried on a console: a CHD on a USB drive or a network share, and a raw `.img`.
 
+## Daytona USA (Sega Model 2)
+
+Daytona USA (2.3) is the original Model 2 board's game, as MAME emulates it (`model2o`, MAME commit `b7f483f`):
+
+- **Sets:** `daytona` (Revision A, the parent), `daytonase` (Special Edition), `daytona93` (the first version, 1993),
+  `daytonas` (with Saturn advertisements), each MAME's ROMs with the same names and CRCs. **The Model 1 I/O board's
+  ROM** `epr-14869c.25` (64 KB) goes in **`model1io.zip`** next to the game (MAME's name for it; FBNeo PS5's DAT lists
+  `model1io` as a board set, like `neogeo`), or in the game's own zip: it is found by its CRC either way. Missing, the
+  game doesn't start and says which ROM and where it was looked for. The drive board's and the link board's ROMs are
+  listed as optional (those boards are not emulated).
+- **Controls (the Driving layout):** steering on the **left stick**; **R2 accelerator, L2 brake**, as far as the
+  trigger is pressed; **R1 shift up, L1 shift down** (the 4-speed gearbox: neutral, then 1 to 4); **Square, Triangle,
+  Circle, Cross the four view buttons** (VR1 red, VR2 blue, VR3 yellow, VR4 green); touchpad Coin, OPTIONS Start. The
+  pause menu's **Service** and **Test** reach the game's own test menu (its settings: difficulty, the cabinet, the
+  country...). The layout can be changed as for any game (Custom: any of the eight buttons anywhere; a pedal on a
+  digital button is all or nothing).
+- **One cabinet:** the link board is not emulated, so the game's **Link ID** is kept at **Single**: a set whose saved
+  settings say Master or Slave (a linked cabinet, which waits for the others at NETWORK CHECKING) has it set back to
+  Single as it starts, the settings' checksum made again; on the very first start (no saved settings yet) the game
+  starts once more right after it has written its factory settings, which say Master. MAME stops at NETWORK CHECKING
+  instead, until the test menu says Single.
+- **Not emulated:** the drive board (the wheel's force feedback: the game writes to it and reads nothing back), the
+  link board, the lamps and coin counters.
+- **Saves:** the game's settings and records are in the I/O board's EEPROM (`/data/fbneo/saves/daytona.nv`) and the
+  main board's backup RAM (`daytona.nvram`); save states have everything.
+- **The picture:** 496 x 384 at 57.52 Hz (the sound sets the pace, as for the other games that don't run at 60 Hz).
+- **Sound:** the game's sound program puts most of the engine and effects on the right channel and the music on both;
+  FBNeo PS5 plays them as MAME's MultiPCM does. Whether the cabinet sounds like that has not been compared with a real
+  one.
+- **Speed:** not measured on a PS5 yet. On the test machine (2 cores at 2.1 GHz) a race frame takes about 1.5 ms for
+  the i960, 0.7 to 1.4 for the TGP, 0.5 for the sound board, 0.3 for the I/O board, 0.5 for the geometrizer, 7 to 9 ms
+  for the 3D on one thread (4.5 on two), 1.7 for the tilemaps -- about 11 ms of a 17.4 ms frame with two threads. With
+  the debug logs on, `boot.log` has these numbers once a second (`model2: ms a frame ...`).
+
 ## The game shelf and covers
 
 ![The FBNeo PS5 game shelf: letter tabs, covers and the selected game](ps5/docs/shelf.jpg)
@@ -635,22 +694,25 @@ of a `.7z` set can be either. Its ROMs are found by the CRCs and names its direc
 **In a game:** the joystick is the D-pad or the left stick; **touchpad click = Coin**, **OPTIONS = Start**. The
 buttons follow the **button layout** (Settings, CONTROLS):
 
-| PS5 | Classic layout (games with up to 5 buttons) | Fighting (R1 R2) layout (6-button games: Street Fighter...) | Fighting (6 buttons) layout |
-|---|---|---|---|
-| Cross | Button 1 (Neo Geo A) | Button 4 (light kick) | Button 4 (light kick) |
-| Circle | Button 2 (Neo Geo B) | Button 5 (medium kick) | Button 5 (medium kick) |
-| Square | Button 3 (Neo Geo C) | Button 1 (light punch) | Button 1 (light punch) |
-| Triangle | Button 4 (Neo Geo D) | Button 2 (medium punch) | Button 2 (medium punch) |
-| L1 | Button 5 | -- | Button 6 (heavy kick) |
-| R1 | Button 6 | Button 3 (heavy punch) | Button 3 (heavy punch) |
-| R2 | -- | Button 6 (heavy kick) | -- |
-| touchpad click | Coin | Coin | Coin |
-| OPTIONS | Start | Start | Start |
+| PS5 | Classic layout (games with up to 5 buttons) | Fighting (R1 R2) layout (6-button games: Street Fighter...) | Fighting (6 buttons) layout | Driving layout (2.3: Daytona USA) |
+|---|---|---|---|---|
+| Cross | Button 1 (Neo Geo A) | Button 4 (light kick) | Button 4 (light kick) | Button 8 (view 4) |
+| Circle | Button 2 (Neo Geo B) | Button 5 (medium kick) | Button 5 (medium kick) | Button 7 (view 3) |
+| Square | Button 3 (Neo Geo C) | Button 1 (light punch) | Button 1 (light punch) | Button 5 (view 1) |
+| Triangle | Button 4 (Neo Geo D) | Button 2 (medium punch) | Button 2 (medium punch) | Button 6 (view 2) |
+| L1 | Button 5 | -- | Button 6 (heavy kick) | Button 4 (shift down) |
+| R1 | Button 6 | Button 3 (heavy punch) | Button 3 (heavy punch) | Button 3 (shift up) |
+| L2 | -- | -- | -- | Button 2 (brake, as far as it is pressed) |
+| R2 | -- | Button 6 (heavy kick) | -- | Button 1 (accelerator, as far as it is pressed) |
+| touchpad click | Coin | Coin | Coin | Coin |
+| OPTIONS | Start | Start | Start | Start |
 
 The **Auto** layout (the default) uses **Fighting (R1 R2)**, Capcom's own PlayStation layout (punches on Square,
 Triangle, R1; kicks on Cross, Circle, R2), for games with six buttons (since 2.0; up to 1.9 it was Fighting (6
-buttons), heavy kick on L1) and the classic one for the rest. **Fighting (6 buttons)** is still there to choose. In
-**Custom**, any arcade button can go to L2 or R2 too.
+buttons), heavy kick on L1), since 2.3 **Driving** for the games with more than six buttons whose first two are pedals
+(Daytona USA), and the classic one for the rest. **Fighting (6 buttons)** is still there to choose. In **Custom**, any
+arcade button can go to L2 or R2 too, and (2.3) Buttons 7 and 8 have rows of their own (nothing until set). A game's
+pedal on L2 or R2 is pressed as far as the trigger is; on any other button, all the way or not at all.
 L2 and R2 do nothing unless the layout gives them a game button: there are no hot keys on them. Games with analog
 controls (wheels, dials, trackballs, guns) read
 the left stick (and the right stick for a second axis or pedal).
@@ -855,6 +917,8 @@ covers, emu, menu), and the return addresses, which map into `ps5/build/app/fbne
   interpreters; not measured on a console yet. Killer Instinct's MIPS R4600 (2.2) runs at full speed on a PS5.
 - Killer Instinct 1 and 2 (2.2): run on a PS5 from the console's drive; a raw KI2 `.img` is unverified (use the CHD); a
   CHD on a network share may stutter.
+- Daytona USA (2.3): not run on a PS5 yet; one cabinet (no link play), no force feedback, no lamps. MAME's i960 is kept
+  as it is, quirks included (its `addc` never sets the carry out of the top bit).
 
 ## Building
 
@@ -869,9 +933,11 @@ make send PS5_HOST=192.168.0.10  # sends it to elfldr (port 9021)
 make dist                        # build/dist/FBNeoPS5-v<version>.elf + the release zip + the ROM DAT
 make dat                         # ps5/dat/fbneo-ps5-arcade.dat, again (after a core update or a version change)
 make app                         # only build/app/PPSA99924/, to copy by hand
-make test                        # Linux builds (app, installer, helper, headless core) + 718 host tests (ASan/UBSan)
+make test                        # Linux builds (app, installer, helper, headless core) + TESTCOUNT host tests (ASan/UBSan)
 make test-mips3                  # the MIPS III core alone, four builds (in make test)
 make test-kinst-hdd              # Killer Instinct's hard disk alone, on synthetic CHDs (in make test)
+make test-cpus                   # 2.3: the i960KB and MB86234 cores against MAME's own (in make test)
+make test-model2-video           # 2.3: Model 2's renderer on synthetic polygons, golden picture (in make test)
 ```
 
 The first build compiles FBNeo's 1,039 core files (about 15 minutes on 2 cores; `make core-ps5` builds just those).
@@ -940,7 +1006,18 @@ The build has three stages:
   `make test-nfs-server` (a real unfsd), `smb-test` (a real Samba, skipped without `smbd`), `make test-tabs`, and the
   7z reader's `make test-7z` (the archives in `ps5/tests/7z/`, made by `tests/make_7z_fixtures.py`). 2.2:
   `make test-mips3` (the MIPS III core in four builds, `tests/test_mips3.cpp`) and `make test-kinst-hdd` (the hard disk
-  module and the IDE controller on CHDs `tests/make_chd.py` makes, `tests/test_kinst_hdd.cpp`).
+  module and the IDE controller on CHDs `tests/make_chd.py` makes, `tests/test_kinst_hdd.cpp`). 2.3: `make test-cpus`
+  (`tests/test_cpus.cpp`: the i960KB and the MB86234 on known-answer programs, and random programs that must end the
+  same on the port's cores and on MAME's own `i960.cpp` and `mb86233.cpp`, kept unmodified in `tests/mame_ref/` on a
+  stand-in `emu.h`) and `make test-model2-video` (`tests/test_model2_video.cpp`: MAME's rasterizer and the port's poly
+  manager on synthetic polygons, in one part, by bands and on threads, against a golden checksum).
+- **Sega Model 2** (2.3): `src/cpu/i960/` and `src/cpu/mb86233/` are MAME's interpreters (their instruction code made
+  from MAME's sources by `ps5/tools/mame_port/port_i960.py` and `port_mb86233.py`, which stop if MAME's code is not as
+  they expect), behind FBNeo-style interfaces (`src/cpu/i960_intf.cpp`, `mb86233_intf.cpp`: paged memory with MAME's
+  BURST flag per page, the FIFO stall, the halt line); `src/burn/drv/sega/model2_v.cpp` and `model2rd.ipp` are MAME's
+  geometrizer and rasterizer (`port_model2_video.py`), `model2_poly.h` what MAME's `poly.h` gives them (the primitives
+  drawn by bands of lines on the frontend's worker threads, `src/burn/burn_parallel.cpp`, `ps5/frontend/fe_pool.h`),
+  `model2_vport.cpp` their setup; `d_model2.cpp` is the board, the I/O and sound boards and the four sets.
 - **`ps5/proto/native/`**: ps5-native-app-boilerplate's tools (BlackBearReloaded, GPL-3.0), taken from PS5SX2 and
   PS5_Vulkan (mihawk-99): `ps5-native-tool`, `app_crt.cpp`, `ps5-pie.ld`, `libc_builder.cpp` and its manifests.
 - **`ps5/app/sce_sys/`**: param.json, icon and backgrounds; `ps5/tools/make_art.py` encodes the background.
@@ -970,7 +1047,12 @@ The build has three stages:
   Killer Instinct (the CHD's lookup, the shelf's notes and messages in English and German, a CHD copied while the shelf
   is open, a clone with its parent's CHD on a share, states, the `.diff` written by the periodic save, the pause menu, a
   save state and the end, set aside and put back, saving off, no thread, out of memory), 15 Midway sets under ASan,
-  the app's imports and C++ runtime, the version stamp, ShadowMount+'s folder and the helper's HTTP limits.
+  the app's imports and C++ runtime, the version stamp, ShadowMount+'s folder and the helper's HTTP limits; 2.3: the
+  Model 2 CPUs against MAME's and the renderer's golden picture, Daytona USA's four stand-in sets under ASan and UBSan
+  with a state round trip, the controls followed from the pad to the picture through stand-in programs for the I/O
+  board's Z80 and the i960 (`tests/make_model2_standin.py`: the steering, a pedal half and fully pressed, coin and
+  start), the I/O board's ROM missing or in the game's zip, the Link ID set back to Single, the DAT, and in the app the
+  Driving layout, a trigger's pressure on the accelerator, buttons 7 and 8, no worker threads allowed.
 
 ## License and credits
 
@@ -992,6 +1074,12 @@ The build has three stages:
   MAME MIPS III core by Aaron Giles"), the ADSP-2100 core and the Midway sound and IDE code come from MAME, whose parts
   by Aaron Giles are **BSD-3-Clause** (as their headers say); libchdr (Romain Tisserand, BSD-3-Clause,
   `src/dep/libs/libchdr/LICENSE.txt`) reads MAME's CHD format. They are part of FBNeo and used under its licence.
+- **Sega Model 2 from MAME** (2.3, mamedev/mame commit `b7f483f`, all **BSD-3-Clause** as their headers say): the
+  i960 core (Farfetch'd, R. Belmont), the MB86233/MB86234 core (Olivier Galibert), the Model 2 driver, geometrizer and
+  rasterizer (R. Belmont, Olivier Galibert, ElSemi, Angelo Salese, Matthew Daniels), the System 24 tilemaps (Olivier
+  Galibert), the Model 1 I/O board (Dirk Best) with the 315-5338A and the MSM6253 (AJR), the Model 1 sound board
+  (R. Belmont), the i8251 (Wilbert Pol, Miodrag Milanovic), the FIFOs (Olivier Galibert) and `poly.h` (Ville Linde,
+  Aaron Giles). The port keeps their notices in each file; it is part of FBNeo PS5 under FBNeo's licence as well.
 - **minizip** (Gilles Vollant) and **zlib** (FBNeo's copy, for the installer's unpacking too): zlib license.
 - **LZMA SDK** (Igor Pavlov, [7-zip.org/sdk.html](https://www.7-zip.org/sdk.html)), FBNeo's copy in `src/dep/libs/lib7z`
   (25.01): public domain; only its C 7z decoder is built in.

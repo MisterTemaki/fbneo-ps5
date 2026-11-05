@@ -434,10 +434,12 @@ Row SettingRowFor(int s)
 		default:
 			if (s >= S_BTN_FIRST && s <= S_BTN_LAST)
 			{
-				const int i = s - S_BTN_FIRST;
+				// (2.3: Button 1..8, Coin, Start)
+				const int i = emu::kArcadeButtonRows[s - S_BTN_FIRST];
 				const int b = emu::Controls().Button(i, GameButtons());
 				std::string label = T(emu::kArcadeButtons[i].name);
-				const std::string game = i < 6 ? emu::GameButtonName(i) : "";
+				const int gb = emu::GameButtonOf(i);
+				const std::string game = gb >= 0 ? emu::GameButtonName(gb) : "";
 				if (!game.empty())
 					label += "  (" + game + ")";
 				return {label, emu::kPs5Buttons[b].name};
@@ -521,7 +523,7 @@ void ChangeSetting(int s, int dir)
 						l.buttons[i] = l.Button(i, GameButtons());
 					l.layout = emu::kCustomLayout;
 				}
-				int& b = l.buttons[s - S_BTN_FIRST];
+				int& b = l.buttons[emu::kArcadeButtonRows[s - S_BTN_FIRST]];
 				b = emu::NextPs5Button(b, dir);
 				emu::SetControls(l);
 			}

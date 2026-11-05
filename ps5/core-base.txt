@@ -1,7 +1,10 @@
 # FBNeo PS5: the FinalBurn Neo its core is built from -- finalburnneo/FBNeo at the base commit, and the upstream commits
-# taken since (2.2: Killer Instinct 1 and 2), applied with git cherry-pick in this order, their authors kept. The port's
-# own change to the core is src/burn/burn_hdd.cpp (and d_kinst.cpp's DrvExit clearing DrvDisk); it changes no set.
-# tools/make_dat.sh names the base and the last commit taken in the ROM DAT's header.
+# taken since (2.2: Killer Instinct 1 and 2; 2.3: the MultiPCM state fix), applied with git cherry-pick in this order,
+# their authors kept. The port's own changes to the core: src/burn/burn_hdd.cpp (and d_kinst.cpp's DrvExit clearing
+# DrvDisk), 2.2; and 2.3's Sega Model 2 (Daytona USA: four sets and the model1io board set), ported from MAME at the
+# commit on the "mame" line (src/cpu/i960, src/cpu/mb86233, src/burn/drv/sega/d_model2.cpp and model2*), MultiPCM with
+# two chips (src/burn/snd/multipcm.cpp) and burn_parallel.cpp. tools/make_dat.sh names the base and the last commit
+# taken in the ROM DAT's header.
 base 658540d46c1c0efce9627667c0f9236e7b2be916 2026-10-08
 pick 0ce1ecf0a74d6ded67231774fd5326b9fa2911ad 2026-10-08 mips3: new core
 pick 58f5009c0bdb420c6725f28da30aa5f157bc4ab8 2026-10-08 new module for reading hdd
@@ -13,3 +16,5 @@ pick ef832a87e8fee6a252bd25ffb2c03851f483b850 2026-10-09 d_kinst.cpp: cleanup
 pick d870356b3dfb76508fae63144ad6e34cc192b702 2026-10-16 kinst: implement eprom waitstates
 pick 0de5c09a067a0166fde7d2927ae141d65de3c178 2026-10-17 kinst: fix sound crackling
 pick 892a35c8f7bc864adedde14949037c706178d587 2026-10-20 d_xunit.cpp: fix revx
+pick 565c0d153dcc6bc5284ea50525a446d2f21b46db 2026-10-27 multipcm: keep the slot pointers out of save states (#2838)
+mame b7f483f3a1dc08e9d32fa0e81352e00d7aeafd13 2026-11-03 mamedev/mame: Sega Model 2 (model2o daytona), i960, MB86233, the Model 1 I/O and sound boards
