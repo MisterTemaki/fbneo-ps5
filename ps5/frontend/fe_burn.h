@@ -136,6 +136,8 @@ private:
 // The host tests: writes `count` sectors from lba, filled with `fill`, as the game's IDE controller would; reads them.
 void HddTestWrite(uint32_t lba, uint32_t count, uint8_t fill);
 void HddTestRead(uint32_t lba, uint32_t count);
+// The host tests: the NVRAM areas filled with `fill`, as a game writing its NVRAM would.
+void NvramTestFill(uint8_t fill);
 #endif
 
 // The game's frame rate (nBurnFPS / 100) and the picture's shape on its monitor (4:3, or 3:4 for vertical games).
@@ -202,6 +204,13 @@ bool StateToMemory(std::vector<uint8_t>* out);
 bool StateFromMemory(const std::vector<uint8_t>& in);
 // NVRAM / memory card areas (ACB_NVRAM): read at load, written by SaveNvram (and Unload) when they changed.
 bool SaveNvram(bool force);
+// 2.3: the periodic save in halves, its file written on a thread of the caller's (fe_emu: a write and its fsync held the
+// game's thread up every 5 s, and Daytona USA changes its backup RAM all the time). NvramTake (the game's thread): the
+// file to write and where, when the NVRAM changed since the last save (false: nothing to write); NvramWriteFile (any
+// thread): writes it as SaveNvram does; NvramDone (the game's thread): the result, kept and logged as SaveNvram does.
+bool NvramTake(std::vector<uint8_t>* file, std::vector<uint8_t>* data, std::string* path);
+bool NvramWriteFile(const std::string& path, const std::vector<uint8_t>& file);
+void NvramDone(const std::string& path, const std::vector<uint8_t>& data, bool ok);
 
 // FBNeo's high score saving (hiscore.dat in the hiscore folder), from the next Load on.
 void SetHiscores(bool on);

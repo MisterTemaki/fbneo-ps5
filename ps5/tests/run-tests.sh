@@ -803,6 +803,16 @@ o=$(TMPDIR=$WORK "$HEADLESS" nvram "$SETS/mk" mk 2>"$WORK/h22.err"); rc=$?
 expect "[ $rc = 0 ] && echo '$o' | grep -q 'read back: same'" "Mortal Kombat's NVRAM: written when it changed, read back at the next start ($(echo $o | tr '\n' ' '))"
 expect "[ -s $WORK/fbneo-headless/mk.nvram ] && ! ls $WORK/fbneo-headless/*.part 2>/dev/null | grep -q ." "saves/mk.nvram written (no .part left)"
 expect "! grep -q 'AddressSanitizer' $WORK/h22.err" "no sanitizer reports"
+# 2.3: in the app, the periodic save (every 5 s when the NVRAM changed; here at frame 100, FBNEO_HOST_NVRAM_FILL) writes
+# the file on a thread of its own (the game goes on); the end of the game writes what changed since, after it
+T=$(newroot t22n)
+addset mk "$T/root/roms"
+rc=$(FBNEO_HOST_NVRAM_FILL="100:90" run "$T" "0:0;$(QUITAT 420)" "" "$T/root/roms/mk.zip")
+B=$T/root/logs/boot.log
+n1=$(grep -n 'NVRAM -> .*/saves/mk.nvram ([0-9]* bytes): ok' $B | head -1 | cut -d: -f1)
+n2=$(grep -n '\[emu\] inputs the game got' $B | head -1 | cut -d: -f1)
+expect "[ $rc = 0 ] && [ -n '$n1' ] && [ -n '$n2' ] && [ ${n1:-0} -lt ${n2:-0} ] && [ -s $T/root/saves/mk.nvram ] && ! ls $T/root/saves/*.part 2>/dev/null | grep -q ." "the periodic NVRAM save while the game runs (line ${n1:-none}, before the game's end at ${n2:-none}), no .part left"
+expect "grep -q 'slowest frame [0-9.]* ms (core [0-9.]* ms), silence refills [0-9]* ([0-9]* ms)' $B" "the periodic log line has the slowest frame and the silence refills"
 fi
 
 if want 23; then
@@ -1518,9 +1528,9 @@ expect "grep -q '\[shelf\] tab Network, Capcom, #: 1 game(s)' $T/root/logs/boot.
 nosan "$T"
 fi
 
-# ---- 2.3 (fbneo-ps5#5): favourites on the shelf (group 50: 45 and up are Daytona USA's) ------------------------------
+# ---- 2.3 (fbneo-ps5#5): favorites on the shelf (group 50: 45 and up are Daytona USA's) ------------------------------
 if want 50; then
-echo "== 50. favourites (2.3, fbneo-ps5#5): Circle adds and removes, the star, Favourites after All games, its letters, the file"
+echo "== 50. favorites (2.3, fbneo-ps5#5): Circle adds and removes, the star, Favorites after All games, its letters, the file"
 # gold pixels (the star's colour, 255 204 64) in a box of a dump: count >= $6 (or, with $6 = 0, none)
 gold50() { python3 - "$@" <<'PY'
 import sys
@@ -1546,29 +1556,29 @@ P="0:0;30:$CIRCLE;32:0;40:$DOWN;42:0;50:$CIRCLE;52:0;60:$RIGHT;62:0;70:$CIRCLE;7
 P="$P;120:$CIRCLE;122:0;130:$CIRCLE;132:0;140:$CIRCLE;142:0;150:$DOWN;152:0;160:$CIRCLE;162:0;170:$R3;172:0;180:$CROSS;182:0;$(QUITAT 280)"
 rc=$(run "$T" "$P" "25,35,45,95,125")
 B=$T/root/logs/boot.log
-F=$T/root/favourites.txt
-expect "[ $rc = 0 ] && grep -q \"$FAVS no $F yet: no favourites\" $B" "no favourites.txt at first: no favourites (logged)"
-expect "grep -q '\[shelf\] 1942: favourite; tab Internal, All games, #: 1 game(s); message: Added to favourites' $B" "Circle on 1942: a favourite, said on the screen"
-expect "[ \"\$(grep -o 'favourites.txt: [0-9]* favourite(s)' $B | grep -o '[0-9]* fav' | tr -dc '0-9\n' | tr '\n' ' ')\" = '1 2 3 2 1 0 1 ' ]" "every change written at once: 1, 2, 3 favourites, then 2, 1, 0, 1"
-expect "[ \"\$(cat $F)\" = pacman ] && [ ! -e $F.tmp ]" "favourites.txt: one set name a line (pacman, the one left), no .tmp left"
-expect "grep -q '\[shelf\] tab Internal, Favourites, P: 2 game(s)' $B" "R3 from All games: Favourites (the maker after All games), on the P favourites (Pac-Man, Ponpoko)"
-expect "grep -q '\[shelf\] tab Internal, Favourites, #: 1 game(s)' $B && [ \$(grep -c '\[shelf\] tab Internal, Favourites, P: 2 game(s)' $B) = 2 ]" "the letter tabs in Favourites: Up to # (1942), Down back to P"
-expect "grep -q '\[shelf\] pacman: not a favourite; tab Internal, Favourites, P: 1 game(s); message: Removed from favourites' $B" "Circle in Favourites takes the game out; the view goes on with the others"
-expect "grep -q '\[shelf\] ponpoko: not a favourite; tab Internal, Favourites, #: 1 game(s)' $B" "the last favourite under a letter gone: the nearest letter that has one (#)"
-expect "grep -q '\[shelf\] 1942: not a favourite; tab Internal, All games, #: 1 game(s)' $B" "the last favourite gone: back to All games"
-expect "grep -q '\[shelf\] pacman: favourite; tab Internal, All games, P: 3 game(s)' $B && grep -q 'loading .*/roms/pacman.zip' $B" "... the selection kept (Down, Circle on Pac-Man); R3, Cross starts it from Favourites"
-expect "grep -q 'shelf_family=13' $T/root/fbneo-ps5.ini" "Favourites remembered as the maker (shelf_family=13)"
-expect "gold50 $T/dump/flip00035.ppm 500 100 1420 300 60 && gold50 $T/dump/flip00035.ppm 0 870 1920 920 10" "a favourite: a star on its card and on its info line"
+F=$T/root/favorites.txt
+expect "[ $rc = 0 ] && grep -q \"$FAVS no $F yet: no favorites\" $B" "no favorites.txt at first: no favorites (logged)"
+expect "grep -q '\[shelf\] 1942: favorite; tab Internal, All games, #: 1 game(s); message: Added to favorites' $B" "Circle on 1942: a favorite, said on the screen"
+expect "[ \"\$(grep -o 'favorites.txt: [0-9]* favorite(s)' $B | grep -o '[0-9]* fav' | tr -dc '0-9\n' | tr '\n' ' ')\" = '1 2 3 2 1 0 1 ' ]" "every change written at once: 1, 2, 3 favorites, then 2, 1, 0, 1"
+expect "[ \"\$(cat $F)\" = pacman ] && [ ! -e $F.tmp ]" "favorites.txt: one set name a line (pacman, the one left), no .tmp left"
+expect "grep -q '\[shelf\] tab Internal, Favorites, P: 2 game(s)' $B" "R3 from All games: Favorites (the maker after All games), on the P favorites (Pac-Man, Ponpoko)"
+expect "grep -q '\[shelf\] tab Internal, Favorites, #: 1 game(s)' $B && [ \$(grep -c '\[shelf\] tab Internal, Favorites, P: 2 game(s)' $B) = 2 ]" "the letter tabs in Favorites: Up to # (1942), Down back to P"
+expect "grep -q '\[shelf\] pacman: not a favorite; tab Internal, Favorites, P: 1 game(s); message: Removed from favorites' $B" "Circle in Favorites takes the game out; the view goes on with the others"
+expect "grep -q '\[shelf\] ponpoko: not a favorite; tab Internal, Favorites, #: 1 game(s)' $B" "the last favorite under a letter gone: the nearest letter that has one (#)"
+expect "grep -q '\[shelf\] 1942: not a favorite; tab Internal, All games, #: 1 game(s)' $B" "the last favorite gone: back to All games"
+expect "grep -q '\[shelf\] pacman: favorite; tab Internal, All games, P: 3 game(s)' $B && grep -q 'loading .*/roms/pacman.zip' $B" "... the selection kept (Down, Circle on Pac-Man); R3, Cross starts it from Favorites"
+expect "grep -q 'shelf_family=13' $T/root/fbneo-ps5.ini" "Favorites remembered as the maker (shelf_family=13)"
+expect "gold50 $T/dump/flip00035.ppm 500 100 1420 300 60 && gold50 $T/dump/flip00035.ppm 0 870 1920 920 10" "a favorite: a star on its card and on its info line"
 expect "gold50 $T/dump/flip00025.ppm 0 0 1920 1080 0 && gold50 $T/dump/flip00045.ppm 0 0 1920 1080 0" "no star on a game that isn't one"
 expect "toast50 $T/dump/flip00035.ppm && toast50 $T/dump/flip00125.ppm && ! toast50 $T/dump/flip00025.ppm" "the message box over the shelf (added, removed), none before"
-expect "grep -q '\[shelf\] hint (size 3): .*Play.*Favourite.*Browse.*Quit\$' $B" "the hint line names Circle (Favourite), whole, at 2.2's size (closer together)"
+expect "grep -q '\[shelf\] hint (size 3): .*Play.*Favorite.*Browse.*Quit\$' $B" "the hint line names Circle (Favorite), whole, at 2.2's size (closer together)"
 nosan "$T"
-shot50 "$T/dump/flip00035.ppm" 221-shelf-favourite.png
-shot50 "$T/dump/flip00095.ppm" 221-favourites-view.png
+shot50 "$T/dump/flip00035.ppm" 221-shelf-favorite.png
+shot50 "$T/dump/flip00095.ppm" 221-favorites-view.png
 shot50 "$T/dump/flip00125.ppm" 221-removed.png
-# b. after a restart: read back, Favourites shown as it was left
+# b. after a restart: read back, Favorites shown as it was left
 rc=$(run "$T" "0:0;$(SHELFQUIT_AT 40)" "30")
-expect "[ $rc = 0 ] && grep -q \"$FAVS $F: 1 favourite(s)\" $B && grep -q '\[shelf\] tab Internal: 4 game(s) (Favourites, P: 1)' $B" "after a restart: favourites.txt read, the shelf opens on Favourites"
+expect "[ $rc = 0 ] && grep -q \"$FAVS $F: 1 favorite(s)\" $B && grep -q '\[shelf\] tab Internal: 4 game(s) (Favorites, P: 1)' $B" "after a restart: favorites.txt read, the shelf opens on Favorites"
 expect "gold50 $T/dump/flip00030.ppm 500 100 1420 300 60" "... its game starred"
 nosan "$T"
 # c. one list for every storage tab (a USB stand-in folder), names of sets that aren't there kept
@@ -1577,48 +1587,48 @@ U=$T/usb
 mkdir -p "$U"
 addset ponpoko "$T/root/roms"
 addset pacman "$U"
-printf 'mslugx\npacman\n' >"$T/root/favourites.txt"
+printf 'mslugx\npacman\n' >"$T/root/favorites.txt"
 echo "shelf_family=13" >>"$T/root/fbneo-ps5.ini"
 rc=$(FBNEO_HOST_USB_ROOT=$U run "$T" "0:0;30:$R1;32:0;40:$CIRCLE;42:0;50:$CIRCLE;52:0;60:$L1;62:0;70:$CIRCLE;72:0;$(SHELFQUIT_AT 90)" "")
 B=$T/root/logs/boot.log
-F=$T/root/favourites.txt
-expect "[ $rc = 0 ] && grep -q '\[shelf\] tab Internal: 1 game(s) (All games, P: 1)' $B && grep -q '\[shelf\] tab USB: 2 game(s) (Favourites, P: 1)' $B" "Internal has no favourite (All games); on USB, Pac-Man is one (Favourites)"
-expect "grep -q '\[shelf\] pacman: not a favourite; tab USB, All games, P: 2 game(s)' $B && grep -q '\[shelf\] pacman: favourite; tab USB, All games, P: 2 game(s)' $B" "the USB tab's last favourite taken out (All games), and back"
-expect "grep -q '\[shelf\] ponpoko: favourite; tab Internal, All games, P: 1 game(s)' $B" "Ponpoko on Internal added"
+F=$T/root/favorites.txt
+expect "[ $rc = 0 ] && grep -q '\[shelf\] tab Internal: 1 game(s) (All games, P: 1)' $B && grep -q '\[shelf\] tab USB: 2 game(s) (Favorites, P: 1)' $B" "Internal has no favorite (All games); on USB, Pac-Man is one (Favorites)"
+expect "grep -q '\[shelf\] pacman: not a favorite; tab USB, All games, P: 2 game(s)' $B && grep -q '\[shelf\] pacman: favorite; tab USB, All games, P: 2 game(s)' $B" "the USB tab's last favorite taken out (All games), and back"
+expect "grep -q '\[shelf\] ponpoko: favorite; tab Internal, All games, P: 1 game(s)' $B" "Ponpoko on Internal added"
 expect "[ \"\$(cat $F | tr '\n' ' ')\" = 'mslugx pacman ponpoko ' ]" "one file for every tab; mslugx (no such set here) kept, in its place"
 nosan "$T"
-# the sets change drives: their favourites follow them
+# the sets change drives: their favorites follow them
 mv "$T/root/roms/ponpoko.zip" "$U/"
 mv "$U/pacman.zip" "$U/puckman.zip" "$T/root/roms/"
 echo "shelf_family=13" >>"$T/root/fbneo-ps5.ini"
 rc=$(FBNEO_HOST_USB_ROOT=$U run "$T" "0:0;30:$R1;32:0;$(SHELFQUIT_AT 50)" "")
-expect "[ $rc = 0 ] && grep -q '\[shelf\] tab Internal: 2 game(s) (Favourites, P: 1)' $B && grep -q '\[shelf\] tab USB: 1 game(s) (Favourites, P: 1)' $B" "Pac-Man now on Internal, Ponpoko on USB: still favourites, on their new tabs"
+expect "[ $rc = 0 ] && grep -q '\[shelf\] tab Internal: 2 game(s) (Favorites, P: 1)' $B && grep -q '\[shelf\] tab USB: 1 game(s) (Favorites, P: 1)' $B" "Pac-Man now on Internal, Ponpoko on USB: still favorites, on their new tabs"
 nosan "$T"
 # d. the file written whole and renamed over the old one; one that can't be written stays as it was, and says so
 T=$(newroot t50c)
 addset ponpoko "$T/root/roms"
-F=$T/root/favourites.txt
+F=$T/root/favorites.txt
 printf 'pacman\n' >"$F"
 ino=$(stat -c %i "$F")
 mkdir "$F.tmp"
 rc=$(run "$T" "0:0;30:$CIRCLE;32:0;$(SHELFQUIT_AT 50)" "")
 B=$T/root/logs/boot.log
-expect "[ $rc = 0 ] && grep -q \"$FAVS can't write $F.tmp\" $B && grep -q 'message: Could not save the favourites.' $B && [ \"\$(cat $F)\" = pacman ] && [ \$(stat -c %i $F) = $ino ]" "the .tmp can't be made: favourites.txt untouched, the screen says so"
+expect "[ $rc = 0 ] && grep -q \"$FAVS can't write $F.tmp\" $B && grep -q 'message: Could not save the favorites.' $B && [ \"\$(cat $F)\" = pacman ] && [ \$(stat -c %i $F) = $ino ]" "the .tmp can't be made: favorites.txt untouched, the screen says so"
 rmdir "$F.tmp"
 rc=$(run "$T" "0:0;30:$CIRCLE;32:0;$(SHELFQUIT_AT 50)" "")
-expect "[ $rc = 0 ] && [ \"\$(cat $F | tr '\n' ' ')\" = 'pacman ponpoko ' ] && [ \$(stat -c %i $F) != $ino ] && [ ! -e $F.tmp ]" "written to favourites.txt.tmp, then renamed over it (a new file), no .tmp left"
+expect "[ $rc = 0 ] && [ \"\$(cat $F | tr '\n' ' ')\" = 'pacman ponpoko ' ] && [ \$(stat -c %i $F) != $ino ] && [ ! -e $F.tmp ]" "written to favorites.txt.tmp, then renamed over it (a new file), no .tmp left"
 nosan "$T"
 rm -f "$F" && mkdir "$F"
 rc=$(run "$T" "0:0;30:$CIRCLE;32:0;$(SHELFQUIT_AT 50)" "")
-expect "[ $rc = 0 ] && grep -q \"$FAVS read error in $F: 0 favourite(s) read\" $B && grep -q \"$FAVS $F was not read whole: not written\" $B && grep -q 'message: Could not save the favourites.' $B && [ -d $F ]" "a favourites.txt that can't be read: no favourites (logged), not written, the shelf goes on"
+expect "[ $rc = 0 ] && grep -q \"$FAVS read error in $F: 0 favorite(s) read\" $B && grep -q \"$FAVS $F was not read whole: not written\" $B && grep -q 'message: Could not save the favorites.' $B && [ -d $F ]" "a favorites.txt that can't be read: no favorites (logged), not written, the shelf goes on"
 nosan "$T"
 # (2.3 review) a read error in the middle of the file: what was read is shown, and Circle doesn't write the part read
 # over the player's list (it says the change wasn't saved)
 rmdir "$F" && printf 'pacman\nponpoko\n1942\n' >"$F"
 rc=$(FBNEO_HOST_FAVS_EIO=1 run "$T" "0:0;30:$CIRCLE;32:0;$(SHELFQUIT_AT 50)" "")
-expect "[ $rc = 0 ] && grep -q \"$FAVS read error in $F: 1 favourite(s) read, and the file is left as it is\" $B && grep -q 'message: Could not save the favourites.' $B && [ \"\$(cat $F | tr '\n' ' ')\" = 'pacman ponpoko 1942 ' ]" "a read error mid-file: Circle doesn't overwrite the list with the part read"
+expect "[ $rc = 0 ] && grep -q \"$FAVS read error in $F: 1 favorite(s) read, and the file is left as it is\" $B && grep -q 'message: Could not save the favorites.' $B && [ \"\$(cat $F | tr '\n' ' ')\" = 'pacman ponpoko 1942 ' ]" "a read error mid-file: Circle doesn't overwrite the list with the part read"
 nosan "$T"
-# e. German: the message, the hint, the Favourites tab translated
+# e. German: the message, the hint, the Favorites tab translated
 T=$(newroot t50de)
 echo "language=4" >>"$T/root/fbneo-ps5.ini"
 addset ponpoko "$T/root/roms"
@@ -1627,7 +1637,7 @@ rc=$(FBNEO_HOST_I18N_MISSING=$T/missing.txt run "$T" "0:0;30:$CIRCLE;32:0;40:$R3
 B=$T/root/logs/boot.log
 expect "[ $rc = 0 ] && grep -q 'message: Zu den Favoriten hinzugefügt' $B && grep -q 'message: Aus den Favoriten entfernt' $B" "German: Zu den Favoriten hinzugefügt / Aus den Favoriten entfernt"
 expect "grep -q '\[shelf\] hint (size [23]): .*Spielen.*Favorit.*Blättern.*Beenden\$' $B" "German: the hint line names Circle (Favorit), whole"
-expect "grep -q '\[shelf\] tab Internal, Favourites, P: 1 game(s)' $B && ! grep -qi 'favou' $T/missing.txt 2>/dev/null" "German: Favourites (Favoriten) translated wherever it shows"
+expect "grep -q '\[shelf\] tab Internal, Favorites, P: 1 game(s)' $B && ! grep -qi 'favori' $T/missing.txt 2>/dev/null" "German: Favorites (Favoriten) translated wherever it shows"
 nosan "$T"
 shot50 "$T/dump/flip00050.ppm" 221-de-favoriten.png
 fi

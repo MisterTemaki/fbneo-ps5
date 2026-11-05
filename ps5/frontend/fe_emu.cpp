@@ -257,6 +257,10 @@ struct State
 	int16_t prev_l = 0, prev_r = 0;
 	std::vector<int16_t> out;
 	std::vector<int16_t> silence; // the zeros that refill a dry ring
+	// 2.3: for the log -- the refills (each an audible gap: the game ran late), the slowest frames since the last line
+	uint64_t refills = 0, refill_frames = 0;
+	double slowest_ms = 0, slowest_core_ms = 0, last_frame_at = 0;
+	bool audio_fresh = true; // the game just started or came back from the pause menu: its refill is not a gap
 
 	// pads: the layout in use (PS5 button bit of each arcade button)
 	unsigned map[emu::kArcadeButtonCount] = {};
@@ -294,6 +298,14 @@ struct State
 
 	// saves
 	double next_nvram_check = 0;
+	// 2.3: the periodic NVRAM save's file written on a thread of its own (burn::NvramTake / NvramDone)
+	ps5::BigThread nv_writer;
+	std::atomic<bool> nv_busy{false};
+	std::atomic<bool> nv_result{false};
+	std::vector<uint8_t> nv_file, nv_data;
+	std::string nv_path;
+	bool nv_threads = true; // false once a thread was refused: written on the game's thread
+	double nv_started = 0;
 
 	// 2.2: the hard disk's changes (Killer Instinct writes its audits and settings to its disk): every 5 s while they
 	// change, the game's thread takes them and a thread of their own writes them (the game goes on meanwhile); the
@@ -698,12 +710,22 @@ void FlushAudio()
 		return;
 	g.in.assign(s, s + size_t(frames) * 2);
 	int queued = ps5audio::Queued();
+	const bool fresh = g.audio_fresh;
+	g.audio_fresh = false;
 	if (queued < kTargetQueued / 4)
 	{
 		// the ring ran (nearly) dry: a game just started, or came back from a menu, or the frame was late. Fill
 		// it with silence up to the target at once; the rate control alone (0.5%) would take ~10 s to get there.
 		g.silence.assign(size_t(kTargetQueued - queued) * 2, 0);
 		ps5audio::Push(g.silence.data(), kTargetQueued - queued);
+		if (!fresh)
+		{
+			g.refills++;
+			g.refill_frames += uint64_t(kTargetQueued - queued);
+			if (g.refills <= 20)
+				OrbisLog("[emu] audio: %d ms left queued at frame %llu: %d ms of silence added (a gap: the game ran late)",
+					queued * 1000 / ps5audio::kRate, (unsigned long long)g.frames, (kTargetQueued - queued) * 1000 / ps5audio::kRate);
+		}
 		queued = kTargetQueued;
 	}
 	double adj = double(kTargetQueued - queued) / kTargetQueued;
@@ -835,6 +857,54 @@ bool HddFlushNow(const char* when, bool clear)
 	return ok;
 }
 
+// 2.3: the periodic NVRAM writer's result, once it is done (wait: join it first)
+void NvCollect(bool wait)
+{
+	if (!g.nv_writer.joinable() || (!wait && g.nv_busy.load()))
+		return;
+	g.nv_writer.join();
+	burn::NvramDone(g.nv_path, g.nv_data, g.nv_result.load());
+	const double ms = (Now() - g.nv_started) * 1000.0;
+	if (ms >= 50.0)
+		OrbisLog("[emu] NVRAM: the periodic write took %.0f ms (on its own thread: the game went on)", ms);
+}
+
+// every 5 s: when the NVRAM changed, the game's thread takes it and a thread of its own writes the file (its fsync can
+// take a while), the game going on; one save at a time; burn::Unload writes what is left at the end, after it
+void NvPeriodic()
+{
+	NvCollect(false);
+	if (g.nv_writer.joinable())
+		return;
+	if (!burn::NvramTake(&g.nv_file, &g.nv_data, &g.nv_path))
+		return;
+	g.nv_started = Now();
+	if (g.nv_threads)
+	{
+		g.nv_busy = true;
+		g.nv_writer = ps5::BigThread(
+			[] {
+				bool ok = false;
+				try
+				{
+					ok = burn::NvramWriteFile(g.nv_path, g.nv_file);
+				}
+				catch (const std::bad_alloc&)
+				{
+				}
+				g.nv_result = ok;
+				g.nv_busy = false;
+			},
+			256 * 1024);
+		if (g.nv_writer.joinable())
+			return;
+		g.nv_busy = false;
+		g.nv_threads = false;
+		OrbisLog("[emu] NVRAM: no thread for the periodic save (the system refused it): written on the game's thread");
+	}
+	burn::NvramDone(g.nv_path, g.nv_data, burn::NvramWriteFile(g.nv_path, g.nv_file));
+}
+
 // every 5 s while there are changes (the host tests: FBNEO_HOST_HDD_PERIOD_S)
 double HddPeriod()
 {
@@ -900,6 +970,19 @@ void HddPeriodic(double now)
 // the game's IDE controller writing / reading sectors at those frames (the stand-in ROMs run no game code that would)
 void HostDiskWrites()
 {
+	// (2.3: FBNEO_HOST_NVRAM_FILL="<frame>:<fill>;...": the NVRAM changed at those frames)
+	if (const char* r = getenv("FBNEO_HOST_NVRAM_FILL"))
+		for (const char* p = r; *p;)
+		{
+			unsigned long long frame = 0;
+			unsigned fill = 0;
+			if (sscanf(p, "%llu:%u", &frame, &fill) == 2 && frame == g.frames)
+				burn::NvramTestFill(uint8_t(fill));
+			const char* semi = strchr(p, ';');
+			if (!semi)
+				break;
+			p = semi + 1;
+		}
 	if (!burn::HasDisk())
 		return;
 	if (const char* r = getenv("FBNEO_HOST_HDD_READS"))
@@ -1146,6 +1229,9 @@ bool LoadGame(const std::string& path, std::string* error)
 	g.frac = 0;
 	g.prev_l = g.prev_r = 0;
 	g.frames = 0;
+	g.refills = g.refill_frames = 0;
+	g.slowest_ms = g.slowest_core_ms = g.last_frame_at = 0;
+	g.audio_fresh = true;
 	g.fps_frames = 0;
 	g.fps_since = Now();
 	g.next_stats = Now() + 1.0;
@@ -1177,6 +1263,7 @@ void CloseGame()
 	FBNEO_STAGE(Emu, "close game");
 	OrbisLog("[emu] inputs the game got: %s", burn::InputReport().c_str());
 	HddFlushNow("game's end", false); // the periodic writer done first, then the hard disk's changes
+	NvCollect(true); // the periodic NVRAM writer done first: Unload writes what changed since
 	burn::Unload(); // writes the NVRAM (and the core its EEPROM and high scores)
 	g.loaded = false;
 	g.frame.clear();
@@ -1220,6 +1307,8 @@ void Resume()
 	}
 	ps5video::InvalidateFrame();
 	g.new_frame = true;
+	g.last_frame_at = 0; // (the time in the pause menu is not a slow frame)
+	g.audio_fresh = true;
 }
 
 void Osd(const std::string& text)
@@ -1507,12 +1596,17 @@ FrameResult RunFrame()
 #ifndef __PROSPERO__
 	// the host tests (FBNEO_HOST_FRAME_LOG=N): how long the core's frame takes, for the first N frames
 	static const long frame_log = getenv("FBNEO_HOST_FRAME_LOG") ? atol(getenv("FBNEO_HOST_FRAME_LOG")) : 0;
-	const double t_core = frame_log ? Now() : 0;
 #endif
+	const double t_core = Now();
 	burn::RunFrame(in, true);
+	const double core_ms = (Now() - t_core) * 1000.0;
+	g.slowest_core_ms = std::max(g.slowest_core_ms, core_ms);
+	if (g.last_frame_at > 0)
+		g.slowest_ms = std::max(g.slowest_ms, (t_core - g.last_frame_at) * 1000.0);
+	g.last_frame_at = t_core;
 #ifndef __PROSPERO__
 	if (frame_log && g.frames < uint64_t(frame_log))
-		OrbisLog("[emu] frame %llu: core %.2f ms", (unsigned long long)g.frames, (Now() - t_core) * 1000.0);
+		OrbisLog("[emu] frame %llu: core %.2f ms", (unsigned long long)g.frames, core_ms);
 #endif
 #ifndef __PROSPERO__
 	HostDiskWrites();
@@ -1568,8 +1662,9 @@ FrameResult RunFrame()
 	if (now >= g.next_nvram_check)
 	{
 		g.next_nvram_check = now + 5.0;
-		burn::SaveNvram(false);
+		NvPeriodic();
 	}
+	NvCollect(false); // (the periodic NVRAM writer's result, when it is done)
 	HddPeriodic(now);
 	if (g.frames % 60 == 0)
 		WatchDiskReads();
@@ -1578,9 +1673,12 @@ FrameResult RunFrame()
 		g.stats_reports++;
 		g.next_stats = now + (g.stats_reports < 3 ? 5.0 : 60.0);
 		const double shader_ms = ps5video::TakeShaderMs();
-		OrbisLog("[emu] frame %llu, %.1f fps, audio queued %d (%.0f ms), underruns %llu, shader %.1f ms",
+		OrbisLog("[emu] frame %llu, %.1f fps, audio queued %d (%.0f ms), underruns %llu, shader %.1f ms; slowest frame "
+				 "%.1f ms (core %.1f ms), silence refills %llu (%.0f ms)",
 			(unsigned long long)g.frames, g.fps_shown, ps5audio::Queued(), ps5audio::Queued() * 1000.0 / ps5audio::kRate,
-			(unsigned long long)ps5audio::Underruns(), shader_ms);
+			(unsigned long long)ps5audio::Underruns(), shader_ms, g.slowest_ms, g.slowest_core_ms,
+			(unsigned long long)g.refills, g.refill_frames * 1000.0 / ps5audio::kRate);
+		g.slowest_ms = g.slowest_core_ms = 0;
 	}
 	return FrameResult::Continue;
 }

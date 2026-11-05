@@ -1,4 +1,4 @@
-// FBNeo PS5 frontend: the favourite games (fe_favs.h).
+// FBNeo PS5 frontend: the favorite games (fe_favs.h).
 // SPDX-License-Identifier: MIT
 
 #include "fe_favs.h"
@@ -68,14 +68,14 @@ bool Save()
 		OrbisLog("[favs] can't save %s (disk full?)", path.c_str());
 		return false;
 	}
-	OrbisLog("[favs] saved %s: %d favourite(s)", path.c_str(), int(g_sets.size()));
+	OrbisLog("[favs] saved %s: %d favorite(s)", path.c_str(), int(g_sets.size()));
 	return true;
 }
 } // namespace
 
 std::string Path()
 {
-	return OrbisRoot() + "/favourites.txt";
+	return OrbisRoot() + "/favorites.txt";
 }
 
 void Load()
@@ -89,11 +89,11 @@ void Load()
 	if (!f)
 	{
 		if (errno == ENOENT)
-			OrbisLog("[favs] no %s yet: no favourites", Path().c_str());
+			OrbisLog("[favs] no %s yet: no favorites", Path().c_str());
 		else
 		{
 			g_read_failed = true;
-			OrbisLog("[favs] can't read %s (%s): no favourites, and the file is left as it is", Path().c_str(),
+			OrbisLog("[favs] can't read %s (%s): no favorites, and the file is left as it is", Path().c_str(),
 				strerror(errno));
 		}
 		return;
@@ -124,10 +124,10 @@ void Load()
 	fclose(f);
 	g_read_failed = err;
 	if (err)
-		OrbisLog("[favs] read error in %s: %d favourite(s) read, and the file is left as it is", Path().c_str(),
+		OrbisLog("[favs] read error in %s: %d favorite(s) read, and the file is left as it is", Path().c_str(),
 			int(g_sets.size()));
 	else
-		OrbisLog("[favs] %s: %d favourite(s)", Path().c_str(), int(g_sets.size()));
+		OrbisLog("[favs] %s: %d favorite(s)", Path().c_str(), int(g_sets.size()));
 }
 
 bool Has(const std::string& set)

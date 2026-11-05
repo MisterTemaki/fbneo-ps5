@@ -37,7 +37,7 @@ const SystemInfo kSystems[size_t(System::Count)] = {
 
 const char* const kFamilyNames[size_t(Family::Count)] = {
 	"All games", "Capcom", "Neo Geo", "Sega", "Konami", "Taito", "Toaplan, Cave, Psikyo", "Data East", "Irem",
-	"Midway", "IGS", "Classics", "Other", "Favourites",
+	"Midway", "IGS", "Classics", "Other", "Favorites",
 };
 
 std::string Lower(std::string s)

@@ -44,12 +44,12 @@ switches, states, NVRAM, the picture turned the right way up and the sound.
 > **Status (2.3):** **Daytona USA (new in 2.3) ran on a PS5** from a first 2.3 test build: full speed (about 57.3 of
 > its 57.5 frames a second, 8.5 ms a frame, no sound underruns), but with the race music missing, a voice repeating,
 > "Gentlemen, start your engines" never heard and the game in Japanese. Those are fixed in this build (the sound
-> board's serial link; the country set to USA on the first start) and checked on the test machine (Linux, a 2-core
+> board's serial link; the country set to USA at every start) and checked on the test machine (Linux, a 2-core
 > 2.1 GHz Xeon) with a real set -- the attract mode with its 3D, a coin, Start, the circuit and transmission choices, a
 > race steered with the stick, the sound commands all received once and in order, the music and the voices played,
-> save states replayed exactly, the game's own TGP and memory tests GOOD -- not yet again on a PS5. The favourites
+> save states replayed exactly, the game's own TGP and memory tests GOOD -- not yet again on a PS5. The favorites
 > (new in 2.3) have run only in the host tests. The 2.3 build passes 798 host tests
-> (2.2's 718, the new CPU, renderer, Daytona USA stand-in, controls and favourites tests included) and the app's import
+> (2.2's 718, the new CPU, renderer, Daytona USA stand-in, controls and favorites tests included) and the app's import
 > and system-call checks. Everything else is as 2.2 had it:
 >
 > **Status (2.2):** builds with the ps5-payload-dev SDK into a signed native app, and passes 718 host tests, which
@@ -112,16 +112,18 @@ view buttons Square, Triangle, Circle, Cross** (the new **Driving** layout, Auto
   `fbneo-ps5.ini` and the `.btn` files, nothing until set), and the **Driving** layout. A game's pedal on L2 or R2 is
   pressed as far as the trigger is; any other button on it is still a button.
 - FBNeo's MultiPCM is upstream's with its state fix (`565c0d153`), and can now run two chips.
-- **Favourites** (thanks to dsb2020, fbneo-ps5#5), as FB Neo had them on the PS4: on the shelf, **Circle**
-  adds the selected game to your favourites ("Added to favourites"), and Circle again takes it out ("Removed from
-  favourites"). A favourite's card and its line on the shelf wear a gold star. **L3 / R3** then show **Favourites** right
-  after "All games": only your favourite games of the storage tab, with the letter tabs as for any maker. Favourites
+- **Favorites** (thanks to dsb2020, fbneo-ps5#5), as FB Neo had them on the PS4: on the shelf, **Circle**
+  adds the selected game to your favorites ("Added to favorites"), and Circle again takes it out ("Removed from
+  favorites"). A favorite's card and its line on the shelf wear a gold star. **L3 / R3** then show **Favorites** right
+  after "All games": only your favorite games of the storage tab, with the letter tabs as for any maker. Favorites
   shows only while the tab has at least one; taking the last one out while you look at them goes back to All games, on
-  the same game. The list is `/data/fbneo/favourites.txt`, one set name a line (a clone is its own entry), the same for
-  every storage tab: a set moved from USB to the internal drive stays a favourite, and so does one whose zip isn't there
+  the same game. The list is `/data/fbneo/favorites.txt`, one set name a line (a clone is its own entry), the same for
+  every storage tab: a set moved from USB to the internal drive stays a favorite, and so does one whose zip isn't there
   today.
+- The NVRAM's periodic save (every 5 seconds while it changes; Daytona USA's backup RAM changes all the time) writes
+  its file on a thread of its own: the game no longer waits for the write and its flush to the console's storage.
 - **On a PS5:** a first 2.3 test build of Daytona USA ran at full speed; its sound and language problems are fixed
-  since, on the test machine only (Status, above). The favourites have run only in the host tests.
+  since, on the test machine only (Status, above). The favorites have run only in the host tests.
 
 **2.2:** **Killer Instinct and Killer Instinct 2** (Rare / Midway, 1994 and 1995; `kinst`, `kinst14`, `kinst13`,
 `kinstp47`, `kinst15ai`, `kinst2`, `kinst213`, `kinst211`, `kinst210`, `kinst214ai`), taken from upstream FBNeo (its
@@ -417,7 +419,7 @@ every set found (`[games] ... -> "<name>"`) and the ROMs a set is missing (`[gam
 |---|---|
 | `/data/fbneo/roms` | your ROM sets and BIOS sets (`.zip` or `.7z`), sub-folders included; on a USB drive, `fbneo/roms` |
 | `/data/fbneo/shares.txt` | the network shares (Settings, Network shares; written with examples on the first start) |
-| `/data/fbneo/saves` | NVRAM (`<set>.nvram`, written within 5 seconds of a change and when the game closes), EEPROMs (`<set>.nv`), and Killer Instinct's hard disk changes (`<set>.diff`, and `.diff.<id>` set aside: see below) |
+| `/data/fbneo/saves` | NVRAM (`<set>.nvram`, written within 5 seconds of a change, on a thread of its own, and when the game closes), EEPROMs (`<set>.nv`), and Killer Instinct's hard disk changes (`<set>.diff`, and `.diff.<id>` set aside: see below) |
 | `/data/fbneo/states` | save states, `<set>.state1` to `.state10` |
 | `/data/fbneo/config` | the DIP switches you changed, per game (`<set>.dip`), the button layouts and players set in a game (`<set>.btn`), and `romcheck.txt` (the ROM check, of the console's sets and the shares') |
 | `/data/fbneo/samples` | sample sets |
@@ -426,7 +428,7 @@ every set found (`[games] ... -> "<name>"`) and the ROMs a set is missing (`[gam
 | `/data/fbneo/covers` | covers: downloaded ones in `covers/FBNeo/`, your own as `<set>.png`; `wanted.txt` |
 | `/data/fbneo/logs` | `boot.log` (the app), `installer.log` (installer/helper), `helper.log` (the helper the app starts), and the previous session's `.prev.log` files |
 | `/data/fbneo/fbneo-ps5.ini` | the menu settings |
-| `/data/fbneo/favourites.txt` | your favourite games (2.3): one set name a line (Circle on the shelf) |
+| `/data/fbneo/favorites.txt` | your favorite games (2.3): one set name a line (Circle on the shelf) |
 
 ### The home-screen app
 
@@ -561,13 +563,13 @@ wordmark: **github.com/MisterTemaki**.
   Classics (the 70s and 80s: Pac-Man, Galaxian and their kind) and Other; the letter tabs then show that maker's
   games (the letter is kept when the maker has games under it, else the nearest one). The shelf remembers the
   maker and the letter (and starts on the last game played).
-- **Favourites (2.3):** **Circle** adds the selected game to your favourites, or takes it out (a short message
-  says which: "Added to favourites", "Removed from favourites"); a favourite's card and its line show a gold star.
-  "Favourites" is then the first maker after "All games" (L3 / R3): the storage tab's favourite games, by letter as
+- **Favorites (2.3):** **Circle** adds the selected game to your favorites, or takes it out (a short message
+  says which: "Added to favorites", "Removed from favorites"); a favorite's card and its line show a gold star.
+  "Favorites" is then the first maker after "All games" (L3 / R3): the storage tab's favorite games, by letter as
   for any maker, shown while the tab has one (take the last one out there and the shelf goes back to All games, on
-  the same game). The shelf remembers it like the other makers. The list is `/data/fbneo/favourites.txt`: a set's
+  the same game). The shelf remembers it like the other makers. The list is `/data/fbneo/favorites.txt`: a set's
   name a line (`sf2ce`; a clone is its own entry), shared by the storage tabs (the same set on USB and on the internal
-  drive is one favourite), written whole on each change (a `.tmp`, then renamed over the old one). Names of sets you
+  drive is one favorite), written whole on each change (a `.tmp`, then renamed over the old one). Names of sets you
   don't have are kept; you can edit the file by hand while FBNeo PS5 is closed.
 - **Clones:** the other versions of a game (other regions, revisions, bootlegs) are listed after it; Settings,
   **Show clones**, hides them (a clone still shows when its parent isn't listed, so no game disappears).
@@ -715,9 +717,9 @@ of a `.7z` set can be either. Its ROMs are found by the CRCs and names its direc
 | Up / Down | previous / next letter tab (#, A-Z) |
 | L1 / R1 | previous / next storage tab (Internal, USB, Network); up to 2.0 they skipped 10 games |
 | L2 / R2 | skip 10 games; up to 2.0 they changed the maker |
-| L3 / R3 (the sticks pressed) | previous / next maker (All games, Favourites, Capcom, Neo Geo, ...) |
+| L3 / R3 (the sticks pressed) | previous / next maker (All games, Favorites, Capcom, Neo Geo, ...) |
 | Cross | play |
-| Circle | add the game to the favourites, or take it out (2.3) |
+| Circle | add the game to the favorites, or take it out (2.3) |
 | Triangle | settings |
 | Square | download this game's cover again (the cover it has stays until the new one has arrived); on the Network tab: scan the shares again |
 | OPTIONS | quit FBNeo PS5 (asks first) |
@@ -926,7 +928,10 @@ plus the previous session's `.prev.log` files. They record every step:
 - the sets found, their names and boards, and the ROMs a set is missing;
 - the core's own messages (`[burn] ...`, `[core] ...`): the driver started, its screen, frame rate and buttons,
   ROMs found with another CRC, NVRAM and DIP switches;
-- frames per second, queued audio and underruns, and the shader's time per frame, every minute in a game.
+- frames per second, queued audio and underruns, and the shader's time per frame, every minute in a game; since 2.3
+  also the slowest frame of that minute (and the core's part of it) and the **silence refills**: when the game runs
+  late the queued sound runs low, and the app then adds silence at once (`[emu] audio: ... ms of silence added`, the
+  first 20 logged), heard as a short gap.
 
 If the app dies on a signal (the PS5's "Game or App Error" screen), a `== CRASH ==` block is written at the end of
 `boot.log`: the signal, the address, the **stage** each part of the program was in (`stage[...]`: boot, shelf,
@@ -1011,7 +1016,7 @@ The build has three stages:
   - `fe_emu.cpp`: the running game on the PS5 -- pads and button layouts, pacing, the resampler,
     the picture and its overlays;
   - `fe_games.cpp`: the library (sets, parents, BIOS sets, the ROM check and its cache, the tabs);
-  - `fe_favs.cpp` (2.3): the favourites (`favourites.txt`);
+  - `fe_favs.cpp` (2.3): the favorites (`favorites.txt`);
   - `fe_shelf.cpp`, `fe_covers.cpp`, `fe_prefetch.cpp`, `fe_http.cpp`: the 3D shelf and covers;
   - `fe_coverworker.cpp`, `fe_coverfetch.cpp`: the helper's background downloads, and the fetch code the app and
     the helper share;

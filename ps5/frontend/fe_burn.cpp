@@ -2178,4 +2178,43 @@ bool SaveNvram(bool force)
 	Log("[burn] NVRAM -> %s (%zu bytes): %s", NvramPath().c_str(), s.data.size(), ok ? "ok" : "failed");
 	return ok;
 }
+
+bool NvramTake(std::vector<uint8_t>* file, std::vector<uint8_t>* data, std::string* path)
+{
+	if (!g.loaded)
+		return false;
+	Scan s;
+	DoScan(ACB_NVRAM | ACB_READ, ReadAcb, &s);
+	if (s.lens.empty() || s.data == g.nvram_last || !Pack(kMagicNvram, s, file))
+		return false;
+	*data = std::move(s.data);
+	*path = NvramPath();
+	return true;
+}
+
+#ifndef __PROSPERO__
+void NvramTestFill(uint8_t fill)
+{
+	static uint8_t value;
+	value = fill;
+	BurnAcb = [](struct BurnArea* ba) -> INT32 {
+		if (ba->Data && ba->nLen)
+			memset(ba->Data, value, ba->nLen);
+		return 0;
+	};
+	BurnAreaScan(ACB_NVRAM | ACB_WRITE, nullptr);
+}
+#endif
+
+bool NvramWriteFile(const std::string& path, const std::vector<uint8_t>& file)
+{
+	return WriteAtomic(path, file);
+}
+
+void NvramDone(const std::string& path, const std::vector<uint8_t>& data, bool ok)
+{
+	if (ok)
+		g.nvram_last = data; // (failed: written again at the next check, or by SaveNvram at the end)
+	Log("[burn] NVRAM -> %s (%zu bytes): %s", path.c_str(), data.size(), ok ? "ok" : "failed");
+}
 } // namespace burn

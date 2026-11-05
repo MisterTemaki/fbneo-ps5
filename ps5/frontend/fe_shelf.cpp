@@ -588,7 +588,7 @@ std::shared_ptr<CoverTex> LoadingCard()
 	return card;
 }
 
-// The tabs that have games: "All games" first, then "Favourites" when one of the games is (2.3, fbneo-ps5#5), then
+// The tabs that have games: "All games" first, then "Favorites" when one of the games is (2.3, fbneo-ps5#5), then
 // each family present in the library.
 std::vector<Family> Tabs(const std::vector<GameInfo>& all)
 {
@@ -596,7 +596,7 @@ std::vector<Family> Tabs(const std::vector<GameInfo>& all)
 	for (const GameInfo& g : all)
 		if (favs::Has(g.file_base))
 		{
-			tabs.push_back(Family::Favourites);
+			tabs.push_back(Family::Favorites);
 			break;
 		}
 	for (int f = 1; f < int(Family::Count); f++)
@@ -615,7 +615,7 @@ std::vector<GameInfo> InFamily(const std::vector<GameInfo>& all, Family f)
 		return all;
 	std::vector<GameInfo> out;
 	for (const GameInfo& g : all)
-		if (f == Family::Favourites ? favs::Has(g.file_base) : g.family == f)
+		if (f == Family::Favorites ? favs::Has(g.file_base) : g.family == f)
 			out.push_back(g);
 	return out;
 }
@@ -787,11 +787,11 @@ void LoadingProgress(const char* text, float fraction)
 	}
 	ps5video::Present(0, 0, 0, 0, true);
 }
-// 2.3: the star of a favourite (PromptFont's U+2605), and its colour
+// 2.3: the star of a favorite (PromptFont's U+2605), and its colour
 constexpr const char* kStar = "\xE2\x98\x85";
 const uint32_t kStarColor = Rgb(255, 204, 64);
 
-// The star on a favourite's card: a dark disc with a gold ring, the star in it, centred on (cx, cy).
+// The star on a favorite's card: a dark disc with a gold ring, the star in it, centred on (cx, cy).
 void DrawStarBadge(int cx, int cy)
 {
 	constexpr int r = 34;
@@ -809,7 +809,7 @@ void DrawStarBadge(int cx, int cy)
 	DrawText(cx - TextWidth(kStar, 5) / 2, cy - 29, kStar, 5, kStarColor);
 }
 
-// A short message over the shelf ("Added to favourites"), in a box above the game's name.
+// A short message over the shelf ("Added to favorites"), in a box above the game's name.
 void DrawToast(const char* text)
 {
 	const std::string fit = FitText(text, 3, W - 300);
@@ -832,7 +832,7 @@ std::string Shelf()
 	FBNEO_STAGE(Shelf, "pool");
 	Pool pool;
 
-	favs::Load(); // 2.3: the favourites, read the first time the shelf opens
+	favs::Load(); // 2.3: the favorites, read the first time the shelf opens
 	FBNEO_STAGE(Shelf, "scan games");
 	Loading("Looking for games...");
 	std::vector<std::string> net_seen = netfs_mount_points(); // taken first: a share that connects during the scan is seen below
@@ -991,7 +991,7 @@ std::string Shelf()
 	bool dirty = true;
 	double next_net = Now() + 0.5;
 	int last_status = -1;
-	std::string toast; // 2.3: a short message over the shelf ("Added to favourites"), English (T() when drawn)
+	std::string toast; // 2.3: a short message over the shelf ("Added to favorites"), English (T() when drawn)
 	double toast_until = 0;
 	std::string hint_logged; // the hint line as last logged
 
@@ -1142,19 +1142,19 @@ std::string Shelf()
 		}
 		if ((down & SCE_PAD_BUTTON_CIRCLE) && n > 0)
 		{
-			// 2.3 (fbneo-ps5#5): Circle adds the game to the favourites, or takes it out of them. A favourite is a set's
+			// 2.3 (fbneo-ps5#5): Circle adds the game to the favorites, or takes it out of them. A favorite is a set's
 			// name, so the same set on another storage tab is one too.
 			const std::string path = st.games[size_t(sel)].path, set = st.games[size_t(sel)].file_base;
 			bool saved = false;
 			const bool fav = favs::Toggle(set, &saved);
-			toast = !saved ? "Could not save the favourites." : fav ? "Added to favourites" : "Removed from favourites";
+			toast = !saved ? "Could not save the favorites." : fav ? "Added to favorites" : "Removed from favorites";
 			toast_until = now + 2.0;
 			std::string keep = path;
-			const bool viewing_favs = ftabs[size_t(tab)] == Family::Favourites;
+			const bool viewing_favs = ftabs[size_t(tab)] == Family::Favorites;
 			if (viewing_favs && !fav)
 			{
-				// the game leaves the Favourites view: the selection goes to the next favourite under this letter (the one
-				// before at its end, else the nearest letter's); with no favourite left on this storage tab, back to All
+				// the game leaves the Favorites view: the selection goes to the next favorite under this letter (the one
+				// before at its end, else the nearest letter's); with no favorite left on this storage tab, back to All
 				// games, on the same game
 				bool left = false;
 				for (const GameInfo& h : in_family)
@@ -1173,13 +1173,13 @@ std::string Shelf()
 				}
 			}
 			else
-				cfg.shelf_family = int(ftabs[size_t(tab)]); // the maker shown stays shown (Favourites may come or go)
+				cfg.shelf_family = int(ftabs[size_t(tab)]); // the maker shown stays shown (Favorites may come or go)
 			const float was_at = pos;
 			Fill(keep, 0, false);
 			if (!viewing_favs)
 				pos = was_at; // the same games: a glide under way goes on
 			OrbisLog("[shelf] %s: %s; tab %s, %s, %c: %d game(s); message: %s", set.c_str(),
-				fav ? "favourite" : "not a favourite", tabs::Name(stab), FamilyName(ftabs[size_t(tab)]), st.letter ? st.letter : '-',
+				fav ? "favorite" : "not a favorite", tabs::Name(stab), FamilyName(ftabs[size_t(tab)]), st.letter ? st.letter : '-',
 				n, T(toast.c_str()));
 			dirty = true;
 		}
@@ -1368,7 +1368,7 @@ std::string Shelf()
 				frames = 0;
 			}
 		}
-		// 2.3: a favourite's card (the one in the middle) wears a star in its top left corner (the no-cover card's arcade
+		// 2.3: a favorite's card (the one in the middle) wears a star in its top left corner (the no-cover card's arcade
 		// panel is in the right one)
 		for (const Placed& p : placed)
 			if (std::abs(p.d) < 0.5f && favs::Has(st.games[size_t(p.index)].file_base))
@@ -1443,7 +1443,7 @@ std::string Shelf()
 				sub += std::string("   ") + T("no cover");
 			if (favs::Has(g.file_base))
 			{
-				// 2.3: a favourite's line starts with a gold star
+				// 2.3: a favorite's line starts with a gold star
 				const int sw = TextWidth(kStar, 3) + 16;
 				const std::string fit = FitText(sub, 3, W - 200 - sw);
 				const int x = (W - sw - TextWidth(fit.c_str(), 3)) / 2;
@@ -1533,7 +1533,7 @@ std::string Shelf()
 			const std::string square = std::string(icon::Square) + " " + T(stab == tabs::Network ? "Scan again" : "Get cover") + sp;
 			const std::string maker = std::string(icon::L3) + " " + icon::R3 + " " + T("Maker") + sp;
 			return n > 0
-				? std::string(icon::Cross) + " " + T("Play") + sp + icon::Circle + " " + T("Favourite") + sp + icon::DpadLeftRight +
+				? std::string(icon::Cross) + " " + T("Play") + sp + icon::Circle + " " + T("Favorite") + sp + icon::DpadLeftRight +
 					" " + T("Browse") + sp + icon::DpadUpDown + " " + T("Letter") + sp + maker + icon::L1 + " " + icon::R1 + " " +
 					T("Tabs") + sp + icon::L2 + " " + icon::R2 + " " + T("Skip 10") + sp + icon::Triangle + " " + T("Settings") + sp +
 					square + icon::Options + " " + T("Quit")
@@ -1541,7 +1541,7 @@ std::string Shelf()
 					icon::Triangle + " " + T("Settings") + sp + (stab == tabs::Network ? square : std::string()) + icon::Options +
 					" " + T("Quit");
 		};
-		// a long (translated) line closer together (2.3: Circle's Favourite made the English one too long), then a size
+		// a long (translated) line closer together (2.3: Circle's Favorite made the English one too long), then a size
 		// smaller, then cut
 		std::string hint = make_hint("      ");
 		int hint_scale = 3;

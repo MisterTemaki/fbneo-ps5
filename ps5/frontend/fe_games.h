@@ -44,10 +44,10 @@ enum class Family : uint8_t
 	Igs,      // PGM, PGM2
 	Classics, // the late 70s and 80s: Pac-Man, Galaxian and the rest
 	Other,
-	// 2.3 (fbneo-ps5#5): the player's favourites (fe_favs.h), the first tab after All games when the storage tab has
+	// 2.3 (fbneo-ps5#5): the player's favorites (fe_favs.h), the first tab after All games when the storage tab has
 	// any. No game is of this family (a game's family is its maker); it comes last so that the makers keep their numbers
 	// in fbneo-ps5.ini (shelf_family)
-	Favourites,
+	Favorites,
 	Count
 };
 
