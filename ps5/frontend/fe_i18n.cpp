@@ -28,6 +28,9 @@ struct Entry
 };
 
 const Entry kTable[] = {
+	{"Netplay", "Netplay", "Netplay", "Netplay", "Netplay"},
+	{"Host / Join", "Crear / Unirse", "Criar / Entrar", "Héberger / Rejoindre", "Hosten / Beitreten"},
+	{"Session / Disconnect", "Sesión / Desconectar", "Sessão / Desconectar", "Session / Déconnecter", "Sitzung / Trennen"},
 	// ---- the settings
 	{"On", "Sí", "Sim", "Oui", "Ein"},
 	{"Off", "No", "Não", "Non", "Aus"},

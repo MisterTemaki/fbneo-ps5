@@ -24,7 +24,7 @@
 PS5_PAYLOAD_SDK ?= /opt/ps5-payload-sdk
 PS5_HOST ?= ps5
 PS5_PORT ?= 9021
-VERSION ?= 2.3
+VERSION ?= 2.4.0-netplay1
 TITLE_ID ?= PPSA99924
 # where the app looks for its updates (Settings, SYSTEM, Updates): this repository's GitHub releases
 UPDATE_REPO ?= MisterTemaki/FBNeo-PS5
@@ -85,9 +85,10 @@ LIB7Z_DEFS := -DZ7_ST -DZ7_PPMD_SUPPORT -DZ7_EXTRACT_ONLY
 LIB7Z_FLAGS := $(LIB7Z_DEFS) -I$(LIB7Z) -w
 %/port/frontend/fe_7z.o: EXTRA_FLAGS = $(LIB7Z_DEFS) -isystem $(LIB7Z)
 # no global name of the decoder's objects may be defined anywhere else in the app (another LZMA SDK copy)
+# Clang ASan emits a shared common bookkeeping symbol, not a lib7z export.
 define LIB7Z_NAMES_CHECK
-	@$(1) -g --defined-only $(2) | awk 'NF==3 {print $$3}' | sort -u >$@.mine; \
-	$(1) -g --defined-only $(3) 2>/dev/null | awk 'NF==3 {print $$3}' | sort -u >$@.others; \
+	@$(1) -g --defined-only $(2) | awk 'NF==3 && $$3 != "___asan_globals_registered" {print $$3}' | sort -u >$@.mine; \
+	$(1) -g --defined-only $(3) 2>/dev/null | awk 'NF==3 && $$3 != "___asan_globals_registered" {print $$3}' | sort -u >$@.others; \
 	dup=$$(comm -12 $@.mine $@.others); rm -f $@.mine $@.others; \
 	if [ -n "$$dup" ]; then echo "lib7z: names defined twice in the app: $$dup"; exit 1; fi
 	@touch $@
@@ -99,7 +100,7 @@ EMU_SRC := coreorbis/main-boot.cpp \
 	coreorbis/orbis-shims/ProsperoVideo.cpp coreorbis/orbis-shims/ProsperoAudio.cpp \
 	coreorbis/orbis-shims/ProsperoInput.cpp coreorbis/orbis-shims/ProsperoJailbreak.cpp \
 	coreorbis/orbis-shims/ProsperoCrash.cpp coreorbis/orbis-shims/ProsperoCrt.cpp coreorbis/orbis-shims/ProsperoUpdate.cpp \
-	frontend/fe_emu.cpp frontend/fe_menu.cpp frontend/fe_settings.cpp frontend/fe_i18n.cpp frontend/fe_text.cpp \
+	frontend/fe_netplay.cpp frontend/fe_emu.cpp frontend/fe_menu.cpp frontend/fe_settings.cpp frontend/fe_i18n.cpp frontend/fe_text.cpp \
 	frontend/fe_games.cpp frontend/fe_http.cpp frontend/fe_covers.cpp frontend/fe_shelf.cpp \
 	frontend/fe_prefetch.cpp frontend/fe_coverfetch.cpp frontend/fe_coverworker.cpp \
 	frontend/fe_netscreen.cpp frontend/fe_osk.cpp frontend/fe_ui.cpp frontend/fe_7z.cpp frontend/fe_hdd.cpp frontend/fe_favs.cpp \
@@ -125,13 +126,17 @@ INFLATE_C_SRC := $(addprefix $(ROOT)/src/dep/libs/zlib/,adler32.c crc32.c inffas
 
 INCS := -Inetfs -Icoreorbis/include-orbis -Icoreorbis/orbis-shims -Ifrontend -isystem $(ROOT)/src/dep/libs/zlib
 GLUE_INCS = $(CORE_INCS) -Ifrontend -Ifrontend/third_party -Icoreorbis/include-orbis
-DEFS := -DFBNEO_PS5_VERSION='"$(VERSION)"' -DFBNEO_CORE_VERSION='"$(CORE_VERSION)"' -DFBNEO_TITLE_ID='"$(TITLE_ID)"' -DFBNEO_UPDATE_REPO='"$(UPDATE_REPO)"'
+NETPLAY_BUILD_ID := $(shell python3 tools/netplay_build_id.py)
+ifeq ($(strip $(NETPLAY_BUILD_ID)),)
+$(error Could not compute the netplay build identity)
+endif
+DEFS := -DFBNEO_NETPLAY_BUILD_ID='"$(NETPLAY_BUILD_ID)"' -DFBNEO_PS5_VERSION='"$(VERSION)"' -DFBNEO_CORE_VERSION='"$(CORE_VERSION)"' -DFBNEO_TITLE_ID='"$(TITLE_ID)"' -DFBNEO_UPDATE_REPO='"$(UPDATE_REPO)"'
 # 2.2 (Snes9x PS5 2.10's): every object built with DEFS depends on this file, which changes only when one of those values
 # changes. Up to 2.1 a new VERSION (or TITLE_ID, UPDATE_REPO) rebuilt nothing: a release built over an earlier build kept
 # the old version in the eboot and the payloads (the version the app tells the helper, the installer's notification, the
 # shelf's line). The file is written while the Makefile is read (by make -n too), only when its text differs ...
 DEFS_STAMP := build/defs.stamp
-DEFS_TEXT := $(VERSION) $(TITLE_ID) $(UPDATE_REPO) $(CORE_VERSION)
+DEFS_TEXT := $(VERSION) $(TITLE_ID) $(UPDATE_REPO) $(CORE_VERSION) $(NETPLAY_BUILD_ID)
 ifneq ($(shell cat $(DEFS_STAMP) 2>/dev/null),$(DEFS_TEXT))
 $(shell mkdir -p build && printf '%s\n' '$(DEFS_TEXT)' >$(DEFS_STAMP))
 endif
@@ -672,3 +677,14 @@ include tests/smb/smb.mk
 
 .PHONY: ps5 core-ps5 core-host host headless dat test test-nfs test-nfs-server test-tabs test-crt-pool test-pacing test-7z test-mips3 test-kinst-hdd test-cpus test-model2-video send app dist clean
 .SECONDARY:
+
+.PHONY: test-netplay
+build/host/test_netplay: tests/test_netplay.cpp frontend/fe_netplay.cpp frontend/fe_netplay.h
+	@mkdir -p $(@D)
+	$(HOST_CXX) -std=c++17 -O1 -g $(HOST_SAN) -Wall -Wextra -Werror -Ifrontend tests/test_netplay.cpp frontend/fe_netplay.cpp -o $@
+test-netplay: build/host/test_netplay
+	ASAN_OPTIONS=detect_leaks=1 $<
+
+.PHONY: test-netplay-frontend
+test-netplay-frontend: build/host/fbneo-ps5-host build/host/fbneo_headless
+	python3 tests/test_netplay_frontend.py

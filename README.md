@@ -1,5 +1,7 @@
 # FBNeo PS5
 
+> **Netplay development build:** two-console Host/Join and rollback are available from the pause menu. See [netplay setup and limits](ps5/NETPLAY.md). Hardware testing on two PS5 consoles is still required.
+
 > **The title ID is now PPSA99924** (it was PPSA99012 up to 1.8, which another app in the homebrew catalog uses). From 1.9 on the app installs in `/data/homebrew/PPSA99924/`; our old version under `/data/homebrew/PPSA99012/` stays as a separate icon until you delete it (check that the folder is ours first), and your games, saves and settings are kept. Replace the old ELF in your autoload. See [New title ID](#new-title-id-ppsa99924).
 
 [![FBNeo for PS5](ps5/docs/banner.jpg)](ps5/app/sce_sys/background-source.png)

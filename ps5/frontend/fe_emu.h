@@ -8,6 +8,7 @@
 #pragma once
 
 #include "fe_burn.h"
+#include "fe_netplay.h"
 
 #include <string>
 #include <vector>
@@ -131,6 +132,14 @@ enum class FrameResult
 // match); the others are paced by the sound. The one hot key: L3 + R3 opens the pause menu (states, DIP switches,
 // the machine's service button and test switch...); L2 and R2 are buttons like the others (1.7).
 FrameResult RunFrame();
+
+// Two-console netplay: host is player 1, guest is player 2; start with the same game loaded.
+bool NetplayHost(uint16_t port);
+bool NetplayJoin(const std::string& ipv4, uint16_t port);
+void NetplayStop();
+void NetplayPoll();
+bool NetplayActive();
+const netplay::Status& NetplayStatus();
 
 void Pause(); // nothing runs between frames; kept for the menus' symmetry
 void Resume();

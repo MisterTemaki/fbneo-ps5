@@ -156,6 +156,10 @@ void Settings::Load()
 			show_incomplete = n != 0;
 		else if (key == "language")
 			language = Clamp(n, 0, 4);
+		else if (key == "netplay_address")
+			netplay_address = std::string(val).substr(0, 15);
+		else if (key == "netplay_port")
+			netplay_port = Clamp(n, 1, 65535);
 		else if (key == "debug_logs")
 			debug_logs = n != 0;
 		else if (key == "shelf_family")
@@ -201,6 +205,8 @@ void Settings::Save() const
 	fprintf(f, "show_clones=%d\n", show_clones ? 1 : 0);
 	fprintf(f, "show_incomplete=%d\n", show_incomplete ? 1 : 0);
 	fprintf(f, "language=%d\n", language);
+	fprintf(f, "netplay_address=%s\n", netplay_address.c_str());
+	fprintf(f, "netplay_port=%d\n", netplay_port);
 	fprintf(f, "debug_logs=%d\n", debug_logs ? 1 : 0);
 	fprintf(f, "shelf_family=%d\n", shelf_family);
 	fprintf(f, "shelf_letter=%s\n", shelf_letter.c_str());

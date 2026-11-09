@@ -6,6 +6,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "fe_menu.h"
+#include "fe_osk.h"
 
 #include "fe_emu.h"
 #include "fe_games.h"
@@ -122,6 +123,7 @@ private:
 
 void Present()
 {
+	emu::NetplayPoll();
 	ps5video::Present(0, 0, 0, 0, true);
 }
 
@@ -1054,6 +1056,70 @@ void SettingsMenu()
 	SettingsScreen(false);
 }
 
+void NetplayMenu()
+{
+	NavReader nav;
+	auto& cfg = Config();
+	int selection = 0;
+	std::string notice;
+	for (;;)
+	{
+		const auto& status = emu::NetplayStatus();
+		const bool active = emu::NetplayActive();
+		std::string phase;
+		switch (status.phase)
+		{
+			case netplay::Phase::Listening: phase = "Waiting for player 2"; break;
+			case netplay::Phase::Connecting: phase = "Connecting"; break;
+			case netplay::Phase::Synchronizing: phase = "Synchronizing game state"; break;
+			case netplay::Phase::Playing: phase = status.host ? "Connected: Player 1" : "Connected: Player 2"; break;
+			default: phase = "Offline"; break;
+		}
+		std::vector<Row> rows = {
+			{"Status", phase},
+			{"Host IPv4 address", cfg.netplay_address.empty() ? "Enter host IP" : cfg.netplay_address, !active},
+			{"TCP port", std::to_string(cfg.netplay_port), !active},
+			{"Host a game (Player 1)", "", !active && emu::GameLoaded()},
+			{"Join a game (Player 2)", "", !active && emu::GameLoaded()},
+			{"Disconnect", "", active},
+			{"Back", ""}
+		};
+		Background(emu::GameLoaded());
+		DrawOptionBox("Netplay", rows, selection, emu::GameLoaded());
+		std::string message = !status.error.empty() ? status.error : notice;
+		if (message.empty()) message = "Load the same game on both consoles. Both players must resume to play.";
+		auto lines = Wrap(message, 2, W - 180);
+		int y = H - 110;
+		for (const auto& line : lines) { if (y < H - 35) DrawText(90, y, line.c_str(), 2, kAccent); y += 30; }
+		Present();
+		const auto input = nav.Read();
+		if (input.up || input.down) selection = Step(selection, input.up ? -1 : 1, rows);
+		if (input.back || input.options || input.menu || (input.ok && selection == 6)) { cfg.Save(); return; }
+		if (!input.ok || !rows[size_t(selection)].enabled) continue;
+		if (selection == 1)
+		{ EditText("Host IPv4 address", cfg.netplay_address, false, 15); nav = NavReader(); }
+		else if (selection == 2)
+		{
+			std::string value = std::to_string(cfg.netplay_port);
+			if (EditText("TCP port (1-65535)", value, false, 5))
+			{
+				char* end = nullptr; long port = strtol(value.c_str(), &end, 10);
+				if (!value.empty() && end && !*end && port > 0 && port <= 65535) cfg.netplay_port = int(port);
+			}
+			nav = NavReader();
+		}
+		else if (selection == 3 || selection == 4)
+		{
+			const bool ok = selection == 3 ? emu::NetplayHost(uint16_t(cfg.netplay_port)) :
+				emu::NetplayJoin(cfg.netplay_address, uint16_t(cfg.netplay_port));
+			notice = ok ? "Resume on both consoles after connecting. Controller 1 is your online controller." :
+				"Could not start. Use the same build and a game with reversible states (no hard disk).";
+			cfg.Save();
+		}
+		else if (selection == 5) { emu::NetplayStop(); notice = "Disconnected. Your offline game state was restored."; }
+	}
+}
+
 PauseAction PauseMenu()
 {
 	Settings& cfg = Config();
@@ -1068,6 +1134,7 @@ PauseAction PauseMenu()
 		I_PLAYERS,
 		I_SERVICE,
 		I_TEST,
+		I_NETPLAY,
 		I_SETTINGS,
 		I_RESET,
 		I_POWER,
@@ -1094,11 +1161,14 @@ PauseAction PauseMenu()
 		rows[I_PLAYERS] = {"Choose players", ""};
 		rows[I_SERVICE] = {"Service button", ""};
 		rows[I_TEST] = {"Test switch (the machine's own menu)", ""};
+		rows[I_NETPLAY] = {"Netplay", emu::NetplayActive() ? "Session / Disconnect" : "Host / Join"};
 		rows[I_SETTINGS] = {"Settings", ""};
 		rows[I_RESET] = {"Reset", ""};
 		rows[I_POWER] = {"Power cycle", ""};
 		rows[I_LIST] = {"Back to the game list", ""};
 		rows[I_QUIT] = {"Quit FBNeo PS5", ""};
+		if (emu::NetplayActive())
+			for (int item : {I_SAVE, I_LOAD, I_SLOT, I_DIPS, I_PLAYERS, I_SERVICE, I_TEST, I_SETTINGS, I_RESET, I_POWER}) rows[size_t(item)].enabled = false;
 
 		Background(true);
 		const std::string sys = emu::SystemName();
@@ -1122,12 +1192,12 @@ PauseAction PauseMenu()
 		if (n.back || n.options || n.menu)
 			return PauseAction::Resume;
 
-		if (sel == I_SLOT && (n.left || n.right || n.ok))
+		if (sel == I_SLOT && rows[I_SLOT].enabled && (n.left || n.right || n.ok))
 		{
 			cfg.state_slot = n.left ? (cfg.state_slot + 8) % 10 + 1 : cfg.state_slot % 10 + 1;
 			cfg.Save();
 		}
-		else if (n.ok)
+		else if (n.ok && rows[size_t(sel)].enabled)
 		{
 			switch (sel)
 			{
@@ -1161,6 +1231,8 @@ PauseAction PauseMenu()
 				case I_TEST:
 					emu::PressTest();
 					return PauseAction::Resume;
+				case I_NETPLAY:
+					NetplayMenu(); nav = NavReader(); break;
 				case I_SETTINGS:
 					SettingsScreen(true);
 					nav = NavReader();

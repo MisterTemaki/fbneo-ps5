@@ -52,6 +52,50 @@
 
 static_assert(emu::kPads == fe::Settings::kPads && emu::kPads == ps5input::kMaxPads, "one setting per controller");
 
+#include "ProsperoUpdate.h"
+
+namespace
+{
+netplay::State g_netplay_offline;
+bool g_netplay_armed = false;
+bool g_netplay_restore_failed = false;
+netplay::Pad EncodeNetPad(const burn::PlayerInput& p)
+{
+	netplay::Pad out = {};
+	unsigned bits = unsigned(p.up) | unsigned(p.down) << 1 | unsigned(p.left) << 2 | unsigned(p.right) << 3;
+	for (int i = 0; i < 8; ++i) bits |= unsigned(p.button[i]) << (4 + i);
+	bits |= unsigned(p.coin) << 12 | unsigned(p.start) << 13;
+	out[0] = uint8_t(bits >> 8); out[1] = uint8_t(bits);
+	out[2] = uint8_t(p.stick_x); out[3] = uint8_t(p.stick_y);
+	out[4] = uint8_t(p.stick2_x); out[5] = uint8_t(p.stick2_y);
+	for (int i = 0; i < 8; ++i) out[6 + i] = p.pressure[i];
+	return out;
+}
+burn::PlayerInput DecodeNetPad(const netplay::Pad& in)
+{
+	burn::PlayerInput p;
+	const unsigned bits = unsigned(in[0]) << 8 | in[1];
+	p.up = bits & 1; p.down = bits & 2; p.left = bits & 4; p.right = bits & 8;
+	for (int i = 0; i < 8; ++i) p.button[i] = bits & (1u << (4 + i));
+	p.coin = bits & (1u << 12); p.start = bits & (1u << 13);
+	p.stick_x = int8_t(in[2]); p.stick_y = int8_t(in[3]); p.stick2_x = int8_t(in[4]); p.stick2_y = int8_t(in[5]);
+	for (int i = 0; i < 8; ++i) p.pressure[i] = in[6 + i];
+	return p;
+}
+netplay::Session g_netplay({
+	[](netplay::State& out) { return burn::RollbackSave(&out); },
+	[](const netplay::State& in) { return burn::RollbackLoad(in); },
+	[](const netplay::Pad& a, const netplay::Pad& b, bool) {
+		burn::Input in; in.player[0] = DecodeNetPad(a); in.player[1] = DecodeNetPad(b);
+		// Render emulated frames on replays too: some drivers use drawing for palette/cache work.
+		// Only the final picture and audio reach the frontend presentation/audio queues.
+		burn::RunFrame(in, true);
+	}
+});
+std::string g_netplay_error;
+netplay::Phase g_last_netplay_phase = netplay::Phase::Off;
+}
+
 namespace emu
 {
 const Choice kAspects[] = {
@@ -666,7 +710,8 @@ burn::Input ReadPads()
 	// buttons, coin and start. Each player has one controller at most (fe::FixPadPlayers).
 	for (int c = 0; c < ps5input::kMaxPads && c < emu::kPads; c++)
 	{
-		const int p = g.pad_player[c];
+		if (g_netplay_armed && c != 0) continue;
+		const int p = g_netplay_armed ? 0 : g.pad_player[c];
 		if (p < 0 || p >= burn::kMaxPlayers)
 			continue;
 		const ps5input::PadState s = ps5input::Snapshot(c);
@@ -1374,7 +1419,7 @@ void DeinitCore()
 void ApplySettings()
 {
 	const fe::Settings& s = fe::Config();
-	burn::SetHiscores(s.hiscores);
+	burn::SetHiscores(s.hiscores && !g_netplay_armed && !g_netplay_restore_failed);
 	if (g.loaded)
 		ApplyLayout();
 }
@@ -1484,6 +1529,7 @@ bool LoadGame(const std::string& path, std::string* error)
 
 void CloseGame()
 {
+	NetplayStop();
 	if (!g.loaded)
 		return;
 	FBNEO_STAGE(Emu, "close game");
@@ -1496,6 +1542,8 @@ void CloseGame()
 	HddFlushNow("game's end", false); // the periodic writer done first, then the hard disk's changes
 	NvCollect(true); // the periodic NVRAM writer done first: Unload writes what changed since
 	burn::Unload(); // writes the NVRAM (and the core its EEPROM and high scores)
+	burn::NetplayPersistence(false);
+	g_netplay_restore_failed = false;
 	g.loaded = false;
 	g.frame.clear();
 	netfs_set_realtime(false);
@@ -1524,12 +1572,14 @@ std::string SystemName()
 
 void Pause()
 {
+	g_netplay.Pause(true);
 	PictureIdle();
 	HddFlushNow("pause menu", true); // the hard disk's changes, at once
 }
 
 void Resume()
 {
+	g_netplay.Pause(false);
 	ApplySettings();
 	g.wait_release = 0xf;
 	if (g.players_changed)
@@ -1543,6 +1593,84 @@ void Resume()
 	g.audio_fresh = true;
 }
 
+
+bool NetplayActive() { return g_netplay_armed; }
+const netplay::Status& NetplayStatus() { return g_netplay.GetStatus(); }
+void NetplayStop()
+{
+	g_netplay.Stop(); // free the rollback ring before restoring the offline state
+	if (!g_netplay_armed) { netplay::State().swap(g_netplay_offline); return; }
+	bool restored = false;
+	try { restored = burn::RollbackLoad(g_netplay_offline); } catch (const std::bad_alloc&) {}
+	if (!restored)
+	{
+		g_netplay_restore_failed = true;
+		// Keep persistence disabled if restoration failed: do not overwrite local saves.
+		g_netplay_error = "Offline state restore failed. Close and reopen the game.";
+		OrbisLog("[netplay] offline state restore failed");
+	}
+	else
+	{
+		burn::NetplayPersistence(false);
+		OrbisLog("[netplay] disconnected; offline state restored (frame %u, %llu rollback(s))", g_netplay.GetStatus().frame, (unsigned long long)g_netplay.GetStatus().rollbacks);
+		burn::SetHiscores(fe::Config().hiscores);
+	}
+	netplay::State().swap(g_netplay_offline); g_netplay_armed = false;
+	g.audio_fresh = true; g.last_frame_at = 0;
+}
+void NetplayPoll()
+{
+	if (!g_netplay_armed) return;
+	g_netplay.Poll();
+	if (g_last_netplay_phase != g_netplay.GetStatus().phase)
+	{
+		g_last_netplay_phase = g_netplay.GetStatus().phase;
+		if (g_last_netplay_phase == netplay::Phase::Playing)
+			OrbisLog("[netplay] connected: Player %d, state synchronized", g_netplay.GetStatus().host ? 1 : 2);
+	}
+	if (g_netplay.GetStatus().phase == netplay::Phase::Failed)
+	{
+		g_netplay_error = g_netplay.GetStatus().error;
+		OrbisLog("[netplay] %s", g_netplay_error.c_str());
+		NetplayStop(); Osd(g_netplay_error);
+	}
+}
+static bool StartNetplay(bool host, const std::string& address, uint16_t port)
+{
+	if (!g.loaded || g_netplay_armed || g_netplay_restore_failed) return false;
+	g_netplay_error.clear();
+	if (burn::HasDisk() || burn::Current().players < 2)
+	{ g_netplay_error = "Netplay needs a multiplayer game without a hard disk."; Osd(g_netplay_error); return false; }
+	PictureIdle(); NvCollect(true);
+	try
+	{
+		if (!burn::RollbackSave(&g_netplay_offline))
+		{ g_netplay_error = "This game's state is unavailable or too large for netplay."; Osd(g_netplay_error); return false; }
+		g_netplay_armed = true; burn::NetplayPersistence(true);
+		// Check reversible, deterministic execution before accepting network state.
+		netplay::State start, first, second;
+		bool ok = burn::RollbackLoad(g_netplay_offline) && burn::RollbackSave(&start);
+		if (ok) { burn::RunFrame(burn::Input(), true); burn::RunFrame(burn::Input(), true); ok = burn::RollbackSave(&first); }
+		if (ok) ok = burn::RollbackLoad(start);
+		if (ok) { burn::RunFrame(burn::Input(), true); burn::RunFrame(burn::Input(), true); ok = burn::RollbackSave(&second); }
+		ok = ok && first == second;
+		if (!ok || !burn::RollbackLoad(g_netplay_offline))
+		{ g_netplay_error = "This game does not restore its state deterministically."; NetplayStop(); Osd(g_netplay_error); return false; }
+		const std::string raw = std::string(FBNEO_PS5_VERSION) + "|" + FBNEO_NETPLAY_BUILD_ID + "|" + __VERSION__ + "|" + burn::NetplayIdentity();
+		const std::string identity = update::Sha256Hex(reinterpret_cast<const uint8_t*>(raw.data()), raw.size());
+		ok = host ? g_netplay.Host(port, identity) : g_netplay.Join(address, port, identity);
+		if (!ok) { g_netplay_error = g_netplay.GetStatus().error; NetplayStop(); Osd(g_netplay_error); return false; }
+		g_netplay.Pause(true);
+		g.audio_fresh = true;
+		OrbisLog("[netplay] %s on TCP %u, same-build PS5 peers", host ? "hosting" : "joining", unsigned(port));
+		return true;
+	}
+	catch (const std::bad_alloc&)
+	{ g_netplay_error = "Not enough memory for netplay."; NetplayStop(); Osd(g_netplay_error); return false; }
+}
+bool NetplayHost(uint16_t port) { return StartNetplay(true, "", port); }
+bool NetplayJoin(const std::string& ip, uint16_t port) { return StartNetplay(false, ip, port); }
+
 void Osd(const std::string& text)
 {
 	g.osd = T(text.c_str());
@@ -1551,6 +1679,7 @@ void Osd(const std::string& text)
 
 bool SaveState(int slot)
 {
+	if (g_netplay_armed) return false;
 	if (!g.loaded)
 		return false;
 	bool ok = false;
@@ -1570,6 +1699,7 @@ bool SaveState(int slot)
 
 bool LoadState(int slot)
 {
+	if (g_netplay_armed) return false;
 	if (!g.loaded)
 		return false;
 	if (!FileExists(StatePath(slot)))
@@ -1601,6 +1731,7 @@ bool StateExists(int slot)
 
 void Reset()
 {
+	if (g_netplay_armed) return;
 	if (!g.loaded)
 		return;
 	burn::Reset();
@@ -1609,18 +1740,21 @@ void Reset()
 
 void PressService()
 {
+	if (g_netplay_armed) return;
 	g.service_frames = 15; // a quarter of a second
 	OrbisLog("[emu] service button (pause menu)");
 }
 
 void PressTest()
 {
+	if (g_netplay_armed) return;
 	g.test_frames = 15;
 	OrbisLog("[emu] test switch (pause menu)");
 }
 
 void PowerCycle()
 {
+	if (g_netplay_armed) return;
 	if (!g.loaded)
 		return;
 	const std::string path = g.path;
@@ -1640,6 +1774,7 @@ std::vector<burn::DipGroup> Dips()
 
 void SetDip(int group, int option)
 {
+	if (g_netplay_armed) return;
 	if (!g.loaded)
 		return;
 	burn::SetDip(group, option);
@@ -1649,6 +1784,7 @@ void SetDip(int group, int option)
 
 void ResetDips()
 {
+	if (g_netplay_armed) return;
 	if (!g.loaded)
 		return;
 	burn::ResetDips();
@@ -1793,6 +1929,8 @@ void RedrawLastFrame()
 
 FrameResult RunFrame()
 {
+	NetplayPoll();
+	if (g_netplay_restore_failed) return FrameResult::Stopped;
 	if (!g.loaded)
 		return FrameResult::Stopped;
 	fe::Settings& cfg = fe::Config();
@@ -1834,7 +1972,25 @@ FrameResult RunFrame()
 	static const long frame_log = getenv("FBNEO_HOST_FRAME_LOG") ? atol(getenv("FBNEO_HOST_FRAME_LOG")) : 0;
 #endif
 	const double t_core = Now();
-	burn::RunFrame(in, true);
+	if (g_netplay_armed)
+	{
+		const auto result = g_netplay.Advance(EncodeNetPad(in.player[0]));
+		if (result == netplay::Result::Ran && g_netplay.GetStatus().frame % 120 == 0)
+			OrbisLog("[netplay] frame %u, remote %u, %llu rollback(s), %llu replayed", g_netplay.GetStatus().frame, g_netplay.GetStatus().remote_next,
+				(unsigned long long)g_netplay.GetStatus().rollbacks, (unsigned long long)g_netplay.GetStatus().replayed);
+		if (result != netplay::Result::Ran)
+		{
+			NetplayPoll();
+			if (g_netplay_armed) Osd(g_netplay.GetStatus().remote_paused ? "Netplay: the other player paused." : "Netplay: waiting for the other player.");
+			PictureIdle();
+			ps5video::Rect rect = DrawLast();
+			ShowOverlays(&rect);
+			ps5video::Present(rect.x, rect.y, rect.w, rect.h, true);
+			g.audio_fresh = true; g.last_frame_at = 0;
+			return FrameResult::Continue;
+		}
+	}
+	else burn::RunFrame(in, true);
 	const double core_ms = (Now() - t_core) * 1000.0;
 	g.slowest_core_ms = std::max(g.slowest_core_ms, core_ms);
 	if (g.last_frame_at > 0)

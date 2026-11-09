@@ -1,3 +1,4 @@
+#include "fe_emu.h"
 // FBNeo PS5 frontend: what the menu screens have in common (fe_ui.h). From Snes9x PS5 (thatboialex's network
 // shares screens); fe_menu.cpp keeps its own copies of the same helpers.
 // SPDX-License-Identifier: MIT
@@ -81,6 +82,7 @@ bool NavReader::Repeat(uint32_t cur, uint32_t down, uint32_t bit, double now, in
 
 void Present()
 {
+	emu::NetplayPoll();
 	ps5video::Present(0, 0, 0, 0, true);
 }
 

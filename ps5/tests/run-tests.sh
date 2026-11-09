@@ -31,12 +31,12 @@ L2UP=$(printf %x $((0x$L2 | 0x$UP))); L2DOWN=$(printf %x $((0x$L2 | 0x$DOWN))); 
 # pause menu: L3+R3, then Up from "Resume" wraps to "Quit FBNeo PS5"
 QUITAT() { echo "$1:$L3R3;$(($1 + 2)):0;$(($1 + 10)):$UP;$(($1 + 12)):0;$(($1 + 20)):$CROSS;$(($1 + 22)):0"; }
 SHELFQUIT_AT() { echo "$1:$OPTIONS;$(($1 + 2)):0;$(($1 + 10)):$CROSS;$(($1 + 12)):0"; }
-# the pause menu (L3 + R3) from frame $1: Down x8 to Settings (2.1: Choose players after DIP switches), Cross; then Down x$2 from Shader, then $3 (Right or Cross);
+# the pause menu (L3 + R3) from frame $1: Down x9 to Settings (Netplay follows Test switch), Cross; then Down x$2 from Shader, then $3 (Right or Cross);
 # Circle (settings), Circle (resume)
 PAUSE_SETTINGS() {
 	local t=$1 p="$1:$L3R3;$(($1 + 2)):0"
 	t=$((t + 10))
-	for i in $(seq 1 8); do p="$p;$t:$DOWN;$((t + 2)):0"; t=$((t + 6)); done
+	for i in $(seq 1 9); do p="$p;$t:$DOWN;$((t + 2)):0"; t=$((t + 6)); done
 	p="$p;$t:$CROSS;$((t + 2)):0"; t=$((t + 12))
 	for i in $(seq 1 $2); do p="$p;$t:$DOWN;$((t + 2)):0"; t=$((t + 6)); done
 	p="$p;$t:$3;$((t + 2)):0;$((t + 10)):$CIRCLE;$((t + 12)):0;$((t + 20)):$CIRCLE;$((t + 22)):0"
@@ -1163,7 +1163,7 @@ for L in 1 2 3 4; do
 	pad="$pad;$f:$CIRCLE;$((f + 2)):0"; f=$((f + 10))
 	for i in $(seq 1 3); do pad="$pad;$f:$UP;$((f + 2)):0"; f=$((f + 6)); done
 	pad="$pad;$f:$CROSS;$((f + 2)):0"; f=$((f + 20))
-	for i in $(seq 1 14); do pad="$pad;$f:$DOWN;$((f + 2)):0"; f=$((f + 6)); done
+	for i in $(seq 1 15); do pad="$pad;$f:$DOWN;$((f + 2)):0"; f=$((f + 6)); done
 	pad="$pad;$f:$CROSS;$((f + 2)):0"; f=$((f + 60))
 	pad="$pad;$f:$L3R3;$((f + 2)):0"; f=$((f + 10)) # (2.1) Choose players: shown, cancelled (Circle), resume (Circle)
 	for i in $(seq 1 5); do pad="$pad;$f:$DOWN;$((f + 2)):0"; f=$((f + 6)); done
@@ -1171,7 +1171,7 @@ for L in 1 2 3 4; do
 	pad="$pad;$f:$CIRCLE;$((f + 2)):0"; f=$((f + 10))
 	pad="$pad;$f:$CIRCLE;$((f + 2)):0"; f=$((f + 30))
 	pad="$pad;$f:$L3R3;$((f + 2)):0"; f=$((f + 10))
-	for i in $(seq 1 8); do pad="$pad;$f:$DOWN;$((f + 2)):0"; f=$((f + 6)); done
+	for i in $(seq 1 9); do pad="$pad;$f:$DOWN;$((f + 2)):0"; f=$((f + 6)); done
 	pad="$pad;$f:$CROSS;$((f + 2)):0"; f=$((f + 10))
 	for i in $(seq 1 4); do pad="$pad;$f:$DOWN;$((f + 2)):0"; f=$((f + 6)); done
 	pad="$pad;$f:$CIRCLE;$((f + 2)):0;$((f + 10)):$CIRCLE;$((f + 12)):0;$(QUITAT $((f + 30)))"
@@ -1493,13 +1493,13 @@ rc=$(run "$T" "$PAD" "")
 expect "[ $rc = 0 ] && ! grep -q '^smb://\|^nfs://' $T/root/shares.txt" "an empty form is not saved (and Circle on a form with no changes leaves it at once)"
 nosan "$T"
 # d. over a game (Settings from the pause menu) the row is there but can't be chosen (the game may be reading from a
-# share): the pause menu, Down eight times to Settings; there Up six times from Shader passes Network shares and lands on
+# share): the pause menu, Down nine times to Settings; there Up six times from Shader passes Network shares and lands on
 # Show incomplete sets (Back, Updates, Debug logs, Language, BIOS sets, Show incomplete sets), which Cross switches on
 T=$(newroot t32d)
 addset ponpoko "$T/root/roms"
 pad="0:0"; f=100
 key() { pad="$pad;$f:$1;$((f + 2)):0"; f=$((f + ${2:-8})); }
-key $L3R3 12; for i in $(seq 1 8); do key $DOWN; done; key $CROSS 12
+key $L3R3 12; for i in $(seq 1 9); do key $DOWN; done; key $CROSS 12
 for i in $(seq 1 6); do key $UP; done; key $CROSS; key $CIRCLE 12; key $CIRCLE 20
 pad="$pad;$(QUITAT $f)"
 rc=$(MAXFLIPS=900 run "$T" "$pad" "" "$T/root/roms/ponpoko.zip")
@@ -1899,7 +1899,7 @@ mkset ssriders
 T=$(newroot t37a)
 addset ssriders "$T/root/roms"
 P="0:0;30:$L3R3;32:0"; t=40
-for i in $(seq 1 8); do P="$P;$t:$DOWN;$((t + 2)):0"; t=$((t + 6)); done
+for i in $(seq 1 9); do P="$P;$t:$DOWN;$((t + 2)):0"; t=$((t + 6)); done
 P="$P;$t:$CROSS;$((t + 2)):0"; t=$((t + 12))
 for i in $(seq 1 21); do P="$P;$t:$DOWN;$((t + 2)):0"; t=$((t + 6)); done
 for i in $(seq 1 5); do P="$P;$t:$RIGHT;$((t + 2)):0"; t=$((t + 8)); done

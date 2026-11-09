@@ -20,6 +20,8 @@ struct Settings
 	int volume = 100; // 0..100
 	// emulation
 	bool hiscores = true; // FBNeo's high score saving (needs hiscore.dat in /data/fbneo/hiscore)
+	std::string netplay_address;
+	int netplay_port = 55435;
 	int state_slot = 1; // 1..10
 	// controls: the button layout (emu::kLayouts: auto, classic, fighting, custom, fighting R1 R2, driving) and the
 	// custom one: the PS5 button (index in emu::kPs5Buttons) of each arcade button, in emu::kArcadeButtons' order

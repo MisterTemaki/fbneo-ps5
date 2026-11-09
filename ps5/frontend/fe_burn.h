@@ -202,6 +202,12 @@ bool LoadState(const std::string& path, std::string* error);
 // The same in memory.
 bool StateToMemory(std::vector<uint8_t>* out);
 bool StateFromMemory(const std::vector<uint8_t>& in);
+// Netplay snapshots are uncompressed, bounded, and include frontend reset/frame-rate state.
+bool RollbackSave(std::vector<uint8_t>* out);
+bool RollbackLoad(const std::vector<uint8_t>& in);
+std::string NetplayIdentity(); // actual loaded ROM CRCs and DIP bytes; no filesystem paths
+void NetplayPersistence(bool online); // suspend NVRAM and high-score writes during speculative play
+
 // NVRAM / memory card areas (ACB_NVRAM): read at load, written by SaveNvram (and Unload) when they changed.
 bool SaveNvram(bool force);
 // 2.3: the periodic save in halves, its file written on a thread of the caller's (fe_emu: a write and its fsync held the

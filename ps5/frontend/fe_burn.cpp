@@ -100,6 +100,8 @@ struct G
 	void (*log)(const char*) = nullptr;
 	std::vector<Zip> zips;
 	std::vector<RomLoc> roms;
+	std::vector<std::string> rom_hash;
+	bool netplay = false;
 	// why a .7z's ROM could not be read while the driver started (an English sentence, "" if none): Load says it
 	std::string sevenz_why;
 	// while the driver starts: the ROMs read once, and for each archive how many of its ROMs are still to be read
@@ -316,6 +318,10 @@ INT32 __cdecl LoadRom(UINT8* dest, INT32* wrote, INT32 i)
 	size_t n = 0;
 	if (!ReadEntry(g.zips, loc.zip, loc.entry, dest, size_t(ri.nLen), &n))
 		return 1;
+	if (size_t(i) >= g.rom_hash.size()) g.rom_hash.resize(size_t(i) + 1);
+	char identity[64];
+	snprintf(identity, sizeof(identity), "%d:%zu:%08lx", i, n, (unsigned long)crc32(0, dest, uInt(n)));
+	g.rom_hash[size_t(i)] = identity;
 	// a .7z whose essential ROMs have all been read once lets go of its block (an optional one a driver may never ask
 	// for is not waited for: Load lets go of every block once the driver has started)
 	if (size_t(i) < g.rom_read.size() && !g.rom_read[size_t(i)])
@@ -1078,27 +1084,10 @@ bool Pack(const char* magic, const Scan& s, std::vector<uint8_t>* out)
 }
 
 // What Pack made -> the frame number, the layout and the bytes (checked against the set and the running layout).
-bool Unpack(const char* magic, const std::vector<uint8_t>& in, const Scan& now, uint32_t* frame, std::vector<uint8_t>* data,
-	std::string* error)
+bool UnpackRaw(const std::vector<uint8_t>& raw, const Scan& now, uint32_t* frame,
+	std::vector<uint8_t>* data, std::string* error)
 {
-	if (in.size() < 12 || memcmp(in.data(), magic, 8) != 0)
-	{
-		*error = "not a FBNeo PS5 save of this kind";
-		return false;
-	}
-	const uint32_t rawlen = Get32(in.data() + 8);
-	if (rawlen < 40 || rawlen > 512u * 1024 * 1024)
-	{
-		*error = "a damaged save";
-		return false;
-	}
-	std::vector<uint8_t> raw(rawlen);
-	uLongf got = rawlen;
-	if (uncompress(raw.data(), &got, in.data() + 12, uLong(in.size() - 12)) != Z_OK || got != rawlen)
-	{
-		*error = "a damaged save";
-		return false;
-	}
+	if (raw.size() < 40) { *error = "a damaged save"; return false; }
 	char set[33] = {};
 	memcpy(set, raw.data(), 32);
 	if (g.cur.name != set)
@@ -1132,6 +1121,30 @@ bool Unpack(const char* magic, const std::vector<uint8_t>& in, const Scan& now, 
 	}
 	data->assign(raw.begin() + long(off), raw.end());
 	return true;
+}
+
+bool Unpack(const char* magic, const std::vector<uint8_t>& in, const Scan& now, uint32_t* frame, std::vector<uint8_t>* data,
+	std::string* error)
+{
+	if (in.size() < 12 || memcmp(in.data(), magic, 8) != 0)
+	{
+		*error = "not a FBNeo PS5 save of this kind";
+		return false;
+	}
+	const uint32_t rawlen = Get32(in.data() + 8);
+	if (rawlen < 40 || rawlen > 512u * 1024 * 1024)
+	{
+		*error = "a damaged save";
+		return false;
+	}
+	std::vector<uint8_t> raw(rawlen);
+	uLongf got = rawlen;
+	if (uncompress(raw.data(), &got, in.data() + 12, uLong(in.size() - 12)) != Z_OK || got != rawlen)
+	{
+		*error = "a damaged save";
+		return false;
+	}
+	return UnpackRaw(raw, now, frame, data, error);
 }
 
 bool ReadAll(const std::string& path, std::vector<uint8_t>* out)
@@ -1698,6 +1711,7 @@ bool Load(int driver, const ZipFinder& find, std::string* error, const std::stri
 	const DriverWant w = Wants();
 	g.zips = OpenArchives(w, find, &check);
 	g.roms = FindRoms(w, g.zips, &check);
+	g.rom_hash.clear();
 	g.sevenz_why.clear();
 	g.rom_read.assign(g.roms.size(), true); // (true: not counted)
 	g.zip_left.assign(g.zips.size(), 0);
@@ -2126,6 +2140,52 @@ bool StateFromMemory(const std::vector<uint8_t>& in)
 	return !w.short_data;
 }
 
+bool RollbackSave(std::vector<uint8_t>* out)
+{
+	if (!g.loaded || HasDisk()) return false;
+	Scan layout;
+	DoScan(ACB_FULLSCAN | ACB_READ, LenAcb, &layout);
+	size_t bytes = 64 + layout.lens.size() * 4;
+	for (uint32_t n : layout.lens) { if (n > 16u * 1024 * 1024 - std::min<size_t>(bytes, 16u * 1024 * 1024)) return false; bytes += n; }
+	if (bytes > 16u * 1024 * 1024 || layout.lens.empty()) return false;
+	Scan state; state.data.reserve(bytes);
+	DoScan(ACB_FULLSCAN | ACB_READ, ReadAcb, &state);
+	std::vector<uint8_t> raw; PackRaw(state, &raw);
+	out->assign({'F','B','N','N','E','T','0','1'});
+	Put32(out, uint32_t(g.reset_frames)); Put32(out, uint32_t(nBurnFPS));
+	out->insert(out->end(), raw.begin(), raw.end());
+	return out->size() <= 16u * 1024 * 1024;
+}
+bool RollbackLoad(const std::vector<uint8_t>& in)
+{
+	if (!g.loaded || in.size() < 56 || in.size() > 16u * 1024 * 1024 || memcmp(in.data(), "FBNNET01", 8)) return false;
+	const uint32_t reset = Get32(in.data() + 8), fps = Get32(in.data() + 12);
+	if (reset > 2 || fps < 100 || fps > 30000) return false;
+	Scan now; DoScan(ACB_FULLSCAN | ACB_READ, LenAcb, &now);
+	uint32_t frame = 0; std::vector<uint8_t> data; std::string error;
+	if (!UnpackRaw(std::vector<uint8_t>(in.begin() + 16, in.end()), now, &frame, &data, &error)) return false;
+	Scan state; state.src = data.data(); state.left = data.size();
+	DoScan(ACB_FULLSCAN | ACB_WRITE, WriteAcb, &state);
+	nCurrentFrame = frame; nBurnFPS = int(fps); g.reset_frames = int(reset);
+	SizeSound(); BurnRecalcPal();
+	return !state.short_data && !state.left;
+}
+std::string NetplayIdentity()
+{
+	if (!g.loaded) return {};
+	std::string value = g.cur.name + "|" + CoreVersion();
+	for (const auto& rom : g.rom_hash) value += "|" + rom;
+	value += "|dips=";
+	const char hex[] = "0123456789abcdef";
+	for (uint8_t byte : g.dip_value) { value += hex[byte >> 4]; value += hex[byte & 15]; }
+	return value;
+}
+void NetplayPersistence(bool online)
+{
+	g.netplay = online;
+	EnableHiscores = online ? 0 : EnableHiscores;
+}
+
 bool SaveState(const std::string& path)
 {
 	std::vector<uint8_t> data;
@@ -2165,6 +2225,7 @@ bool LoadState(const std::string& path, std::string* error)
 
 bool SaveNvram(bool force)
 {
+	if (g.netplay) return true;
 	if (!g.loaded)
 		return false;
 	Scan s;
@@ -2181,6 +2242,7 @@ bool SaveNvram(bool force)
 
 bool NvramTake(std::vector<uint8_t>* file, std::vector<uint8_t>* data, std::string* path)
 {
+	if (g.netplay) return false;
 	if (!g.loaded)
 		return false;
 	Scan s;

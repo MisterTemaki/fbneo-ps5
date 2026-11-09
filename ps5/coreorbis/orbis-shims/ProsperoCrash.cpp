@@ -172,7 +172,7 @@ void Handler(int sig, siginfo_t* info, void* ctx)
 	EmitLine("");
 	_exit(1);
 }
-constexpr size_t kAltStack = 64 * 1024;
+[[maybe_unused]] constexpr size_t kAltStack = 64 * 1024; // only used by the console signal stack
 } // namespace
 
 void* ArmThread()
