@@ -87,17 +87,20 @@ template <int AddrWidth, int Level, int AddrShift, endianness_t Endian> struct m
 	struct specific
 	{
 		test_space* sp = nullptr;
+		// MAME masks accesses to the configured address width. The TGP can add a bank offset
+		// after calculating a 16-bit effective address, which must wrap before reaching the bus.
+		static constexpr offs_t address_mask = 0xffffffffu >> (32 - AddrWidth);
 		// byte-addressed (AddrShift 0): MAME's 32-bit little-endian bus, sub-word lanes of the dword
 		u8 read_byte(offs_t a) { return sp->read32(sp->ctx, a & ~3u) >> ((a & 3) * 8); }
 		u16 read_word(offs_t a) { return sp->read32(sp->ctx, a & ~3u) >> ((a & 2) * 8); }
-		u32 read_dword(offs_t a) { return AddrShift == 0 ? sp->read32(sp->ctx, a & ~3u) : sp->read32(sp->ctx, a); }
+		u32 read_dword(offs_t a) { a &= address_mask; return AddrShift == 0 ? sp->read32(sp->ctx, a & ~3u) : sp->read32(sp->ctx, a); }
 		std::pair<u8, u16> read_byte_flags(offs_t a) { u16 f = sp->flags(sp->ctx, a); return std::pair<u8, u16>(read_byte(a), f); }
-		std::pair<u32, u16> read_dword_flags(offs_t a) { u16 f = sp->flags(sp->ctx, a); return std::pair<u32, u16>(read_dword(a), f); }
+		std::pair<u32, u16> read_dword_flags(offs_t a) { a &= address_mask; u16 f = sp->flags(sp->ctx, a); return std::pair<u32, u16>(read_dword(a), f); }
 		void write_byte(offs_t a, u8 d) { sp->write32(sp->ctx, a & ~3u, u32(d) << ((a & 3) * 8), 0xffu << ((a & 3) * 8)); }
 		void write_word(offs_t a, u16 d) { sp->write32(sp->ctx, a & ~3u, u32(d) << ((a & 2) * 8), 0xffffu << ((a & 2) * 8)); }
-		void write_dword(offs_t a, u32 d) { AddrShift == 0 ? sp->write32(sp->ctx, a & ~3u, d, 0xffffffff) : sp->write32(sp->ctx, a, d, 0xffffffff); }
+		void write_dword(offs_t a, u32 d) { a &= address_mask; AddrShift == 0 ? sp->write32(sp->ctx, a & ~3u, d, 0xffffffff) : sp->write32(sp->ctx, a, d, 0xffffffff); }
 		u16 write_byte_flags(offs_t a, u8 d) { u16 f = sp->flags(sp->ctx, a); write_byte(a, d); return f; }
-		u16 write_dword_flags(offs_t a, u32 d) { u16 f = sp->flags(sp->ctx, a); write_dword(a, d); return f; }
+		u16 write_dword_flags(offs_t a, u32 d) { a &= address_mask; u16 f = sp->flags(sp->ctx, a); write_dword(a, d); return f; }
 	};
 	typedef specific cache;
 };

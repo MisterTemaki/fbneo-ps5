@@ -1,0 +1,15 @@
+# FBNeo's existing shader IDs/names stay unchanged. Unsupported styles retain their CPU implementation.
+# SPDX-License-Identifier: MIT
+__plain = ../ps5-slang-gpu/shaders/plain.slang
+__ui = ../ps5-slang-gpu/shaders/ui.slang
+CRT Easymode style = easymode.slang
+crt-lottes = ../ps5-slang-gpu/shaders/own/crt-lottes.slangp
+crt-lottes-fast = ../ps5-slang-gpu/shaders/own/crt-lottes-fast.slangp
+crt-1tap = one-tap.slangp
+crt-2tap = two-tap.slangp
+crt-hyllian-fast = ../ps5-slang-gpu/shaders/own/crt-hyllian-fast.slangp
+crt-nobody = ../ps5-slang-gpu/shaders/own/crt-nobody.slangp
+newpixie-mini = ../ps5-slang-gpu/shaders/own/newpixie-mini.slangp
+crt-blurPi-sharp = ../ps5-slang-gpu/shaders/own/crt-blurPi-sharp.slangp
+crt-blurPi-soft = ../ps5-slang-gpu/shaders/own/crt-blurPi-soft.slangp
+monoCRT = ../ps5-slang-gpu/shaders/own/monoCRT.slangp

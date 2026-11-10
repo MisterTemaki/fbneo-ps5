@@ -24,7 +24,9 @@
 PS5_PAYLOAD_SDK ?= /opt/ps5-payload-sdk
 PS5_HOST ?= ps5
 PS5_PORT ?= 9021
-VERSION ?= 2.4.0-netplay1
+GPU ?= 1
+APP_CORE_ARCHIVE = $(PS5_CORE_OUT)/libfbneo.a
+VERSION ?= 2.4
 TITLE_ID ?= PPSA99924
 # where the app looks for its updates (Settings, SYSTEM, Updates): this repository's GitHub releases
 UPDATE_REPO ?= MisterTemaki/FBNeo-PS5
@@ -98,6 +100,7 @@ endef
 EMU_SRC := coreorbis/main-boot.cpp \
 	coreorbis/orbis-shims/orbis_paths.cpp coreorbis/orbis-shims/ProsperoNotify.cpp \
 	coreorbis/orbis-shims/ProsperoVideo.cpp coreorbis/orbis-shims/ProsperoAudio.cpp \
+	coreorbis/orbis-shims/ProsperoGpu.cpp \
 	coreorbis/orbis-shims/ProsperoInput.cpp coreorbis/orbis-shims/ProsperoJailbreak.cpp \
 	coreorbis/orbis-shims/ProsperoCrash.cpp coreorbis/orbis-shims/ProsperoCrt.cpp coreorbis/orbis-shims/ProsperoUpdate.cpp \
 	frontend/fe_netplay.cpp frontend/fe_emu.cpp frontend/fe_menu.cpp frontend/fe_settings.cpp frontend/fe_i18n.cpp frontend/fe_text.cpp \
@@ -124,19 +127,20 @@ MBEDTLS_FLAGS := -I$(MBEDTLS)/include -Ifrontend '-DMBEDTLS_USER_CONFIG_FILE="fe
 INSTALLER_SRC := installer/installer_main.cpp $(HELPER_SRC) coreorbis/orbis-shims/ProsperoInstall.cpp
 INFLATE_C_SRC := $(addprefix $(ROOT)/src/dep/libs/zlib/,adler32.c crc32.c inffast.c inflate.c inftrees.c uncompr.c zutil.c)
 
-INCS := -Inetfs -Icoreorbis/include-orbis -Icoreorbis/orbis-shims -Ifrontend -isystem $(ROOT)/src/dep/libs/zlib
+INCS := -Inetfs -Icoreorbis/include-orbis -Icoreorbis/orbis-shims -Ifrontend -Ips5-slang-gpu/include -isystem $(ROOT)/src/dep/libs/zlib
 GLUE_INCS = $(CORE_INCS) -Ifrontend -Ifrontend/third_party -Icoreorbis/include-orbis
 NETPLAY_BUILD_ID := $(shell python3 tools/netplay_build_id.py)
 ifeq ($(strip $(NETPLAY_BUILD_ID)),)
 $(error Could not compute the netplay build identity)
 endif
 DEFS := -DFBNEO_NETPLAY_BUILD_ID='"$(NETPLAY_BUILD_ID)"' -DFBNEO_PS5_VERSION='"$(VERSION)"' -DFBNEO_CORE_VERSION='"$(CORE_VERSION)"' -DFBNEO_TITLE_ID='"$(TITLE_ID)"' -DFBNEO_UPDATE_REPO='"$(UPDATE_REPO)"'
+DEFS += -DFBNEO_GPU=$(GPU)
 # 2.2 (Snes9x PS5 2.10's): every object built with DEFS depends on this file, which changes only when one of those values
 # changes. Up to 2.1 a new VERSION (or TITLE_ID, UPDATE_REPO) rebuilt nothing: a release built over an earlier build kept
 # the old version in the eboot and the payloads (the version the app tells the helper, the installer's notification, the
 # shelf's line). The file is written while the Makefile is read (by make -n too), only when its text differs ...
 DEFS_STAMP := build/defs.stamp
-DEFS_TEXT := $(VERSION) $(TITLE_ID) $(UPDATE_REPO) $(CORE_VERSION) $(NETPLAY_BUILD_ID)
+DEFS_TEXT := $(VERSION) $(TITLE_ID) $(UPDATE_REPO) $(CORE_VERSION) $(NETPLAY_BUILD_ID) gpu=$(GPU)
 ifneq ($(shell cat $(DEFS_STAMP) 2>/dev/null),$(DEFS_TEXT))
 $(shell mkdir -p build && printf '%s\n' '$(DEFS_TEXT)' >$(DEFS_STAMP))
 endif
@@ -240,14 +244,22 @@ $(PS5_OUT)/helper_data.o: coreorbis/orbis-shims/helper_data.cpp coreorbis/orbis-
 # 3. the installer + helper, with the app folder built in; eboot.bin as tools/pack_file.py packs it (zlib)
 APP_FILES = $(APP_OUT)/eboot.bin $(APP_OUT)/sce_sys/param.json $(APP_OUT)/sce_sys/icon0.png $(APP_OUT)/sce_sys/pic0.dds \
 	$(APP_OUT)/sce_sys/pic1.dds \
-	$(APP_OUT)/sce_module/libc.prx
+	$(APP_OUT)/sce_module/libc.prx $(APP_OUT)/NOTICES-GPU.txt
+GPU_NOTICE_FILES := ps5-slang-gpu/LICENSE ps5-slang-gpu/third_party/glslang/LICENSE.txt \
+	ps5-slang-gpu/third_party/stb/LICENSE gpu-platform/LICENSE \
+	gpu-platform/third_party/compiler-rt-18.1.8/LICENSE.TXT gpu-platform/RADV-NOTICES.txt
+build/app/NOTICES-GPU.txt: tools/make_gpu_notices.py $(GPU_NOTICE_FILES)
+	python3 -B tools/make_gpu_notices.py $@ $(GPU_NOTICE_FILES)
+$(APP_OUT)/NOTICES-GPU.txt: build/app/NOTICES-GPU.txt
+	@mkdir -p $(@D)
+	cp $< $@
 build/app/eboot.bin.z: $(APP_OUT)/eboot.bin tools/pack_file.py
 	python3 tools/pack_file.py $< $@
 build/app/%.dds.z: $(APP_OUT)/sce_sys/%.dds tools/pack_file.py
 	python3 tools/pack_file.py $< $@
 APP_DATA_DEFS = -DAPP_EBOOT_Z='"$(abspath build/app/eboot.bin.z)"' -DAPP_PARAM='"$(abspath $(APP_OUT)/sce_sys/param.json)"' \
 	-DAPP_ICON0='"$(abspath $(APP_OUT)/sce_sys/icon0.png)"' -DAPP_PIC0_Z='"$(abspath build/app/pic0.dds.z)"' \
-	-DAPP_LIBC='"$(abspath $(APP_OUT)/sce_module/libc.prx)"'
+	-DAPP_LIBC='"$(abspath $(APP_OUT)/sce_module/libc.prx)"' -DAPP_GPU_NOTICES='"$(abspath build/app/NOTICES-GPU.txt)"'
 
 $(PS5_OUT)/install_data.o: coreorbis/orbis-shims/install_data.cpp coreorbis/orbis-shims/ProsperoInstall.h $(APP_FILES) \
 		build/app/eboot.bin.z build/app/pic0.dds.z $(DEFS_STAMP)
@@ -264,6 +276,7 @@ DIST := build/dist
 dist: $(PS5_OUT)/FBNeoPS5.elf $(APP_FILES)
 	@mkdir -p $(DIST)
 	cp $< $(DIST)/FBNeoPS5-v$(VERSION).elf
+	python3 -B tools/check_installer_payload.py $(DIST)/FBNeoPS5-v$(VERSION).elf $(APP_OUT)
 	python3 tools/make_release_zip.py $(APP_OUT) $(TITLE_ID) $(DIST)/FBNeoPS5-v$(VERSION)-$(TITLE_ID).zip
 	cp $(DAT) $(DIST)/FBNeoPS5-v$(VERSION)-arcade.dat
 	@ls -l $(DIST)
@@ -341,11 +354,12 @@ build/app/fbneo-pie.elf: $(EBOOT_OBJS) $(PS5_CORE_OUT)/libfbneo.a $(NATIVE)/tool
 	$(LLD) -m elf_x86_64 -pie -z max-page-size=0x4000 --hash-style=gnu \
 		-T $(NATIVE)/tooling/native/ps5-pie.ld -T $(NATIVE)/tooling/native/ehframe.ld --eh-frame-hdr \
 		--version-script $(NATIVE)/tooling/native/app-symbols.map --version-script $(NATIVE)/tooling/native/localize.map \
-		-e _start --no-dynamic-linker $(NETFS_WRAP_LLD) -o $@ $(EBOOT_OBJS) $(PS5_CORE_OUT)/libfbneo.a \
+		-e _start --no-dynamic-linker $(NETFS_WRAP_LLD) $(GPU_LINK_FLAGS) -o $@ $(EBOOT_OBJS) $(APP_CORE_ARCHIVE) $(GPU_LINK_INPUTS) \
 		$(SDK_LIB)/libc++.a $(SDK_LIB)/libc++abi.a $(SDK_LIB)/libunwind.a \
 		--as-needed $(APP_STUBS) -L $(SDK_LIB) $(SDK_LIB)/libc.a -lpthread @build/app/syscalls-y.rsp >build/app/fbneo-pie.trace
-	python3 tools/check_imports.py $@ $(SDK_LIB) || { rm -f $@; exit 1; }
+	python3 tools/check_imports.py $@ $(SDK_LIB) $(GPU_IMPORT_STUBS) || { rm -f $@; exit 1; }
 	python3 tools/check_syscalls.py check build/app/fbneo-pie.trace || { rm -f $@; exit 1; }
+	$(GPU_LINK_VERIFY)
 
 build/app/eboot.elf: build/app/fbneo-pie.elf $(NATIVE_TOOL)
 	$(NATIVE_TOOL) link --in $< --out $@ --stub-dir $(SDK_LIB) --module-sdk 0x02000009 \
@@ -446,11 +460,11 @@ $(HOST_OUT)/%.dds.z: app/sce_sys/%.dds tools/pack_file.py
 	python3 tools/pack_file.py $< $@
 HOST_APP_DEFS = -DAPP_EBOOT_Z='"$(abspath $(HOST_OUT)/fake-eboot.bin.z)"' -DAPP_PARAM='"$(abspath app/sce_sys/param.json)"' \
 	-DAPP_ICON0='"$(abspath app/sce_sys/icon0.png)"' -DAPP_PIC0_Z='"$(abspath $(HOST_OUT)/pic0.dds.z)"' \
-	-DAPP_LIBC='"$(abspath tests/fake-libc.prx)"'
+	-DAPP_LIBC='"$(abspath tests/fake-libc.prx)"' -DAPP_GPU_NOTICES='"$(abspath build/app/NOTICES-GPU.txt)"'
 
 $(HOST_OUT)/install_data.o: coreorbis/orbis-shims/install_data.cpp coreorbis/orbis-shims/ProsperoInstall.h \
 		$(HOST_OUT)/fake-eboot.bin.z tests/fake-libc.prx app/sce_sys/param.json app/sce_sys/icon0.png \
-		$(HOST_OUT)/pic0.dds.z $(DEFS_STAMP)
+		$(HOST_OUT)/pic0.dds.z build/app/NOTICES-GPU.txt $(DEFS_STAMP)
 	@mkdir -p $(dir $@)
 	$(HOST_CXX) -std=c++17 $(HOST_OPT) $(DEFS) $(INCS) $(PORT_WARN) $(HOST_APP_DEFS) -c -o $@ $<
 
@@ -466,7 +480,7 @@ $(HOST_OUT)/fbneo-ps5-installer: $(HOST_INSTALLER_OBJ) $(HOST_OUT)/install_data.
 
 $(HOST_OUT)/fbneo-ps5-host: $(HOST_EMU_OBJ) $(HOST_LIBSMB2_OBJ) $(HOST_LIBNFS_OBJ) $(HOST_LIB7Z_OBJ) $(HOST_OUT)/helper_data.o \
 		$(HOST_CORE_OUT)/libfbneo.a | $(HOST_OUT)/lib7z/names.ok
-	$(HOST_CXX) $(HOST_SAN) -o $@ $^ $(NETFS_WRAP_GCC) -lpthread -lm
+	$(HOST_CXX) $(HOST_SAN) -o $@ $^ $(NETFS_WRAP_GCC) -lpthread -lm $(GPU_HOST_LIBS)
 
 # FBNeo's own DAT writer (src/burner/dat.cpp, and misc.cpp for each set's "Bootleg, Hack..." comment), unchanged, with
 # what FBNeo's frontend headers give them (host/fbneo_dat.h) and host/fbneo_dat.cpp: `fbneo_headless dat`
@@ -503,6 +517,7 @@ $(HOST_OUT)/test-netfs: $(HOST_NETFS_TEST_OBJ) $(HOST_NETFS_TEST_EXTRA) $(HOST_Z
 
 test: host $(HOST_OUT)/test-netfs
 	bash tests/run-tests.sh
+	python3 tests/test_netplay_frontend.py
 
 # the ROM DAT (ps5/dat/, and on each release): every set of the drivers built in, as FBNeo writes its DATs. Made again
 # after a core update or a version change (the tests fail while the committed one differs).
@@ -679,12 +694,44 @@ include tests/smb/smb.mk
 .SECONDARY:
 
 .PHONY: test-netplay
-build/host/test_netplay: tests/test_netplay.cpp frontend/fe_netplay.cpp frontend/fe_netplay.h
+$(HOST_OUT)/test_netplay: tests/test_netplay.cpp frontend/fe_netplay.cpp frontend/fe_netplay.h
 	@mkdir -p $(@D)
 	$(HOST_CXX) -std=c++17 -O1 -g $(HOST_SAN) -Wall -Wextra -Werror -Ifrontend tests/test_netplay.cpp frontend/fe_netplay.cpp -o $@
-test-netplay: build/host/test_netplay
+test-netplay: $(HOST_OUT)/test_netplay
 	ASAN_OPTIONS=detect_leaks=1 $<
 
 .PHONY: test-netplay-frontend
 test-netplay-frontend: build/host/fbneo-ps5-host build/host/fbneo_headless
 	python3 tests/test_netplay_frontend.py
+
+# Safety regressions: allocation failures, concurrent file growth and malformed update/configuration data.
+AUDIT_TEST_FLAGS := -std=c++17 -O1 -g $(HOST_SAN) -fno-omit-frame-pointer $(PORT_WARN) $(INCS)
+$(HOST_OUT)/test-pool-failures: tests/test_pool_failures.cpp frontend/fe_pool.h coreorbis/orbis-shims/ProsperoCrt.cpp coreorbis/orbis-shims/ProsperoThread.h
+	@mkdir -p $(@D)
+	$(HOST_CXX) $(AUDIT_TEST_FLAGS) $< -Wl,--wrap=_Znwm -lpthread -o $@
+$(HOST_OUT)/test-update-safety: tests/test_update_safety.cpp coreorbis/orbis-shims/ProsperoInstall.cpp coreorbis/orbis-shims/ProsperoUpdate.cpp
+	@mkdir -p $(@D)
+	$(HOST_CXX) $(AUDIT_TEST_FLAGS) -ffunction-sections -fdata-sections $< coreorbis/orbis-shims/ProsperoUpdate.cpp -Wl,--gc-sections,--wrap=fread -lpthread -o $@
+$(HOST_OUT)/test-config-io: tests/test_config_io.cpp netfs/netfs_core.cpp
+	@mkdir -p $(@D)
+	$(HOST_CXX) $(AUDIT_TEST_FLAGS) -ffunction-sections -fdata-sections $< -Wl,--gc-sections,--wrap=fopen,--wrap=fsync -lpthread -o $@
+$(HOST_OUT)/test-audio-push: tests/test_audio_push.cpp coreorbis/orbis-shims/ProsperoAudio.cpp
+	@mkdir -p $(@D)
+	$(HOST_CXX) $(AUDIT_TEST_FLAGS) -finstrument-functions -fno-inline -ffunction-sections -fdata-sections $< -Wl,--gc-sections -lpthread -o $@
+$(HOST_OUT)/test-image-resize: tests/test_image_resize.cpp frontend/third_party/stb_image_resize2.h
+	@mkdir -p $(@D)
+	$(HOST_CXX) -std=c++17 -O1 -g -mavx2 $(HOST_SAN) -fno-sanitize-recover=undefined $< -o $@
+.PHONY: test-audit
+test-audit: $(HOST_OUT)/test-pool-failures $(HOST_OUT)/test-update-safety $(HOST_OUT)/test-config-io $(HOST_OUT)/test-audio-push $(HOST_OUT)/test-image-resize
+	@set -e; for n in 1 2 3 4 5 6 7 8; do ASAN_OPTIONS=detect_leaks=1 timeout 10 $(HOST_OUT)/test-pool-failures $$n; done
+	@set -e; for n in 2 3 4 5 6 7 8 9; do ASAN_OPTIONS=detect_leaks=0 timeout 10 $(HOST_OUT)/test-pool-failures $$n --crt; done
+	ASAN_OPTIONS=detect_leaks=1 $(HOST_OUT)/test-update-safety
+	ASAN_OPTIONS=detect_leaks=1 $(HOST_OUT)/test-update-safety --growth
+	ASAN_OPTIONS=detect_leaks=1 $(HOST_OUT)/test-config-io
+	ASAN_OPTIONS=detect_leaks=1 $(HOST_OUT)/test-audio-push
+	ASAN_OPTIONS=detect_leaks=1 $(HOST_OUT)/test-image-resize
+	python3 tests/test_build_identity.py
+
+test: test-netplay test-audit
+
+include gpu.mk

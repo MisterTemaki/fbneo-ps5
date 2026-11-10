@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <deque>
 #include <cstring>
+#include <unistd.h>
 
 #include "ProsperoThread.h"
 #include "netfs_cache.h"
@@ -96,6 +97,8 @@ void WatchdogLoop()
 
 bool ReadFile(const std::string& path, std::string& out, int& err)
 {
+	out.clear();
+	err = 0;
 	FILE* f = fopen(path.c_str(), "rb");
 	if (!f)
 	{
@@ -106,7 +109,15 @@ bool ReadFile(const std::string& path, std::string& out, int& err)
 	size_t n;
 	while ((n = fread(buf, 1, sizeof buf, f)) > 0)
 		out.append(buf, n);
-	fclose(f);
+	const bool read_ok = ferror(f) == 0;
+	const int read_error = errno ? errno : EIO;
+	const bool closed = fclose(f) == 0;
+	if (!read_ok || !closed)
+	{
+		err = read_ok ? (errno ? errno : EIO) : read_error;
+		out.clear(); // editors must never save a truncated view over the original list
+		return false;
+	}
 	return true;
 }
 
@@ -118,6 +129,8 @@ bool WriteNew(const std::string& path, const std::string& text)
 	if (!f)
 		return false;
 	bool ok = fwrite(text.data(), 1, text.size(), f) == text.size();
+	ok = fflush(f) == 0 && ok;
+	ok = fsync(fileno(f)) == 0 && ok;
 	ok = fclose(f) == 0 && ok;
 	if (ok)
 		ok = rename(part.c_str(), path.c_str()) == 0;

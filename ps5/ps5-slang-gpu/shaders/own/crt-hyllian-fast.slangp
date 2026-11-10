@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: MIT
+# ps5-slang-gpu: the library's own descriptor for crt-hyllian-fast, built in. It names the pass from
+# libretro's slang-shaders (crt/shaders/hyllian/crt-hyllian-fast.slang, MIT) and sets it as that collection runs it; README.md (Shaders).
+shaders = 1
+shader0 = ../slang/crt/shaders/hyllian/crt-hyllian-fast.slang
+filter_linear0 = false
+scale_type0 = viewport

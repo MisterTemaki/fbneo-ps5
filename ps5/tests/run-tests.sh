@@ -382,8 +382,9 @@ expect "cmp -s $APP/eboot.bin tests/fake-eboot.bin" "eboot.bin installed (unpack
 expect "cmp -s $APP/sce_sys/pic0.dds app/sce_sys/pic0.dds && cmp -s $APP/sce_sys/pic1.dds app/sce_sys/pic1.dds" "pic0.dds/pic1.dds unpacked"
 expect "cmp -s $APP/sce_sys/icon0.png app/sce_sys/icon0.png && cmp -s $APP/sce_sys/param.json app/sce_sys/param.json" "icon0.png and param.json installed"
 expect "cmp -s $APP/sce_module/libc.prx tests/fake-libc.prx" "sce_module/libc.prx installed"
+expect "cmp -s $APP/NOTICES-GPU.txt build/app/NOTICES-GPU.txt" "GPU dependency notices installed with the app"
 expect "grep -q '\"titleId\": \"PPSA99924\"' $APP/sce_sys/param.json && grep -q 'FBNeo PS5' $APP/sce_sys/param.json" "the title is PPSA99924, FBNeo PS5"
-expect "grep -q 'FBNeo PS5 [0-9.]* installed. Open it from the FBNeo PS5 icon' $T/inst.txt" "install notification says to open the icon"
+expect "grep -Fq 'FBNeo PS5 $VER installed. Open it from the FBNeo PS5 icon' $T/inst.txt" "install notification says to open the icon"
 expect "! ls $APP/*.part $APP/sce_sys/*.part $APP/sce_module/*.part 2>/dev/null | grep -q ." "no .part files left"
 inst "$T"
 expect "grep -q 'is up to date' $T/root/logs/installer.log && ! grep -q 'wrote' $T/root/logs/installer.log" "sent again: nothing rewritten"
@@ -2387,11 +2388,11 @@ SDKLIB=${PS5_PAYLOAD_SDK:-/opt/ps5-payload-sdk}/target/lib
 stop44() { pkill -f 'build/host/fbneo-ps5-(installer|helper)' 2>/dev/null; pkill -f 'http.server 1[89][0-9][0-9][0-9]' 2>/dev/null; sleep 0.3; }
 waitfor44() { for i in $(seq 1 100); do grep -q "$2" "$1" 2>/dev/null && return 0; sleep 0.1; done; return 1; }
 CVER=$(sed -n 's/.*"contentVersion": "\([0-9.]*\)".*/\1/p' app/sce_sys/param.json)
-# a. the PIE of the last make ps5: the eleven modules 2.1 loads, no C++ runtime import, its own personality routine
+# a. the PIE of the last build: the original modules plus optional GPU graphics modules, its own C++ runtime
 if [ -f build/app/fbneo-pie.elf ] && [ -d "$SDKLIB" ]; then
-	python3 tools/check_imports.py build/app/fbneo-pie.elf "$SDKLIB" >"$WORK/imports.txt" 2>&1
+	python3 tools/check_imports.py build/app/fbneo-pie.elf "$SDKLIB" --gpu >"$WORK/imports.txt" 2>&1
 	rc=$?
-	expect "[ $rc = 0 ] && grep -q '^check_imports: ok' $WORK/imports.txt && ! grep -q 'libkernel_sys\|libkernel_web' $WORK/imports.txt" "the app's PIE: only the eleven modules, every import in one of them, no C++ runtime import"
+	expect "[ $rc = 0 ] && grep -q '^check_imports: ok' $WORK/imports.txt && ! grep -q 'libkernel_sys\|libkernel_web' $WORK/imports.txt" "the app's PIE: only supported modules, every import resolved, no C++ runtime import"
 	if command -v llvm-dwarfdump-18 >/dev/null && command -v llvm-readelf-18 >/dev/null; then
 		P=build/app/fbneo-pie.elf
 		pers=$(llvm-readelf-18 -sW $P | awk '$NF=="__gxx_personality_v0" && $2 != "0000000000000000" {print $2}' | sed 's/^0*//' | head -1)
@@ -2413,6 +2414,18 @@ if [ -d "$SDKLIB" ] && command -v ld.lld >/dev/null && command -v clang >/dev/nu
 	python3 tools/check_imports.py "$WORK/imp/bad.elf" "$SDKLIB" >"$WORK/imp/out.txt" 2>&1
 	rc=$?
 	expect "[ $rc = 1 ] && grep -q 'NEEDED libkernel_sys.sprx: not a module the app may load' $WORK/imp/out.txt && grep -q 'import statfs: not in an allowed module (only in libkernel_sys.so)' $WORK/imp/out.txt" "a PIE importing statfs: refused, naming libkernel_sys"
+	python3 tools/check_imports.py "$WORK/imp/bad.elf" "$SDKLIB" --gpu >"$WORK/imp/out-gpu.txt" 2>&1
+	rc=$?
+	expect "[ $rc = 1 ] && grep -q 'NEEDED libkernel_sys.sprx: not a module the app may load' $WORK/imp/out-gpu.txt" "GPU graphics modules do not admit libkernel_sys"
+	printf 'extern char sceAgcInit;\nvoid* p = &sceAgcInit;\nint _start(void) { return p != 0; }\n' >"$WORK/imp/gpu.c"
+	clang -fPIC -c -o "$WORK/imp/gpu.o" "$WORK/imp/gpu.c" &&
+		ld.lld -pie --no-dynamic-linker -e _start -o "$WORK/imp/gpu.elf" "$WORK/imp/gpu.o" --as-needed "$SDKLIB/libSceAgc.so"
+	python3 tools/check_imports.py "$WORK/imp/gpu.elf" "$SDKLIB" >"$WORK/imp/gpu-default.txt" 2>&1
+	rc=$?
+	expect "[ $rc = 1 ] && grep -q 'NEEDED libSceAgc.sprx: not a module the app may load' $WORK/imp/gpu-default.txt" "graphics modules require the explicit GPU check mode"
+	python3 tools/check_imports.py "$WORK/imp/gpu.elf" "$SDKLIB" --gpu >"$WORK/imp/gpu-enabled.txt" 2>&1
+	rc=$?
+	expect "[ $rc = 0 ] && grep -q '^check_imports: ok' $WORK/imp/gpu-enabled.txt" "GPU check mode resolves the graphics import against its SDK stub"
 	for sym in __gxx_personality_v0 __dynamic_cast __cxa_get_globals; do
 		printf 'extern char %s;\nvoid* p = &%s;\nint _start(void) { return p != 0; }\n' $sym $sym >"$WORK/imp/$sym.c"
 		clang -fPIC -c -o "$WORK/imp/$sym.o" "$WORK/imp/$sym.c" &&
@@ -2450,6 +2463,7 @@ else
 	echo "  (skipped: no SDK, ld.lld or clang for the check's own test)"
 fi
 # b. a new VERSION rebuilds what is built with it, not the core; the same one nothing; an asset rebuilds its object
+expected_stamp=$(cat build/defs.stamp 2>/dev/null)
 cp -p build/defs.stamp "$WORK/defs.stamp.keep" 2>/dev/null
 make -n build/host/fbneo-ps5-host build/host/fbneo-ps5-installer VERSION=9.8.7 >"$WORK/t44-make-new.txt" 2>&1
 [ -f "$WORK/defs.stamp.keep" ] && cp -p "$WORK/defs.stamp.keep" build/defs.stamp
@@ -2457,11 +2471,12 @@ make -n build/host/fbneo-ps5-host build/host/fbneo-ps5-installer >"$WORK/t44-mak
 [ -f "$WORK/defs.stamp.keep" ] && cp -p "$WORK/defs.stamp.keep" build/defs.stamp
 expect "grep -q 'main-boot.cpp' $WORK/t44-make-new.txt && grep -q 'installer_main.cpp' $WORK/t44-make-new.txt && grep -q 'fe_shelf.cpp' $WORK/t44-make-new.txt && grep -q 'fe_burn.cpp' $WORK/t44-make-new.txt && ! grep -q 'd_cps1.cpp\|mips3.cpp' $WORK/t44-make-new.txt" "a new VERSION: the objects that carry it are built again, not the core (make -n)"
 expect "! grep -q 'main-boot.cpp\|installer_main.cpp' $WORK/t44-make-same.txt" "... the same VERSION: nothing built again"
-make -s --eval 'audit-rm-stamp: ; @rm -f build/defs.stamp' audit-rm-stamp build/defs.stamp >"$WORK/t44-make-clean.txt" 2>&1
+# Model deletion as a prerequisite so make -j cannot recreate the stamp before removing it.
+make -s --eval 'audit-rm-stamp: ; @rm -f build/defs.stamp' --eval 'build/defs.stamp: audit-rm-stamp' build/defs.stamp >"$WORK/t44-make-clean.txt" 2>&1
 rc=$?
 stamp=$(cat build/defs.stamp 2>/dev/null)
 [ -f "$WORK/defs.stamp.keep" ] && cp -p "$WORK/defs.stamp.keep" build/defs.stamp
-expect "[ $rc = 0 ] && [ \"$stamp\" = \"$VER PPSA99924 MisterTemaki/FBNeo-PS5 1.0.0.3\" ]" "the stamp removed during the run (make clean <target>): made again (exit $rc)"
+expect "[ $rc = 0 ] && [ -n \"$expected_stamp\" ] && [ \"$stamp\" = \"$expected_stamp\" ]" "the stamp removed during the run (make clean <target>): made again with the build identity (exit $rc)"
 deps_ok=1
 for pair in frontend/data/cacert.pem:fe_tlshttp frontend/assets/fonts/Roboto-Regular.ttf:fe_text ../src/dep/libs/lib7z/7z.h:fe_7z; do
 	make -n -W "${pair%%:*}" "build/host/port/frontend/${pair##*:}.o" 2>&1 | grep -q "frontend/${pair##*:}.cpp" || { deps_ok=0; echo "    not rebuilt: ${pair##*:}.o for ${pair%%:*}"; }
@@ -2609,8 +2624,15 @@ expect "$UPD check 9.10 --until available,failed | grep -q '^available|9.11|' &&
 pkill -f 'build/host/fbneo-ps5-(installer|helper)' 2>/dev/null; sleep 0.3
 pkill -f "http.server $SPORT" 2>/dev/null
 [ "$M" != "$T" ] && rm -rf "${M:?}"
-# j. the version: 2.3, contentVersion 02.030.000
-expect "[ '$VER' = 2.3 ] && [ '$CVER' = 02.030.000 ]" "version 2.3, contentVersion 02.030.000"
+# j. the declared release family, including development revisions in contentVersion's last field.
+version_ok=$(python3 - "$VER" "$CVER" <<'PY'
+import re, sys
+version = re.fullmatch(r'(\d+)\.(\d+)(?:\.\d+)?(?:-[A-Za-z0-9.-]+)?', sys.argv[1])
+content = re.fullmatch(r'(\d{2})\.(\d{3})\.(\d{3})', sys.argv[2])
+print(int(bool(version and content and int(content[1]) == int(version[1]) and int(content[2]) == 10 * int(version[2]))))
+PY
+)
+expect "[ '$version_ok' = 1 ]" "declared version $VER and contentVersion $CVER have the same release family"
 fi
 
 # ---------------------------------------------------------------- 2.3 ----------------------------------------------------
@@ -2678,7 +2700,11 @@ cp "$SETS/daytona-prog/daytona.zip" "$H46/noio/"
 TMPDIR=$H46 "$HEADLESS" run "$H46/noio" daytona 10 >"$H46/noio.txt" 2>/dev/null
 expect "grep -q 'LOAD FAILED: Missing ROMs for daytona: epr-14869c.25. FBNeo PS5 looked in daytona.zip, model1io.zip' $H46/noio.txt" "no I/O board ROM: the message names epr-14869c.25 and where it was looked for"
 cp "$SETS/daytona-prog/daytona.zip" "$H46/inzip/"
-(cd "$H46" && rm -rf x && mkdir x && cd x && unzip -q "$SETS/daytona-prog/model1io.zip" && zip -q "$H46/inzip/daytona.zip" epr-14869c.25)
+python3 - "$SETS/daytona-prog/model1io.zip" "$H46/inzip/daytona.zip" <<'PY'
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as board, zipfile.ZipFile(sys.argv[2], 'a', compression=zipfile.ZIP_DEFLATED) as game:
+    game.writestr('epr-14869c.25', board.read('epr-14869c.25'))
+PY
 o=$(TMPDIR=$H46 "$HEADLESS" run "$H46/inzip" daytona 30 "$H46/inzip.ppm" 2>/dev/null)
 expect "echo '$o' | grep -q 'picture 496x384' && $CHECK $H46/inzip.ppm 248 192 85 245 0 >/dev/null" "the I/O board ROM in daytona.zip (no model1io.zip): found by its CRC, and it runs"
 # d. Link ID and country: a saved I/O board EEPROM that says Master (a linked cabinet: the game would wait at NETWORK

@@ -1,6 +1,10 @@
 # FBNeo PS5
 
-> **Netplay development build:** two-console Host/Join and rollback are available from the pause menu. See [netplay setup and limits](ps5/NETPLAY.md). Hardware testing on two PS5 consoles is still required.
+> **New in 2.4 — experimental netplay:** two-console Host/Join and rollback are available from the pause menu. See [netplay setup and limits](ps5/NETPLAY.md). Hardware testing on two PS5 consoles is still required.
+
+> **New in 2.4 — GPU output:** Vulkan/RADV now handles game texture scaling, 11 CRT filters and final presentation. The FBNeo core still generates the source frame on the CPU. Software output remains available. Initial PS5 logs confirm 3840x2160 output and the Easymode style GPU filter in four games; see [validation and limits](ps5/VALIDATION-2.4.md) and [GPU build and settings](ps5/GPU.md).
+
+The installer for 2.4 is **`FBNeoPS5-v2.4.elf`**, produced by `make dist` in `ps5/`. It embeds the complete app and updates the existing 2.3 installation under the same title ID. `fbneo-pie.elf` and `fbneo-gpu-pie.elf` are intermediate development files; they do not install the app. The supplied PS5 logs confirm the update from 2.3 to 2.4 and initial GPU operation. Two-console netplay and extended hardware testing are still pending. See the [2.4 release notes](ps5/RELEASE-2.4.md).
 
 > **The title ID is now PPSA99924** (it was PPSA99012 up to 1.8, which another app in the homebrew catalog uses). From 1.9 on the app installs in `/data/homebrew/PPSA99924/`; our old version under `/data/homebrew/PPSA99012/` stays as a separate icon until you delete it (check that the folder is ours first), and your games, saves and settings are kept. Replace the old ELF in your autoload. See [New title ID](#new-title-id-ppsa99924).
 
@@ -910,8 +914,9 @@ purpose replaces them: the result is close, not identical. It is the heaviest of
 screens (CPS-3, Midway's 400x256) may not keep full speed with it.
 
 They come from libretro's [slang-shaders](https://github.com/libretro/slang-shaders) (`crt/`), with their default
-parameters, rewritten in C++ for the CPU (`ps5/coreorbis/orbis-shims/ProsperoCrt.cpp`): the PS5 build draws the
-picture with the CPU, so only single-pass shaders are fast enough, and only shaders whose licence can sit with
+parameters. The GPU development backend runs the eleven CRT filters through Vulkan; ScaleFX + rAA + AA style
+keeps its CPU implementation with GPU presentation. C++ implementations (`ps5/coreorbis/orbis-shims/ProsperoCrt.cpp`)
+remain available for software output. Only shaders whose licence can sit with
 FBNeo's (public domain, CC0, Unlicense, MIT) are built in. crt-easymode itself is GPL, so "CRT Easymode style" is
 original code aiming at the same look. Every minute in a game, `boot.log` says how long the shader took per frame
 (`shader N ms`); if a heavy one slows a demanding board down, pick a lighter one.

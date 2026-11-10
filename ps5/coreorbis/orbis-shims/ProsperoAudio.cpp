@@ -133,7 +133,10 @@ int Push(const int16_t* stereo, int frames)
 {
 	if (!g || frames <= 0)
 		return 0;
-	const int n = frames < Free() ? frames : Free();
+	// The consumer may free a grain between calls. Use one snapshot, or the second Free() can exceed
+	// frames and make this producer read beyond the caller's stereo buffer.
+	const int available = Free();
+	const int n = frames < available ? frames : available;
 	const uint32_t head = g->head.load(std::memory_order_relaxed);
 	for (int i = 0; i < n; i++)
 	{

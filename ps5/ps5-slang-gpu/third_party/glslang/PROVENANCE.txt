@@ -1,0 +1,4 @@
+glslang 15.1.0 (github.com/KhronosGroup/glslang, BSD-3-Clause and others: LICENSE.txt), the GLSL front end
+(glslang/) and the SPIR-V back end (SPIRV/), without HLSL and without SPIRV-Tools; the build (mk/slang-gpu.mk)
+compiles the files SLANG_GPU_GLSLANG_SRC names. Copied unchanged from Genesis Plus GX PS5 (genplusgxPS5,
+ps5/third_party/glslang, since its 2.0), where it compiles the shader presets on the console.

@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: MIT
+# ps5-slang-gpu: the library's own descriptor for crt-blurPi-sharp, built in. It names the pass from
+# libretro's slang-shaders (crt/shaders/crt-blurPi.slang, MIT) and sets it as that collection runs it; README.md (Shaders).
+shaders = 1
+shader0 = ../slang/crt/shaders/crt-blurPi.slang
+filter_linear0 = false
+scale_type0 = viewport
+scale0 = 1.0
+alias0 = "PASS0"
+parameters = "blurGain;blurRadius"
+blurGain = "0.5"
+blurRadius = "1.5"

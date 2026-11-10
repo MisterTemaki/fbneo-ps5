@@ -9,6 +9,7 @@ namespace fe
 struct Settings
 {
 	// video
+	bool gpu = true; // GPU presentation/shaders when built and available; changing this requires a restart
 	int scale = 0; // ps5video::Scale: fit, integer, stretch
 	int shader = 1; // ps5crt::Shader: 0 off, 1 "CRT Easymode style" (the default for every game), ...
 	int aspect = 0; // emu::kAspects: the game's monitor, square pixels, 16:9

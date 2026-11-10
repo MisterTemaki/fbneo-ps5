@@ -12,6 +12,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <mutex>
+#include <new>
 #include <vector>
 
 namespace fe
@@ -23,12 +24,20 @@ public:
 
 	explicit PartPool(int workers)
 	{
+		if (workers <= 0) return;
+		// Reserve before starting workers: vector growth throwing with a live worker would join a thread
+		// still waiting for its first job. Failed allocations fall back to the threads already started.
+		try { m_threads.reserve(size_t(workers)); }
+		catch (const std::bad_alloc&) { return; }
 		for (int i = 0; i < workers; i++)
 		{
-			ps5::BigThread t([this] { Worker(); }, 256 * 1024);
-			if (!t.joinable())
-				break;
-			m_threads.push_back(std::move(t));
+			try
+			{
+				ps5::BigThread t([this] { Worker(); }, 256 * 1024);
+				if (!t.joinable()) break;
+				m_threads.push_back(std::move(t));
+			}
+			catch (const std::bad_alloc&) { break; }
 		}
 	}
 	~PartPool()

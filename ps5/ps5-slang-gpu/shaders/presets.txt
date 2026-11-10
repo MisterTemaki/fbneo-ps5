@@ -1,0 +1,36 @@
+# ps5-slang-gpu: the GPU's shaders of every Temakix RetroStation program, in menu order (the same index for each, so
+# shader=N names the same preset in every program; shader_name= names it by name). "own/..." is built in: a
+# descriptor of the library's own (MIT) naming a pass whose every file is public domain, Unlicense, CC0 or MIT
+# (tools/shader_licences.py --check fails the build otherwise). "file:..." is not built in: its files
+# (libretro/slang-shaders at slang/REVISION, unchanged) ship once as separate files in RetroStation's app folder,
+# shaders/slang/<path> (tools/shader_manifest.py --install), and each program reads and compiles them at run time,
+# every file checked against the sha256 built in. This order is Genesis Plus GX PS5 2.2.1's (its presets.txt).
+# The first two are the library's own and not in the menu.
+__plain = plain.slang
+__ui = ui.slang
+crt-easymode = file:slang/crt/crt-easymode.slangp
+crt-lottes = own/crt-lottes.slangp
+crt-lottes-fast = own/crt-lottes-fast.slangp
+crt-1tap = file:slang/crt/crt-1tap.slangp
+crt-2tap = file:slang/crt/crt-2tap.slangp
+crt-hyllian-fast = own/crt-hyllian-fast.slangp
+crt-nobody = own/crt-nobody.slangp
+newpixie-mini = own/newpixie-mini.slangp
+crt-blurPi-sharp = own/crt-blurPi-sharp.slangp
+crt-blurPi-soft = own/crt-blurPi-soft.slangp
+monoCRT = own/monoCRT.slangp
+crt-guest-advanced = file:slang/crt/crt-guest-advanced.slangp
+crt-guest-advanced-fast = file:slang/crt/crt-guest-advanced-fast.slangp
+crt-guest-advanced-ntsc = file:slang/crt/crt-guest-advanced-ntsc.slangp
+crt-royale = file:slang/crt/crt-royale.slangp
+crt-geom = file:slang/crt/crt-geom.slangp
+crt-easymode-halation = file:slang/crt/crt-easymode-halation.slangp
+crt-hyllian = file:slang/crt/crt-hyllian.slangp
+crt-aperture = file:slang/crt/crt-aperture.slangp
+crt-pi = file:slang/crt/crt-pi.slangp
+crt-consumer = file:slang/crt/crt-consumer.slangp
+crt-yah = file:slang/crt/crt-yah.slangp
+zfast-crt = file:slang/crt/zfast-crt-geo.slangp
+ScaleFX = file:slang/edge-smoothing/scalefx/scalefx.slangp
+Mega Bezel (Potato) = file:slang/bezel/Mega_Bezel/Presets/MBZ__5__POTATO.slangp@HSM_INTRO_WHEN_TO_SHOW=0|fullscreen
+Mega Bezel (Standard) = file:slang/bezel/Mega_Bezel/Presets/MBZ__3__STD.slangp@HSM_INTRO_WHEN_TO_SHOW=0|fullscreen

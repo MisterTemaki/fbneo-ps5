@@ -2,6 +2,7 @@
 build/
 proto/native/build/
 tests/__pycache__/
+audit/
 *.o
 *.part
 

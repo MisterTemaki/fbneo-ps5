@@ -2,7 +2,7 @@
 # FBNeo PS5 2.2 (Snes9x PS5 2.10's, from Media Player Classic PS5 1.5.1 / 1.5.2 and Stella PS5 1.0.2): checks the app's PIE
 # (build/app/fbneo-pie.elf) before it becomes eboot.bin. The Makefile runs it on every link of the PIE.
 #
-#   check_imports.py <fbneo-pie.elf> <sdk-lib-dir> [extra stub .so ...]
+#   check_imports.py <fbneo-pie.elf> <sdk-lib-dir> [--gpu] [extra stub .so ...]
 #
 # Media Player Classic PS5 1.5 crashed at launch on the console (its #3, SIGSYS): statfs / getfsstat are only in the
 # SDK's libkernel_sys, so the eboot gained NEEDED libkernel_sys.sprx -- a system process's library, not a title's.
@@ -34,6 +34,7 @@ ALLOWED = [
     "libSceHttp2.sprx",
     "libSceSsl.sprx",
 ]
+GPU_MODULES = ["libSceAgc.sprx", "libSceAgcDriver.sprx"]
 
 
 # C runtime pieces the system's libc provides (not part of the exception ABI)
@@ -79,18 +80,21 @@ def main():
         print(__doc__ or "usage: check_imports.py <pie> <sdk-lib> [stub.so ...]", file=sys.stderr)
         return 2
     elf, sdk = sys.argv[1], sys.argv[2]
+    allowed = ALLOWED + (GPU_MODULES if "--gpu" in sys.argv[3:] else [])
     stubs = {}  # soname -> stub file
     for extra in sys.argv[3:]:
+        if extra == "--gpu":
+            continue
         stubs[os.path.basename(extra)[:-3] + ".sprx"] = extra
-    for name in ALLOWED:
+    for name in allowed:
         stubs.setdefault(name, os.path.join(sdk, name[:-5] + ".so"))
     errors = []
     mods = needed(elf)
     print("check_imports: %s NEEDED: %s" % (os.path.basename(elf), " ".join(mods)))
     for m in mods:
-        if m not in ALLOWED:
-            errors.append("NEEDED %s: not a module the app may load (allowed: %s)" % (m, ", ".join(ALLOWED)))
-    providers = {m: defined(stubs[m]) for m in mods if m in ALLOWED and os.path.exists(stubs[m])}
+        if m not in allowed:
+            errors.append("NEEDED %s: not a module the app may load (allowed: %s)" % (m, ", ".join(allowed)))
+    providers = {m: defined(stubs[m]) for m in mods if m in allowed and os.path.exists(stubs[m])}
     count = {m: 0 for m in providers}
     others = None
     for sym in sorted(undefined(elf)):

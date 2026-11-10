@@ -56,6 +56,10 @@ rep = [
     ('	rectangle vp(', '	m2_rectangle vp('),
     ('bitmap_rgb32 &bitmap', 'm2_bitmap<u32> &bitmap'),
     ('raster_state *raster = m_raster.get();', 'raster_state *raster = m_raster;'),
+    ('\tif (raster->master_z_clip != 0xff && (int32_t)(1.0 / min_z) > raster->master_z_clip)',
+     '\t// Preserve integer truncation at the clip boundary without converting huge reciprocals\n'
+     '\t// (including infinity for zero depth) to int32_t, which is undefined.\n'
+     '\tif (raster->master_z_clip != 0xff && std::trunc(1.0 / min_z) > raster->master_z_clip)'),
     ('copybitmap_trans(bitmap, m_renderer->destmap(), 0, 0, 0, 0, cliprect, 0x00000000);',
      'm2_copybitmap_trans(bitmap, m_renderer->destmap(), cliprect, 0x00000000);'),
 ]

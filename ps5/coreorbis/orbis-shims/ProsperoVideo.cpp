@@ -1,4 +1,4 @@
-// FBNeo PS5: the picture, through libSceVideoOut.
+// FBNeo PS5: GPU presentation/filtering, with the original libSceVideoOut software path as fallback.
 //
 // The scan-out setup and the tile swizzle are the ones of the ps5-payload-dev SDK's SDL2 port
 // (src/video/ps5/SDL_ps5video.c and SDL_ps5tilemap.c, (C) 2026 John Tornblom, zlib licence), which a
@@ -17,6 +17,7 @@
 
 #include "OrbisPaths.h"
 #include "ProsperoCrt.h"
+#include "ProsperoGpu.h"
 #include "ProsperoSce.h"
 
 #include <immintrin.h>
@@ -27,6 +28,7 @@
 #include <atomic>
 #include <cerrno>
 #include <cstdlib>
+#include <exception>
 #include <cmath>
 #include <cstring>
 #include <ctime>
@@ -112,6 +114,8 @@ struct State
 	bool full[2] = {true, true};
 	uint32_t frame = 0;
 	int flips_in_flight = 0;
+	std::vector<uint32_t> gpu_frame; // retained for recovery after a GPU submission failure
+	int gpu_w = 0, gpu_h = 0;
 };
 State g;
 
@@ -339,6 +343,9 @@ void SetOutputSize(int w, int h)
 }
 } // namespace
 
+bool InitSoftware(bool first_frame);
+void RecoverCpuImage(const std::vector<uint32_t>& overlay);
+
 bool Init()
 {
 	if (g.ok)
@@ -353,6 +360,17 @@ bool Init()
 	std::fill(g.surface, g.surface + size_t(kWidth) * kHeight, Rgb(0, 0, 0));
 	for (uint32_t y = 0; y < kTileH; y++)
 		g.yoff[y] = TileOffset(0, y);
+	if (ps5gpufront::Init())
+	{
+		g.ok = true;
+		Present(0, 0, 0, 0, true);
+		return g.ok;
+	}
+	return InitSoftware(true);
+}
+
+bool InitSoftware(bool first_frame)
+{
 
 	// 0x80290009: the screen is still held by another process (the 1.5 console log: a second copy started
 	// while the first still ran). Give it a few seconds to let go.
@@ -411,12 +429,13 @@ bool Init()
 		g.phys ? "direct" : "flexible");
 
 	g.ok = true;
-	Present(0, 0, 0, 0, true); // black screen over the home screen
+	if (first_frame) Present(0, 0, 0, 0, true); // black screen over the home screen
 	return true;
 }
 
 void Shutdown()
 {
+	ps5gpufront::Shutdown();
 	if (g.handle >= 0)
 	{
 		while (g.flips_in_flight > 0)
@@ -434,6 +453,8 @@ void Shutdown()
 	FreeScanout();
 	free(g.surface);
 	g.surface = nullptr;
+	g.gpu_frame.clear();
+	g.gpu_w = g.gpu_h = 0;
 	g.ok = false;
 }
 
@@ -446,6 +467,26 @@ void Present(int x, int y, int w, int h, bool wait_vsync)
 {
 	if (!g.ok)
 		return;
+	if (ps5gpufront::Active())
+	{
+		if (ps5gpufront::Present(g.surface, x, y, w, h, wait_vsync)) return;
+		OrbisLog("[video] GPU submission failed; recovering the current frame with CPU output");
+		try
+		{
+			std::vector<uint32_t> overlay(g.surface, g.surface + size_t(kWidth) * kHeight);
+			ps5gpufront::Shutdown();
+			if (!InitSoftware(false)) { g.ok = false; return; }
+			RecoverCpuImage(overlay);
+		}
+		catch (const std::exception& e)
+		{
+			OrbisLog("[video] CPU recovery failed: %s", e.what());
+			ps5gpufront::Shutdown();
+			g.ok = false;
+			return;
+		}
+		x = y = w = h = 0; // the software scan-out needs a complete first frame
+	}
 	// The buffer about to be written may still be on screen until its last flip completes.
 	while (g.flips_in_flight > 0)
 		WaitOneFlip();
@@ -486,7 +527,10 @@ void DarkenRect(int x, int y, int w, int h)
 	{
 		uint32_t* p = g.surface + size_t(j) * kWidth + r.x;
 		for (int i = 0; i < r.w; i++)
-			p[i] = ((p[i] >> 1) & 0x007f7f7fu) | 0xff000000u;
+		{
+			const uint32_t alpha = ps5gpufront::Active() ? 255u - ((255u - (p[i] >> 24)) >> 1) : 255u;
+			p[i] = ((p[i] >> 1) & 0x007f7f7fu) | (alpha << 24);
+		}
 	}
 }
 
@@ -660,7 +704,7 @@ double TakeShaderMs()
 	const double ms = s_shader_frames ? s_shader_ms / s_shader_frames : 0.0;
 	s_shader_ms = 0;
 	s_shader_frames = 0;
-	return ms;
+	return ms + ps5gpufront::TakeShaderMs();
 }
 
 Rect DrawFrame(const uint32_t* argb, int w, int h, int base_h, double aspect, Scale scale, bool smooth, bool scanlines,
@@ -681,6 +725,21 @@ Rect DrawFrame(const uint32_t* argb, int w, int h, int base_h, double aspect, Sc
 
 	const Rect& d = s_geom.dst;
 	const uint64_t frame_no = ++s_frame_no;
+	if (ps5gpufront::Active())
+	{
+		try
+		{
+			g.gpu_frame.assign(argb, argb + size_t(w) * h);
+			g.gpu_w = w; g.gpu_h = h;
+			const bool whole = d.w % w == 0 && d.h % h == 0;
+			if (ps5gpufront::Draw(argb, w, h, d.x, d.y, d.w, d.h, shader, smooth && !whole, scanlines))
+			{
+				FillRect(d.x, d.y, d.w, d.h, 0); // transparent UI above the GPU's game picture
+				return cleared ? Rect{0, 0, kWidth, kHeight} : d;
+			}
+		}
+		catch (const std::bad_alloc&) { ps5gpufront::Hide(); OrbisLog("[video] GPU frame allocation failed; drawing on CPU"); }
+	}
 	if (shader > 0 && shader < int(ps5crt::Shader::Count))
 	{
 		timespec t0, t1;
@@ -762,8 +821,25 @@ void BlendOverlay(const uint32_t* argb, int w, int h, const uint8_t* row_used)
 			if (a == 0)
 				continue;
 			const uint32_t src = ArgbToSurface(c) & 0x00ffffffu;
-			out[x] = a >= 255 ? (src | 0xff000000u) : (Lerp(out[x], src, a + (a >> 7)) | 0xff000000u);
+			const uint32_t alpha = ps5gpufront::Active() ? a + (((out[x] >> 24) * (255 - a) + 127) / 255) : 255;
+			out[x] = a >= 255 ? (src | 0xff000000u) : (Lerp(out[x], src, a + (a >> 7)) | (alpha << 24));
 		}
+	}
+}
+
+void RecoverCpuImage(const std::vector<uint32_t>& overlay)
+{
+	FillRect(0, 0, kWidth, kHeight, Rgb(0, 0, 0));
+	if (!g.gpu_frame.empty())
+		DrawFrame(g.gpu_frame.data(), g.gpu_w, g.gpu_h, s_geom.base_h, s_geom.aspect, s_geom.scale,
+			s_geom.smooth, s_geom.scanlines, s_geom.shader);
+	for (size_t i = 0; i < overlay.size(); ++i)
+	{
+		const uint32_t src = overlay[i], a = src >> 24, dst = g.surface[i];
+		uint32_t result = 0xff000000;
+		for (unsigned shift : {0u, 8u, 16u})
+			result |= std::min(255u, ((src >> shift) & 255u) + ((((dst >> shift) & 255u) * (255 - a) + 127) / 255)) << shift;
+		g.surface[i] = result;
 	}
 }
 } // namespace ps5video

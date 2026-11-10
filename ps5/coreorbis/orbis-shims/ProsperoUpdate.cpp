@@ -244,8 +244,13 @@ std::string Str(const std::map<std::string, std::string>& m, const char* key)
 // ---- files -----------------------------------------------------------------------------------------------------
 bool SafeRel(const std::string& rel)
 {
-	if (rel.empty() || rel[0] == '/' || rel.find('\\') != std::string::npos)
+	if (rel.empty() || rel[0] == '/' || rel.find('\\') != std::string::npos || rel.find('\0') != std::string::npos)
 		return false;
+	// The release generator excludes these temporary files. Accepting them lets a staged write collide
+	// with another installed path before the rename phase (or silently truncate a C pathname at NUL).
+	for (const char* suffix : {".new", ".part"})
+		if (rel.size() >= strlen(suffix) && rel.compare(rel.size() - strlen(suffix), strlen(suffix), suffix) == 0)
+			return false;
 	size_t a = 0;
 	while (a <= rel.size())
 	{
@@ -678,7 +683,7 @@ std::string InstallZip(const std::vector<uint8_t>& zip, const std::string& expec
 	{
 		const ZipEntry* p = files["sce_sys/param.json"];
 		const std::string param(reinterpret_cast<const char*>(p->data), p->size);
-		if (param.find("\"" + c.title_id + "\"") == std::string::npos)
+		if (Str(Members(param), "titleId") != c.title_id)
 			return "The release's param.json isn't for " + c.title_id + ": nothing was changed.";
 	}
 	if (files_total)

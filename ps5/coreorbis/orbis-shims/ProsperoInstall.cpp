@@ -19,6 +19,7 @@
 
 #include <zlib.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -35,25 +36,30 @@ namespace
 {
 bool SameContent(const std::string& path, const unsigned char* data, size_t size)
 {
-	struct stat st = {};
-	if (stat(path.c_str(), &st) != 0 || !S_ISREG(st.st_mode) || size_t(st.st_size) != size)
-		return false;
 	FILE* f = fopen(path.c_str(), "rb");
 	if (!f)
 		return false;
+	struct stat st = {};
+	if (fstat(fileno(f), &st) != 0 || !S_ISREG(st.st_mode) || st.st_size < 0 || size_t(st.st_size) != size)
+	{
+		fclose(f);
+		return false;
+	}
 	std::vector<unsigned char> buf(1 << 16);
 	size_t off = 0;
 	bool same = true;
 	while (same && off < size)
 	{
-		const size_t n = fread(buf.data(), 1, buf.size(), f);
+		// The open file can still grow after fstat (FTP, another writer). Never compare beyond data.
+		const size_t n = fread(buf.data(), 1, std::min(buf.size(), size - off), f);
 		if (n == 0)
 			break;
 		same = memcmp(buf.data(), data + off, n) == 0;
 		off += n;
 	}
-	fclose(f);
-	return same && off == size;
+	same = same && off == size && fgetc(f) == EOF && !ferror(f);
+	const bool closed = fclose(f) == 0;
+	return same && closed;
 }
 
 bool WriteAtomically(const std::string& path, const unsigned char* data, size_t size)

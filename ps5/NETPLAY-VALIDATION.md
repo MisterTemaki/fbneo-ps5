@@ -1,5 +1,7 @@
 # Netplay validation — 2.4.0-netplay1
 
+This is the historical first-development-build report. See [2.4 release validation](VALIDATION-2.4.md) for the final package, Vulkan frontend results and initial PS5 GPU evidence. Two-PS5 netplay remains unvalidated.
+
 This development build is based on commit `4bb1fa58b4400ba6b03e75c5b6b6276f4eeeec80`. It implements direct two-console netplay; it has not been tested between physical PS5 consoles.
 
 ## Completed checks

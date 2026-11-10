@@ -138,6 +138,43 @@ void Dump(int idx, uint64_t n)
 }
 } // namespace
 
+// Offscreen Vulkan readback uses the same input timeline and dump format as VideoOut.
+extern "C" __attribute__((weak)) void FBNeoHostGpuPresent(const uint8_t* bgra, int w, int h, bool wait_vsync)
+{
+	InitEnv();
+	const uint64_t n = g_flips.fetch_add(1);
+	if (g_dumps.count(n))
+	{
+		char path[1024];
+		const char* dir = getenv("FBNEO_HOST_DUMP_DIR");
+		snprintf(path, sizeof(path), "%s/flip%05llu.ppm", dir ? dir : ".", (unsigned long long)n);
+		if (FILE* f = fopen(path, "wb"))
+		{
+			fprintf(f, "P6\n%d %d\n255\n", w, h);
+			std::vector<uint8_t> row(size_t(w) * 3);
+			for (int y = 0; y < h; ++y)
+			{
+				for (int x = 0; x < w; ++x)
+				{
+					const uint8_t* p = bgra + (size_t(y) * w + x) * 4;
+					row[x*3] = p[2]; row[x*3+1] = p[1]; row[x*3+2] = p[0];
+				}
+				fwrite(row.data(), 1, row.size(), f);
+			}
+			fclose(f);
+		}
+	}
+	if (const char* m = getenv("FBNEO_HOST_MAX_FLIPS"); m && n >= strtoull(m, nullptr, 10)) _exit(3);
+	if (wait_vsync && getenv("FBNEO_HOST_REALTIME"))
+	{
+		// Model the next vblank, as the VideoOut shim does, without adding a whole frame after GPU work.
+		static const auto origin = std::chrono::steady_clock::now();
+		const auto submitted = std::chrono::steady_clock::now();
+		const auto period = std::chrono::microseconds(16667);
+		std::this_thread::sleep_until(origin + ((submitted - origin) / period + 1) * period);
+	}
+}
+
 extern "C" {
 // FBNEO_HOST_DIRECT_MAX_MIB=n: bigger direct allocations fail with EAGAIN, like a payload with little memory
 // FBNEO_HOST_DIRECT_FAIL_FIRST=n: the first n direct allocations fail (the launcher app still holds memory)

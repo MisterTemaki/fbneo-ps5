@@ -1162,7 +1162,7 @@ void i960_core::execute_op(uint32_t opcode)
 				if(t1 >= 32)
 					set_ri(opcode, 0);
 				else if(((int32_t)t2) < 0) {
-					if(t2 & ((1<<t1)-1))
+					if(t2 & ((uint32_t(1)<<t1)-1))
 						set_ri(opcode, (((int32_t)t2)>>t1)+1);
 					else
 						set_ri(opcode, ((int32_t)t2)>>t1);

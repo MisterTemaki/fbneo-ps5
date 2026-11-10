@@ -1,7 +1,7 @@
 // FBNeo PS5: CRT shaders, run on the CPU.
 //
-// The PS5 build has no GPU driver (the picture is drawn by the CPU, ProsperoVideo.cpp), so RetroArch's slang
-// shaders can't run as they are. These are CPU versions of the single-pass shaders of libretro's slang-shaders
+// Used when GPU presentation is unavailable or a style has no GPU equivalent. These are CPU versions
+// of the single-pass shaders of libretro's slang-shaders
 // collection (crt/) whose licences allow it -- public domain (CC0 / Unlicense) and MIT -- plus an original
 // "Easymode style" shader (the default) that gives the look of EasyMode's crt-easymode without its code (that
 // one is GPL, which can't be mixed with FBNeo's own licence).

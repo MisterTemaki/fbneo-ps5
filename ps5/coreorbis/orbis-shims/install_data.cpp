@@ -23,6 +23,7 @@ FBNEO_INCBIN(fbneo_app_param, APP_PARAM)
 FBNEO_INCBIN(fbneo_app_icon0, APP_ICON0)
 FBNEO_INCBIN(fbneo_app_pic0, APP_PIC0_Z)
 FBNEO_INCBIN(fbneo_app_libc, APP_LIBC)
+FBNEO_INCBIN(fbneo_app_gpu_notices, APP_GPU_NOTICES)
 
 const EmbeddedAppFile* EmbeddedAppFiles()
 {
@@ -32,6 +33,7 @@ const EmbeddedAppFile* EmbeddedAppFiles()
 		{"sce_sys/pic0.dds", fbneo_app_pic0_begin, fbneo_app_pic0_end, true},
 		{"sce_sys/pic1.dds", fbneo_app_pic0_begin, fbneo_app_pic0_end, true}, // the same image, embedded once
 		{"sce_module/libc.prx", fbneo_app_libc_begin, fbneo_app_libc_end, false},
+		{"NOTICES-GPU.txt", fbneo_app_gpu_notices_begin, fbneo_app_gpu_notices_end, false},
 		{"eboot.bin", fbneo_app_eboot_begin, fbneo_app_eboot_end, true},
 		{nullptr, nullptr, nullptr, false},
 	};

@@ -112,7 +112,9 @@ void Settings::Load()
 		const std::string key = line;
 		const char* val = eq + 1;
 		const int n = atoi(val);
-		if (key == "scale")
+		if (key == "gpu")
+			gpu = n != 0;
+		else if (key == "scale")
 			scale = Clamp(n, 0, 2);
 		else if (key == "shader")
 			shader = Clamp(n, 0, kShaderCount - 1);
@@ -186,6 +188,7 @@ void Settings::Save() const
 		return;
 	}
 	fprintf(f, "# FBNeo PS5\n");
+	fprintf(f, "gpu=%d\n", gpu ? 1 : 0);
 	fprintf(f, "scale=%d\n", scale);
 	fprintf(f, "shader=%d\n", shader);
 	fprintf(f, "aspect=%d\n", aspect);

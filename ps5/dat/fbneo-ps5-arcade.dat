@@ -4,14 +4,14 @@
 <datafile>
 	<header>
 		<name>FBNeo PS5 - Arcade Games</name>
-		<description>FBNeo PS5 2.3 Arcade Games (FinalBurn Neo 1.0.0.3, commit 658540d of 2026-10-08 + upstream commits up to 565c0d153 of 2026-10-27; Sega Model 2 from MAME b7f483f)</description>
+		<description>FBNeo PS5 2.4 Arcade Games (FinalBurn Neo 1.0.0.3, commit 658540d of 2026-10-08 + upstream commits up to 565c0d153 of 2026-10-27; Sega Model 2 from MAME b7f483f)</description>
 		<category>Standard DatFile</category>
-		<version>2.3</version>
+		<version>2.4</version>
 		<date>2026-10-27</date>
 		<author>FBNeo PS5 (MisterTemaki), with FinalBurn Neo's DAT writer</author>
 		<homepage>https://github.com/MisterTemaki/FBNeo-PS5</homepage>
 		<url>https://github.com/MisterTemaki/FBNeo-PS5</url>
-		<comment>The ROM sets FBNeo PS5 2.3 plays: the 8393 sets of the arcade drivers it compiles (15 of them BIOS and board sets), written by FinalBurn Neo's src/burner/dat.cpp from FinalBurn Neo 1.0.0.3, finalburnneo/FBNeo commit 658540d46c1c0efce9627667c0f9236e7b2be916 (2026-10-08) and the upstream commits taken from it since (Killer Instinct's, the MultiPCM state fix), up to 565c0d153dcc6bc5284ea50525a446d2f21b46db (2026-10-27); and the port's own Sega Model 2 driver (Daytona USA), ported from MAME, mamedev/mame commit b7f483f3a1dc08e9d32fa0e81352e00d7aeafd13 (2026-11-03). FBNeo PS5 builds this core itself: not RetroArch, not the libretro core. Left out, as the app does not list them: neocdz.</comment>
+		<comment>The ROM sets FBNeo PS5 2.4 plays: the 8393 sets of the arcade drivers it compiles (15 of them BIOS and board sets), written by FinalBurn Neo's src/burner/dat.cpp from FinalBurn Neo 1.0.0.3, finalburnneo/FBNeo commit 658540d46c1c0efce9627667c0f9236e7b2be916 (2026-10-08) and the upstream commits taken from it since (Killer Instinct's, the MultiPCM state fix), up to 565c0d153dcc6bc5284ea50525a446d2f21b46db (2026-10-27); and the port's own Sega Model 2 driver (Daytona USA), ported from MAME, mamedev/mame commit b7f483f3a1dc08e9d32fa0e81352e00d7aeafd13 (2026-11-03). FBNeo PS5 builds this core itself: not RetroArch, not the libretro core. Left out, as the app does not list them: neocdz.</comment>
 		<clrmamepro forcenodump="ignore"/>
 	</header>
 	<game name="88games" sourcefile="konami/d_88games.cpp">

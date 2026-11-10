@@ -49,6 +49,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <new>
 #include <thread>
 #include <vector>
 
@@ -317,14 +318,19 @@ private:
 		// m_count is the caller plus the threads that really started: For() waits for that many, so a thread the
 		// system refused must not be counted (it would never answer, and the frame would wait forever)
 		m_count = 1;
+		try { m_threads.reserve(size_t(n - 1)); }
+		catch (const std::bad_alloc&) { return; }
 		for (unsigned i = 1; i < n; i++)
 		{
-			const int index = int(i) - 1;
-			ps5::BigThread t([this, index] { Worker(index); }, 256 * 1024);
-			if (!t.joinable())
-				break;
-			m_threads.push_back(std::move(t));
-			m_count++;
+			try
+			{
+				const int index = int(i) - 1;
+				ps5::BigThread t([this, index] { Worker(index); }, 256 * 1024);
+				if (!t.joinable()) break;
+				m_threads.push_back(std::move(t));
+				m_count++;
+			}
+			catch (const std::bad_alloc&) { break; }
 		}
 	}
 	void Work(const std::function<void(int, int)>* fn, int n, int chunks)

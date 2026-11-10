@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: MIT
+shaders = 1
+shader0 = ntap.slang
+filter_linear0 = true
+scale_type0 = viewport
+TWO_TAPS = 1

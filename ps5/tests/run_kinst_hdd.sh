@@ -2,10 +2,11 @@
 # FBNeo PS5 2.2: makes the synthetic images (tests/make_chd.py) and runs Killer Instinct's hard disk test.
 #
 #   run_kinst_hdd.sh <test-kinst-hdd> <work dir>
+# KINST_HDD_WORK may select a case-sensitive work directory when build/ is on a Windows filesystem.
 #
 # SPDX-License-Identifier: MIT
 bin=$1
-dir=$2
+dir=${KINST_HDD_WORK:-$2}
 rm -rf "$dir"
 mkdir -p "$dir"
 here=$(dirname "$0")

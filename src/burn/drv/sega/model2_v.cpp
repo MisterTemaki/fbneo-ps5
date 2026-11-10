@@ -262,7 +262,9 @@ inline bool model2_state::check_culling(raster_state *raster, u32 attr, float mi
 		return true;
 
 	/* if the minimum z value is bigger than the master z clip value, don't render */
-	if (raster->master_z_clip != 0xff && (int32_t)(1.0 / min_z) > raster->master_z_clip)
+	// Preserve integer truncation at the clip boundary without converting huge reciprocals
+	// (including infinity for zero depth) to int32_t, which is undefined.
+	if (raster->master_z_clip != 0xff && std::trunc(1.0 / min_z) > raster->master_z_clip)
 		return true;
 
 	/* if the maximum z value is < 0 then we can safely clip the entire polygon */

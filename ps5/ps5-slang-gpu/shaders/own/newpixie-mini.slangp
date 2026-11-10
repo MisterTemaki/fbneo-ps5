@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: MIT
+# ps5-slang-gpu: the library's own descriptor for newpixie-mini, built in. It names the pass from
+# libretro's slang-shaders (crt/shaders/newpixie-mini/newpixie-mini.slang, MIT or Unlicense) and sets it as that collection runs it; README.md (Shaders).
+shaders = 1
+shader0 = ../slang/crt/shaders/newpixie-mini/newpixie-mini.slang

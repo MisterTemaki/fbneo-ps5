@@ -359,6 +359,16 @@ void RunI960Kats()
 		Check(s.r[G0 + 8] == 0x8000f00f && s.r[G0 + 9] == 0xf00e, "setbit/clrbit");
 	}});
 
+	kats.push_back({"shrdi with the largest in-range shift", [](Asm& a) {
+		a.Const(4, 0xffffffff);
+		a.Emit(Reg(0x59, 0xa, 5, 31, 4, true)); // -1 / 2^31, rounded toward zero
+		a.Const(6, 0x80000000);
+		a.Emit(Reg(0x59, 0xa, 7, 31, 6, true)); // INT32_MIN / 2^31
+		a.Halt();
+	}, [](const I960Regs& s) {
+		Check(s.r[5] == 0 && s.r[7] == 0xffffffff, "shrdi 31 preserves rounding without signed mask overflow");
+	}});
+
 	kats.push_back({"add with carry (addc, as MAME has it), subc", [](Asm& a) {
 		a.Const(4, 0xffffffff); a.Const(5, 0x00000001); // r5:r4 = 0x1ffffffff
 		a.Const(6, 0x00000001); a.Const(7, 0x00000002); // r7:r6 = 0x200000001
@@ -811,6 +821,32 @@ struct TgpRegs
 	u16 pc, sp, b0, b1, x0, x1, i0, i1, vsmr, pcs[4], mask, m;
 	u8 r, rpc, c0, c1, sft, vsm;
 };
+
+void RunMemoryAccessKats()
+{
+	u32 address = 0;
+	test_space bus;
+	bus.ctx = &address;
+	bus.read32 = [](void* ctx, u32 a) { *static_cast<u32*>(ctx) = a; return a; };
+	bus.write32 = [](void* ctx, u32 a, u32, u32) { *static_cast<u32*>(ctx) = a; };
+	bus.flags = [](void* ctx, u32 a) { *static_cast<u32*>(ctx) = a; return u16(a); };
+	memory_access<16, 2, -2, ENDIANNESS_LITTLE>::specific data;
+	bus.specific(data);
+	Check(data.read_dword(0x10009) == 9 && address == 9, "reference TGP data reads wrap at 16 bits");
+	data.write_dword(0x10200, 123);
+	Check(address == 0x200, "reference TGP data writes wrap at 16 bits");
+	const auto read = data.read_dword_flags(0x10009);
+	Check(read.first == 9 && read.second == 9 && data.write_dword_flags(0x1000a, 123) == 10 && address == 10,
+		"reference TGP access flags use the wrapped address");
+	memory_access<4, 2, -2, ENDIANNESS_LITTLE>::specific rf;
+	bus.specific(rf);
+	Check(rf.read_dword(0x21) == 1 && address == 1, "reference TGP register file wraps at 4 bits");
+	memory_access<32, 2, 0, ENDIANNESS_LITTLE>::specific i960;
+	bus.specific(i960);
+	Check(i960.read_dword(0xfffffffc) == 0xfffffffc && address == 0xfffffffc,
+		"reference i960 retains its full 32-bit address range");
+}
+
 template <typename C> TgpRegs TGet(C* c)
 {
 	TgpRegs s;
@@ -1015,6 +1051,7 @@ void RunTgpRandom()
 
 int main()
 {
+	RunMemoryAccessKats();
 	RunI960Kats();
 	RunI960Random();
 	RunTgpKats();

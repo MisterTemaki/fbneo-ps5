@@ -182,7 +182,8 @@ inline uint32_t Blend(uint32_t dst, uint32_t color, uint32_t a) // a 0..255
 	const uint32_t iw = 256 - w;
 	const uint32_t rb = (((dst & 0xff00ffu) * iw + (color & 0xff00ffu) * w) >> 8) & 0xff00ffu;
 	const uint32_t g = (((dst & 0x00ff00u) * iw + (color & 0x00ff00u) * w) >> 8) & 0x00ff00u;
-	return 0xff000000u | rb | g;
+	const uint32_t alpha = a + (((dst >> 24) * (255 - a) + 127) / 255);
+	return (alpha << 24) | rb | g;
 }
 
 struct Target

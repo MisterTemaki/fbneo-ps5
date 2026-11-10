@@ -22,6 +22,7 @@
 #include "ProsperoNotify.h"
 #include "ProsperoSce.h"
 #include "ProsperoVideo.h"
+#include "ProsperoGpu.h"
 
 #include "fe_covers.h"
 #include "fe_emu.h"
@@ -335,6 +336,7 @@ int Run(int argc, char** argv)
 	}
 
 	FBNEO_STAGE(Boot, "video");
+	ps5gpufront::Configure(fe::Config().gpu);
 	if (!ps5video::Init())
 	{
 		OrbisLog("[boot] video init failed");

@@ -220,6 +220,11 @@ extern "C" int getnameinfo(const struct sockaddr* sa, socklen_t salen, char* hos
 		return EAI_OVERFLOW;
 	return 0;
 }
+#elif defined(NETFS_CHAIN_PS5RT)
+extern "C" int ps5rt_fclose(FILE*);
+extern "C" int ps5rt_fflush(FILE*);
+#define NETFS_NEXT_FCLOSE ps5rt_fclose
+#define NETFS_NEXT_FFLUSH ps5rt_fflush
 #else
 #define NETFS_NEXT_FCLOSE __real_fclose
 #define NETFS_NEXT_FFLUSH __real_fflush

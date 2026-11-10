@@ -1,7 +1,8 @@
-// FBNeo PS5: the picture, through libSceVideoOut (no GPU driver needed).
+// FBNeo PS5: Vulkan/RADV presentation and shaders, with CPU/VideoOut fallback.
 //
 // The frontend draws into a linear 1920x1080 A8B8G8R8 surface (0xAABBGGRR in memory order R,G,B,A).
-// Present() swizzles the changed part into one of two tiled scan-out buffers and flips it.
+// On the GPU this is a premultiplied UI layer, transparent above the game's texture.
+// Software Present() swizzles it into tiled scan-out buffers; GPU Present() composites it above the game.
 //
 // SPDX-License-Identifier: MIT
 #pragma once

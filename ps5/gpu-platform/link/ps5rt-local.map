@@ -1,0 +1,7 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright (C) 2026 MisterTemaki */
+/* A title's eboot exports no symbol: every one it defines is local (ld.lld --version-script). Its dynamic symbol
+   table holds only its imports, which ps5-native-tool link turns into the eboot's import tables. */
+{
+	local: *;
+};

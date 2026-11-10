@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: MIT
+# Copyright (C) 2026 MisterTemaki
+#
+# The payload SDK libc.a members a RADV title may link (tools/check_link.py trace). Every other member is refused,
+# whatever its licence: most of that libc.a is GPL-3.0-or-later (John Törnblom), and only these were looked at.
+# Licence: the copyright notice at the top of the member's source, in the payload SDK (ps5-payload-dev/sdk, libc/),
+# read in the SDK's upstream repository (its master, 2026-11-07); their texts are in libc-notices.txt, which a
+# program that links them ships (BSD clause 2 / ISC: the notice goes with the binary).
+#
+# member        licence        source                                      why a RADV title links it
+__xuname.o      BSD-3-Clause   4.4BSD (UC Regents 1994)                    uname(), RADV's hang report
+assert.o        BSD-3-Clause   4.4BSD (UC Regents 1992, 1993)              __assert, libc++abi and libunwind
+mktemp.o        BSD-3-Clause   4.4BSD (UC Regents 1987, 1993)              mkstemp / mkstemps, Mesa's log and ACO
+arc4random.o    ISC            OpenBSD (Mazieres 1996, Miller 2008)        arc4random_uniform, for mktemp.o
+regcomp.o       BSD-3-Clause   Henry Spencer / UC Regents 1992-1994        regcomp, Mesa's driconf (xmlconfig)
+regexec.o       BSD-3-Clause   Henry Spencer / UC Regents 1992-1994        regexec, the same
+regfree.o       BSD-3-Clause   Henry Spencer / UC Regents 1992-1994        regfree, the same
+regerror.o      BSD-3-Clause   Henry Spencer / UC Regents 1992-1994        regerror (not linked by the test title)
